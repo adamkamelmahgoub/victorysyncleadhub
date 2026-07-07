@@ -42,6 +42,8 @@ This repo includes `vercel.json` for Vercel:
 
 For Supabase Postgres, copy the **Connection Pooler** URI from the Supabase Connect panel and use it as `DATABASE_URL`; replace the password placeholder with your database password. In Supabase Auth settings, add your Vercel URL to allowed redirect/site URLs. Update OAuth callback URLs to `https://yourdomain.com/api/oauth/<provider>/callback`.
 
+Supabase Auth public signups should stay disabled. Create the first admin user manually in Supabase **Authentication > Users**, then sign in and use **Team > Invite Member** to issue single-use invite codes tied to a specific name and email. After pulling changes that add new tables, run the DB push command again so the `invite_codes` table exists.
+
 ---
 
 ## Option B — Railway (Recommended, ~5 min)

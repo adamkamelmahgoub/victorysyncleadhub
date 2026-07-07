@@ -1,3 +1,4 @@
+import { Component, type ErrorInfo, type ReactNode } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -90,16 +91,57 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <TooltipProvider>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <AuthenticatedApp />
-          </WouterRouter>
-          <Toaster />
-        </TooltipProvider>
-      </AuthProvider>
+      <AppErrorBoundary>
+        <AuthProvider>
+          <TooltipProvider>
+            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+              <AuthenticatedApp />
+            </WouterRouter>
+            <Toaster />
+          </TooltipProvider>
+        </AuthProvider>
+      </AppErrorBoundary>
     </QueryClientProvider>
   );
+}
+
+class AppErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("App render failed", error, info);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <main className="min-h-screen bg-background flex items-center justify-center px-4">
+          <div className="w-full max-w-md bg-white border border-border rounded-lg shadow-sm p-6">
+            <h1 className="text-lg font-semibold text-foreground">Something went wrong</h1>
+            <p className="text-sm text-muted-foreground mt-2">
+              {this.state.error.message}
+            </p>
+            <button
+              type="button"
+              className="mt-4 px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg"
+              onClick={() => window.location.reload()}
+            >
+              Reload
+            </button>
+          </div>
+        </main>
+      );
+    }
+
+    return this.props.children;
+  }
 }
 
 function AuthenticatedApp() {

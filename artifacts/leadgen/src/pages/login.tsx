@@ -4,10 +4,15 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
 export default function Login() {
   const { session } = useAuth();
-  const [email, setEmail] = useState("");
+  const inviteParams = new URLSearchParams(window.location.search);
+  const [name, setName] = useState(inviteParams.get("name") ?? "");
+  const [email, setEmail] = useState(inviteParams.get("email") ?? "");
   const [password, setPassword] = useState("");
+  const [inviteCode, setInviteCode] = useState(inviteParams.get("invite") ?? "");
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -21,10 +26,28 @@ export default function Login() {
     setError(null);
     setMessage(null);
 
-    const result =
-      mode === "signin"
-        ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password });
+    if (mode === "signup") {
+      const signupRes = await fetch(`${BASE}/api/auth/signup-with-invite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, password, inviteCode }),
+      });
+
+      if (!signupRes.ok) {
+        setLoading(false);
+        const text = await signupRes.text().catch(() => "");
+        try {
+          setError(JSON.parse(text).error ?? text);
+        } catch {
+          setError(text || `HTTP ${signupRes.status}`);
+        }
+        return;
+      }
+
+      setMessage("Account created. Signing you in...");
+    }
+
+    const result = await supabase.auth.signInWithPassword({ email, password });
 
     setLoading(false);
 
@@ -33,9 +56,7 @@ export default function Login() {
       return;
     }
 
-    if (mode === "signup" && !result.data.session) {
-      setMessage("Check your email to confirm your account, then sign in.");
-    }
+    if (mode === "signup" && !result.data.session) setMessage("Account created. Please sign in.");
   }
 
   return (
@@ -47,9 +68,25 @@ export default function Login() {
         <div>
           <h1 className="text-xl font-semibold text-foreground">VictorySync</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {mode === "signin" ? "Sign in to your workspace." : "Create your workspace account."}
+            {mode === "signin" ? "Sign in to your workspace." : "Create your account with an admin invite."}
           </p>
         </div>
+
+        {mode === "signup" && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="name">
+              Full name
+            </label>
+            <Input
+              id="name"
+              type="text"
+              autoComplete="name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              required
+            />
+          </div>
+        )}
 
         <div className="space-y-2">
           <label className="text-sm font-medium" htmlFor="email">
@@ -79,6 +116,22 @@ export default function Login() {
             required
           />
         </div>
+
+        {mode === "signup" && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="invite-code">
+              Invite code
+            </label>
+            <Input
+              id="invite-code"
+              type="text"
+              autoComplete="one-time-code"
+              value={inviteCode}
+              onChange={(event) => setInviteCode(event.target.value.toUpperCase())}
+              required
+            />
+          </div>
+        )}
 
         {error && <p className="text-sm text-destructive">{error}</p>}
         {message && <p className="text-sm text-muted-foreground">{message}</p>}

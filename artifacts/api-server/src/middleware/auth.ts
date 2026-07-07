@@ -4,6 +4,7 @@ import { isSupabaseConfigured, supabase } from "../lib/supabase.js";
 const publicApiPaths = [
   "/healthz",
   "/oauth",
+  "/auth/signup-with-invite",
 ];
 
 function isPublicPath(path: string) {

@@ -8,5 +8,9 @@ export function isSupabaseConfigured() {
   return Boolean(supabaseUrl && supabaseKey);
 }
 
+export function isSupabaseServiceRoleConfigured() {
+  return Boolean(supabaseUrl && process.env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
 export const supabase =
   supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;

@@ -2,8 +2,9 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users, UserPlus, Shield, MoreHorizontal, Mail,
-  CheckCircle, Clock, XCircle, Trash2, Edit3, Search, Crown,
+  CheckCircle, Clock, XCircle, Trash2, Edit3, Search, Crown, Copy,
 } from "lucide-react";
+import { apiFetch } from "@/lib/api";
 
 interface TeamMember {
   id: number;
@@ -12,6 +13,17 @@ interface TeamMember {
   role: "owner" | "admin" | "member" | "viewer";
   status: "active" | "invited" | "deactivated";
   createdAt: string;
+}
+
+interface InviteResponse {
+  member: TeamMember;
+  invite: {
+    code: string;
+    email: string;
+    name: string;
+    expiresAt: string;
+    url?: string;
+  };
 }
 
 const ROLE_STYLES: Record<string, string> = {
@@ -27,14 +39,6 @@ const STATUS_STYLES: Record<string, { label: string; class: string; icon: React.
   deactivated: { label: "Deactivated", class: "text-gray-400", icon: XCircle },
 };
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-
-async function apiFetch(path: string, opts?: RequestInit) {
-  const res = await fetch(`${BASE}${path}`, { headers: { "Content-Type": "application/json" }, ...opts });
-  if (!res.ok) throw new Error(await res.text());
-  return res.status === 204 ? null : res.json();
-}
-
 const ROLE_PERMS: Record<string, string[]> = {
   owner: ["Full access to all features and billing"],
   admin: ["Manage contacts, campaigns, automations, team (cannot manage billing)"],
@@ -49,25 +53,30 @@ export default function Team() {
   const [editMember, setEditMember] = useState<TeamMember | null>(null);
   const [form, setForm] = useState({ name: "", email: "", role: "member" as TeamMember["role"] });
   const [openMenu, setOpenMenu] = useState<number | null>(null);
+  const [createdInvite, setCreatedInvite] = useState<InviteResponse["invite"] | null>(null);
 
   const { data: members = [], isLoading } = useQuery<TeamMember[]>({
     queryKey: ["team"],
-    queryFn: () => apiFetch("/api/team"),
+    queryFn: () => apiFetch("/team"),
   });
 
   const invite = useMutation({
-    mutationFn: (body: typeof form) => apiFetch("/api/team/invite", { method: "POST", body: JSON.stringify(body) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["team"] }); setShowInvite(false); setForm({ name: "", email: "", role: "member" }); },
+    mutationFn: (body: typeof form) => apiFetch("/team/invite", { method: "POST", body: JSON.stringify(body) }) as Promise<InviteResponse>,
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["team"] });
+      setCreatedInvite(data.invite);
+      setForm({ name: "", email: "", role: "member" });
+    },
   });
 
   const update = useMutation({
     mutationFn: ({ id, ...body }: Partial<TeamMember> & { id: number }) =>
-      apiFetch(`/api/team/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+      apiFetch(`/team/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["team"] }); setEditMember(null); setOpenMenu(null); },
   });
 
   const remove = useMutation({
-    mutationFn: (id: number) => apiFetch(`/api/team/${id}`, { method: "DELETE" }),
+    mutationFn: (id: number) => apiFetch(`/team/${id}`, { method: "DELETE" }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["team"] }); setOpenMenu(null); },
   });
 
@@ -262,55 +271,94 @@ export default function Team() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md border border-border" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
               <h3 className="font-semibold text-foreground">Invite Team Member</h3>
-              <button onClick={() => setShowInvite(false)} className="text-muted-foreground hover:text-foreground">✕</button>
+              <button onClick={() => { setShowInvite(false); setCreatedInvite(null); }} className="text-muted-foreground hover:text-foreground">x</button>
             </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1.5">Full Name</label>
-                <input
-                  value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
-                  placeholder="Jane Smith"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1.5">Email Address</label>
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
-                  placeholder="jane@company.com"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-2">Role</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {(["admin", "member", "viewer"] as const).map((role) => (
-                    <button
-                      key={role}
-                      onClick={() => setForm((f) => ({ ...f, role }))}
-                      className={`p-3 border rounded-xl text-left transition-colors ${form.role === role ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
-                    >
-                      <div className={`text-xs font-semibold capitalize mb-0.5 ${form.role === role ? "text-primary" : "text-foreground"}`}>{role}</div>
-                      <div className="text-[10px] text-muted-foreground leading-tight">{(ROLE_PERMS[role] ?? [])[0]?.split("(")[0]}</div>
-                    </button>
-                  ))}
+            {createdInvite ? (
+              <>
+                <div className="p-6 space-y-4">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Invite created for {createdInvite.name}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{createdInvite.email}</p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-muted/40 p-3">
+                    <label className="text-xs font-medium text-muted-foreground">Invite code</label>
+                    <div className="mt-1 flex items-center gap-2">
+                      <code className="flex-1 text-sm font-semibold text-foreground break-all">{createdInvite.code}</code>
+                      <button type="button" onClick={() => void navigator.clipboard.writeText(createdInvite.code)} className="p-2 rounded border border-border hover:bg-white" title="Copy code">
+                        <Copy className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  {createdInvite.url && (
+                    <div className="rounded-lg border border-border bg-muted/40 p-3">
+                      <label className="text-xs font-medium text-muted-foreground">Invite link</label>
+                      <div className="mt-1 flex items-center gap-2">
+                        <input readOnly value={createdInvite.url} className="flex-1 text-xs bg-transparent outline-none" />
+                        <button type="button" onClick={() => void navigator.clipboard.writeText(createdInvite.url ?? "")} className="p-2 rounded border border-border hover:bg-white" title="Copy link">
+                          <Copy className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    This code expires {new Date(createdInvite.expiresAt).toLocaleString()} and can only be used once by this exact name and email.
+                  </p>
                 </div>
-              </div>
-              {invite.error && <p className="text-xs text-red-500">{String(invite.error)}</p>}
-            </div>
-            <div className="px-6 pb-6 flex gap-2 justify-end">
-              <button onClick={() => setShowInvite(false)} className="px-4 py-2 text-sm font-medium text-muted-foreground border border-border rounded-lg hover:bg-muted">Cancel</button>
-              <button
-                onClick={() => invite.mutate(form)}
-                disabled={!form.name || !form.email || invite.isPending}
-                className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-40 transition-colors"
-              >
-                {invite.isPending ? "Sending..." : "Send Invite"}
-              </button>
-            </div>
+                <div className="px-6 pb-6 flex justify-end">
+                  <button onClick={() => { setShowInvite(false); setCreatedInvite(null); }} className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90">Done</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="p-6 space-y-4">
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground block mb-1.5">Full Name</label>
+                    <input
+                      value={form.name}
+                      onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
+                      placeholder="Jane Smith"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground block mb-1.5">Email Address</label>
+                    <input
+                      type="email"
+                      value={form.email}
+                      onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
+                      placeholder="jane@company.com"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground block mb-2">Role</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(["admin", "member", "viewer"] as const).map((role) => (
+                        <button
+                          key={role}
+                          onClick={() => setForm((f) => ({ ...f, role }))}
+                          className={`p-3 border rounded-xl text-left transition-colors ${form.role === role ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
+                        >
+                          <div className={`text-xs font-semibold capitalize mb-0.5 ${form.role === role ? "text-primary" : "text-foreground"}`}>{role}</div>
+                          <div className="text-[10px] text-muted-foreground leading-tight">{(ROLE_PERMS[role] ?? [])[0]?.split("(")[0]}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {invite.error && <p className="text-xs text-red-500">{invite.error instanceof Error ? invite.error.message : String(invite.error)}</p>}
+                </div>
+                <div className="px-6 pb-6 flex gap-2 justify-end">
+                  <button onClick={() => setShowInvite(false)} className="px-4 py-2 text-sm font-medium text-muted-foreground border border-border rounded-lg hover:bg-muted">Cancel</button>
+                  <button
+                    onClick={() => invite.mutate(form)}
+                    disabled={!form.name || !form.email || invite.isPending}
+                    className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-40 transition-colors"
+                  >
+                    {invite.isPending ? "Creating..." : "Create Invite"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -321,7 +369,7 @@ export default function Team() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm border border-border" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
               <h3 className="font-semibold text-foreground">Edit Role — {editMember.name}</h3>
-              <button onClick={() => setEditMember(null)} className="text-muted-foreground hover:text-foreground">✕</button>
+              <button onClick={() => setEditMember(null)} className="text-muted-foreground hover:text-foreground">x</button>
             </div>
             <div className="p-6 space-y-2">
               {(["admin", "member", "viewer"] as const).map((role) => (
