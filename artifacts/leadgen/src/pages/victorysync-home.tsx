@@ -1,6 +1,5 @@
 import { Link } from "wouter";
 import {
-  ArrowRight,
   BarChart3,
   Building2,
   Key,
@@ -14,11 +13,11 @@ import { useAuth } from "@/lib/auth";
 
 const modules = [
   {
-    href: "/leadgen",
-    title: "Lead Generation Hub",
-    description: "Manage contacts, campaigns, automations, forms, reporting, and integrations.",
+    href: "/leads",
+    title: "Contacts & CRM",
+    description: "Manage contacts, prospects, conversations, pipeline, and contact activity.",
     icon: Megaphone,
-    stat: "CRM + outreach",
+    stat: "CRM",
   },
   {
     href: "/sub-accounts",
@@ -64,12 +63,18 @@ export default function VictorySyncHome() {
               Manage your platform, clients, team access, and lead generation workflows from one dashboard.
             </p>
           </div>
-          <Link href="/leadgen">
-            <button className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90">
-              Open Lead Gen Hub
-              <ArrowRight className="h-4 w-4" />
-            </button>
-          </Link>
+          <div className="grid grid-cols-2 gap-2 sm:flex">
+            <Link href="/leads">
+              <button className="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90">
+                Open Contacts
+              </button>
+            </Link>
+            <Link href="/campaigns">
+              <button className="inline-flex items-center justify-center rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted">
+                Open Campaigns
+              </button>
+            </Link>
+          </div>
         </div>
       </section>
 
@@ -99,7 +104,7 @@ export default function VictorySyncHome() {
             Fast Actions
           </div>
           <div className="mt-4 grid gap-2">
-            <Link href="/leadgen/leads">
+            <Link href="/leads">
               <button className="w-full rounded-lg border border-border px-3 py-2 text-left text-sm hover:bg-muted">
                 Add or import contacts
               </button>
@@ -109,7 +114,7 @@ export default function VictorySyncHome() {
                 Invite a team member
               </button>
             </Link>
-            <Link href="/leadgen/integrations">
+            <Link href="/integrations">
               <button className="w-full rounded-lg border border-border px-3 py-2 text-left text-sm hover:bg-muted">
                 Connect integrations
               </button>
@@ -123,7 +128,7 @@ export default function VictorySyncHome() {
             Module Health
           </div>
           <p className="mt-4 text-sm text-muted-foreground">
-            Lead Gen, client provisioning, and team invites now share the same VictorySync auth session.
+            Contacts, campaigns, automation, client provisioning, and team invites share the same VictorySync auth session.
           </p>
         </div>
 

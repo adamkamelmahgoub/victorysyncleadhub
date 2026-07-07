@@ -55,8 +55,8 @@ export default function Dashboard() {
 
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Lead Generation Hub</h1>
-          <p className="text-sm text-muted-foreground mt-1">Your VictorySync lead generation overview</p>
+          <h1 className="text-2xl font-bold text-foreground">CRM Overview</h1>
+          <p className="text-sm text-muted-foreground mt-1">Your VictorySync contacts, campaigns, and pipeline overview</p>
         </div>
 
         {/* Stats row */}
@@ -134,7 +134,7 @@ export default function Dashboard() {
           <Card className="p-5 border border-border bg-card">
             <div className="flex items-center justify-between mb-4">
               <p className="text-sm font-semibold text-foreground">Top Leads</p>
-              <Link href="/leadgen/leads">
+              <Link href="/leads">
                 <span className="text-xs text-primary flex items-center gap-1 cursor-pointer hover:underline">View all <ArrowRight className="w-3 h-3" /></span>
               </Link>
             </div>
@@ -145,7 +145,7 @@ export default function Dashboard() {
             ) : (
               <div className="space-y-2">
                 {(topLeads ?? []).slice(0, 6).map((lead) => (
-                  <Link key={lead.id} href={`/leadgen/leads/${lead.id}`}>
+                  <Link key={lead.id} href={`/leads/${lead.id}`}>
                     <div className="flex items-center justify-between py-2 px-2 rounded-md hover:bg-muted/40 transition-colors cursor-pointer">
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary flex-shrink-0">
@@ -173,7 +173,7 @@ export default function Dashboard() {
           <Card className="p-5 border border-border bg-card">
             <div className="flex items-center justify-between mb-4">
               <p className="text-sm font-semibold text-foreground">Active Campaigns</p>
-              <Link href="/leadgen/campaigns">
+              <Link href="/campaigns">
                 <span className="text-xs text-primary flex items-center gap-1 cursor-pointer hover:underline">View all <ArrowRight className="w-3 h-3" /></span>
               </Link>
             </div>
@@ -181,7 +181,7 @@ export default function Dashboard() {
               {(campaigns ?? []).filter((c) => c.status === "active").slice(0, 5).map((c) => {
                 const rate = c.leadCount > 0 ? Math.round(((c.convertedCount ?? 0) / c.leadCount) * 100) : 0;
                 return (
-                  <Link key={c.id} href={`/leadgen/campaigns/${c.id}`}>
+                  <Link key={c.id} href={`/campaigns/${c.id}`}>
                     <div className="flex items-center justify-between py-2 px-2 rounded-md hover:bg-muted/40 transition-colors cursor-pointer">
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-foreground truncate">{c.name}</p>

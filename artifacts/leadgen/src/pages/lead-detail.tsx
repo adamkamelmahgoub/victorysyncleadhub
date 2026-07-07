@@ -348,7 +348,7 @@ export default function LeadDetail() {
       <div className="space-y-4">
         {/* ── Back nav ─────────────────────────────────────────────────────── */}
         <div className="flex items-center gap-2">
-            <Link href="/leadgen/leads">
+            <Link href="/leads">
             <button className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
               <ArrowLeft className="w-4 h-4" /> Contacts
             </button>

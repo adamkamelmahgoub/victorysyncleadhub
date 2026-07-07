@@ -117,7 +117,7 @@ export default function FormEditor() {
 
       <div className="space-y-5">
         <div className="flex items-center gap-3">
-            <Link href="/leadgen/forms">
+            <Link href="/forms">
             <Button variant="ghost" size="icon" className="w-8 h-8"><ArrowLeft className="w-4 h-4" /></Button>
           </Link>
           <Input

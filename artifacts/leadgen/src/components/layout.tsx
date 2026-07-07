@@ -20,32 +20,33 @@ const NAV: NavEntry[] = [
   { href: "/billing-integration", label: "API & SSO", icon: Key },
   { href: "/settings", label: "Settings", icon: Settings },
   null,
-  { section: "Lead Generation Hub" },
-  { href: "/leadgen", label: "Lead Gen Hub", icon: Rocket },
-  { href: "/leadgen/leads", label: "Contacts", icon: Users },
-  { href: "/leadgen/segments", label: "Segments", icon: Filter },
-  { href: "/leadgen/prospect-search", label: "Prospect Search", icon: Target },
-  { href: "/leadgen/pipeline", label: "Opportunities", icon: GitBranch },
-  { href: "/leadgen/conversations", label: "Conversations", icon: MessageSquare, badge: "3" },
-  { href: "/leadgen/calendars", label: "Calendars", icon: Calendar },
-  { href: "/leadgen/meeting-scheduler", label: "Scheduler", icon: CalendarClock },
+  { section: "CRM & Pipeline" },
+  { href: "/leads", label: "Contacts", icon: Users },
+  { href: "/segments", label: "Segments", icon: Filter },
+  { href: "/prospect-search", label: "Prospect Search", icon: Target },
+  { href: "/pipeline", label: "Opportunities", icon: GitBranch },
+  { href: "/conversations", label: "Conversations", icon: MessageSquare, badge: "3" },
+  { href: "/calendars", label: "Calendars", icon: Calendar },
+  { href: "/meeting-scheduler", label: "Scheduler", icon: CalendarClock },
   null,
-  { href: "/leadgen/campaigns", label: "Email Marketing", icon: Megaphone },
-  { href: "/leadgen/email-templates", label: "Email Templates", icon: FileText },
-  { href: "/leadgen/social-planner", label: "Social Planner", icon: Share2 },
-  { href: "/leadgen/automation", label: "Automation", icon: Zap },
-  { href: "/leadgen/sequences", label: "Sequences", icon: Layers },
+  { section: "Marketing" },
+  { href: "/campaigns", label: "Email Marketing", icon: Megaphone },
+  { href: "/email-templates", label: "Email Templates", icon: FileText },
+  { href: "/social-planner", label: "Social Planner", icon: Share2 },
+  { href: "/automation", label: "Automation", icon: Zap },
+  { href: "/sequences", label: "Sequences", icon: Layers },
   null,
-  { href: "/leadgen/forms", label: "Sites / Forms", icon: Globe },
-  { href: "/leadgen/analytics", label: "Reporting", icon: BarChart3 },
-  { href: "/leadgen/sequence-analytics", label: "Seq. Analytics", icon: TrendingUp },
-  { href: "/leadgen/revenue-attribution", label: "Attribution", icon: TrendingUp },
-  { href: "/leadgen/reputation", label: "Reputation", icon: Star },
-  { href: "/leadgen/integrations", label: "Integrations", icon: Plug },
-  { href: "/leadgen/webhooks", label: "Webhooks", icon: Webhook },
-  { href: "/leadgen/email-accounts", label: "Mailboxes", icon: Mail },
-  { href: "/leadgen/lead-import", label: "Import Leads", icon: Upload },
-  { href: "/leadgen/scraper", label: "Lead Finder", icon: Search },
+  { section: "Operations" },
+  { href: "/forms", label: "Sites / Forms", icon: Globe },
+  { href: "/analytics", label: "Reporting", icon: BarChart3 },
+  { href: "/sequence-analytics", label: "Seq. Analytics", icon: TrendingUp },
+  { href: "/revenue-attribution", label: "Attribution", icon: TrendingUp },
+  { href: "/reputation", label: "Reputation", icon: Star },
+  { href: "/integrations", label: "Integrations", icon: Plug },
+  { href: "/webhooks", label: "Webhooks", icon: Webhook },
+  { href: "/email-accounts", label: "Mailboxes", icon: Mail },
+  { href: "/lead-import", label: "Import Leads", icon: Upload },
+  { href: "/scraper", label: "Lead Finder", icon: Search },
   null,
   { section: "Growth" },
   { href: "/affiliates", label: "Affiliates", icon: Gift },
@@ -74,7 +75,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   function isActive(href: string) {
     if (href === "/") return location === "/" || location === "/dashboard";
-    if (href === "/leadgen") return location === "/leadgen";
     return location.startsWith(href);
   }
 
@@ -204,12 +204,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <Bell className="w-4 h-4" />
               <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-primary rounded-full" />
             </button>
-            <Link href="/leadgen/lead-import">
+            <Link href="/lead-import">
               <button className="text-sm font-medium px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors flex items-center gap-1.5">
                 <Upload className="w-3.5 h-3.5" /> Import
               </button>
             </Link>
-            <Link href="/leadgen/leads">
+            <Link href="/leads">
               <button className="text-sm font-medium px-3 py-1.5 rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors">
                 + Add Contact
               </button>

@@ -172,7 +172,7 @@ export default function SequencesPage() {
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
-                    <Link href={`/leadgen/sequences/${seq.id}`}>
+                    <Link href={`/sequences/${seq.id}`}>
                       <Button size="sm" variant="outline" className="border-border text-foreground gap-1.5">
                         Edit <ArrowRight className="w-3.5 h-3.5" />
                       </Button>

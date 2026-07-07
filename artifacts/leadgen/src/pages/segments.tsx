@@ -118,7 +118,7 @@ export default function Segments() {
             {PRESET_SEGMENTS.map((preset, i) => {
               const count = applyFilters(allLeads, preset.filters).length;
               return (
-          <Link key={preset.name} href={`/leadgen/leads?status=${preset.filters.status ?? ""}&source=${preset.filters.source ?? ""}&scoreMin=${preset.filters.scoreMin ?? ""}`}>
+          <Link key={preset.name} href={`/leads?status=${preset.filters.status ?? ""}&source=${preset.filters.source ?? ""}&scoreMin=${preset.filters.scoreMin ?? ""}`}>
                   <div className="bg-white rounded-xl border border-border shadow-sm p-4 hover:border-primary/40 transition-colors cursor-pointer group">
                     <div className="flex items-center gap-3 mb-2">
                       <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0 ${SEGMENT_COLORS[i % SEGMENT_COLORS.length]}`}>
@@ -180,7 +180,7 @@ export default function Segments() {
                     </div>
                   </div>
                   <div className="flex gap-2 mt-3 pt-3 border-t border-border">
-                      <Link href={`/leadgen/leads?status=${(seg.filters.status as string) ?? ""}`} className="flex-1">
+                      <Link href={`/leads?status=${(seg.filters.status as string) ?? ""}`} className="flex-1">
                       <div className="flex items-center justify-center gap-1.5 text-xs py-1.5 border border-border rounded-lg text-muted-foreground hover:bg-muted transition-colors cursor-pointer">
                         <ExternalLink className="w-3 h-3" /> View Contacts
                       </div>

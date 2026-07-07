@@ -132,7 +132,7 @@ export default function Forms() {
                   </Button>
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-muted-foreground">{formatDistanceToNow(parseISO(f.createdAt), { addSuffix: true })}</span>
-                      <Link href={`/leadgen/forms/${f.id}`}>
+                      <Link href={`/forms/${f.id}`}>
                       <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-primary">
                         Edit form <ArrowRight className="w-3 h-3" />
                       </Button>
