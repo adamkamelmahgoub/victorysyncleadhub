@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { asArray } from "@/lib/data-shape";
 
 interface SubAccount { id: number; name: string; slug: string; ownerEmail: string; ownerName: string; phone?: string; industry?: string; status: string; plan: string; leadsCount: number; campaignsCount: number; healthScore: number; onboardingCompleted: boolean; lastActiveAt?: string; notes?: string; createdAt: string; }
 
@@ -48,8 +49,9 @@ export default function SubAccounts() {
   const [selected, setSelected] = useState<SubAccount | null>(null);
   const [form, setForm] = useState({ name: "", ownerName: "", ownerEmail: "", phone: "", industry: "", plan: "starter", notes: "" });
 
-  const { data: accounts = [], isLoading } = useQuery<SubAccount[]>({ queryKey: ["sub-accounts"], queryFn: () => apiFetch("/sub-accounts") });
+  const { data: accountsResponse = [], isLoading } = useQuery<SubAccount[]>({ queryKey: ["sub-accounts"], queryFn: () => apiFetch("/sub-accounts") });
   const { data: stats } = useQuery({ queryKey: ["sub-accounts-stats"], queryFn: () => apiFetch("/sub-accounts-stats") });
+  const accounts = asArray<SubAccount>(accountsResponse);
 
   const addMutation = useMutation({
     mutationFn: (data: typeof form) => apiFetch("/sub-accounts", { method: "POST", body: JSON.stringify(data) }),

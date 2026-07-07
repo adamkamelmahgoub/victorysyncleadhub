@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { asArray } from "@/lib/data-shape";
 
 interface EventType { id: number; slug: string; title: string; description?: string; durationMinutes: number; color: string; location?: string; isActive: boolean; requiresConfirmation: boolean; bufferAfter: number; availableDays: string[]; availableStart: string; availableEnd: string; timezone: string; }
 interface Appointment { id: number; eventTypeId: number; guestName: string; guestEmail: string; guestCompany?: string; startAt: string; endAt: string; status: string; notes?: string; }
@@ -26,8 +27,10 @@ export default function MeetingScheduler() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ title: "", description: "", durationMinutes: 30, color: "#f97316", location: "", isActive: true, requiresConfirmation: false, bufferAfter: 15, availableDays: ["mon", "tue", "wed", "thu", "fri"], availableStart: "09:00", availableEnd: "17:00", timezone: "America/New_York" });
 
-  const { data: eventTypes = [] } = useQuery<EventType[]>({ queryKey: ["event-types"], queryFn: () => apiFetch("/meeting/event-types") });
-  const { data: appointments = [] } = useQuery<Appointment[]>({ queryKey: ["appointments"], queryFn: () => apiFetch("/meeting/appointments") });
+  const { data: eventTypesResponse = [] } = useQuery<EventType[]>({ queryKey: ["event-types"], queryFn: () => apiFetch("/meeting/event-types") });
+  const { data: appointmentsResponse = [] } = useQuery<Appointment[]>({ queryKey: ["appointments"], queryFn: () => apiFetch("/meeting/appointments") });
+  const eventTypes = asArray<EventType>(eventTypesResponse);
+  const appointments = asArray<Appointment>(appointmentsResponse);
 
   const addMutation = useMutation({
     mutationFn: (data: typeof form) => apiFetch("/meeting/event-types", { method: "POST", body: JSON.stringify(data) }),

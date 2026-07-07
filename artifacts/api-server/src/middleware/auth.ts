@@ -1,4 +1,8 @@
 import type { NextFunction, Request, Response } from "express";
+import { db } from "@workspace/db";
+import { apiKeysTable } from "@workspace/db/schema";
+import { eq, sql } from "drizzle-orm";
+import crypto from "crypto";
 import { isSupabaseConfigured, supabase } from "../lib/supabase.js";
 
 const publicApiPaths = [
@@ -13,6 +17,48 @@ function isPublicPath(path: string) {
   );
 }
 
+function getBearerToken(req: Request) {
+  const authHeader = req.headers.authorization;
+  return authHeader?.startsWith("Bearer ")
+    ? authHeader.slice("Bearer ".length)
+    : undefined;
+}
+
+function hashApiKey(key: string) {
+  return crypto.createHash("sha256").update(key).digest("hex");
+}
+
+async function authenticateApiKey(token: string) {
+  if (!token.startsWith("vs_live_")) {
+    return null;
+  }
+
+  const [apiKey] = await db
+    .select()
+    .from(apiKeysTable)
+    .where(eq(apiKeysTable.keyHash, hashApiKey(token)))
+    .limit(1);
+
+  if (!apiKey || !apiKey.isActive) {
+    return null;
+  }
+
+  if (apiKey.expiresAt && apiKey.expiresAt <= new Date()) {
+    return null;
+  }
+
+  await db
+    .update(apiKeysTable)
+    .set({
+      lastUsedAt: new Date(),
+      requestCount: sql`${apiKeysTable.requestCount} + 1`,
+      updatedAt: new Date(),
+    })
+    .where(eq(apiKeysTable.id, apiKey.id));
+
+  return apiKey;
+}
+
 export async function requireSupabaseUser(
   req: Request,
   res: Response,
@@ -23,24 +69,30 @@ export async function requireSupabaseUser(
     return;
   }
 
+  const token = getBearerToken(req);
+
+  if (token) {
+    const apiKey = await authenticateApiKey(token);
+    if (apiKey) {
+      res.locals.apiKey = apiKey;
+      next();
+      return;
+    }
+  }
+
   const authRequired = process.env.SUPABASE_AUTH_REQUIRED !== "false";
   if (!authRequired) {
     next();
     return;
   }
 
-  if (!isSupabaseConfigured() || !supabase) {
-    res.status(503).json({ error: "Supabase Auth is not configured" });
+  if (!token) {
+    res.status(401).json({ error: "Missing bearer token" });
     return;
   }
 
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.startsWith("Bearer ")
-    ? authHeader.slice("Bearer ".length)
-    : undefined;
-
-  if (!token) {
-    res.status(401).json({ error: "Missing bearer token" });
+  if (!isSupabaseConfigured() || !supabase) {
+    res.status(503).json({ error: "Supabase Auth is not configured" });
     return;
   }
 

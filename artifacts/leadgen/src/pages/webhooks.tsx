@@ -4,6 +4,8 @@ import {
   Globe, Plus, Trash2, Play, CheckCircle, XCircle, AlertCircle,
   Copy, Settings, Zap, ChevronRight, ToggleLeft, ToggleRight,
 } from "lucide-react";
+import { apiFetch } from "@/lib/api";
+import { asArray } from "@/lib/data-shape";
 
 interface Webhook {
   id: number;
@@ -27,13 +29,6 @@ const ALL_EVENTS = [
   { group: "Reviews", events: ["review.received", "review.replied"] },
 ];
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-async function apiFetch(path: string, opts?: RequestInit) {
-  const res = await fetch(`${BASE}${path}`, { headers: { "Content-Type": "application/json" }, ...opts });
-  if (!res.ok) throw new Error(await res.text());
-  return res.status === 204 ? null : res.json();
-}
-
 export default function Webhooks() {
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
@@ -45,7 +40,8 @@ export default function Webhooks() {
 
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(null), 3000); }
 
-  const { data: webhooks = [] } = useQuery<Webhook[]>({ queryKey: ["webhooks"], queryFn: () => apiFetch("/api/webhooks") });
+  const { data: webhooksResponse = [] } = useQuery<Webhook[]>({ queryKey: ["webhooks"], queryFn: () => apiFetch("/api/webhooks") });
+  const webhooks = asArray<Webhook>(webhooksResponse);
 
   const create = useMutation({
     mutationFn: (body: object) => apiFetch("/api/webhooks", { method: "POST", body: JSON.stringify(body) }),

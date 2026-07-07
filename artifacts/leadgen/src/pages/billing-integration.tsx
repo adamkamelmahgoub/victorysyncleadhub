@@ -54,8 +54,8 @@ Content-Type: application/json
   "role": "member"
 }
 
-// Response → { ssoUrl, expiresAt }
-// Redirect the client to ssoUrl — one-time use, expires in 5 min`,
+// Response -> { ssoUrl, expiresAt }
+// Redirect the client to ssoUrl - one-time use, expires in 5 min`,
 };
 
 export default function BillingIntegration() {
@@ -176,7 +176,7 @@ export default function BillingIntegration() {
                   <li>Client logs into dashboard.victorysync.com</li>
                   <li>Your app calls <code className="bg-blue-100 px-1 rounded">POST /api/auth/sso</code> with the client's info</li>
                   <li>VictorySync returns a one-time <code className="bg-blue-100 px-1 rounded">ssoUrl</code> (valid 5 min)</li>
-                  <li>Redirect the client to that URL — they land in VictorySync already logged in</li>
+                  <li>Redirect the client to that URL - they land in VictorySync already logged in</li>
                 </ol>
               </div>
             )}

@@ -19,13 +19,8 @@ import {
   MoreHorizontal, Target, PhoneCall, AtSign, Layers,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-async function apiFetch(path: string, opts?: RequestInit) {
-  const res = await fetch(`${BASE}${path}`, { headers: { "Content-Type": "application/json" }, ...opts });
-  if (!res.ok) throw new Error(await res.text());
-  return res.status === 204 ? null : res.json();
-}
+import { apiFetch } from "@/lib/api";
+import { asArray } from "@/lib/data-shape";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const STATUS_OPTIONS = ["new", "contacted", "qualified", "proposal", "converted", "lost"] as const;
@@ -221,12 +216,14 @@ export default function LeadDetail() {
   const { data: activities = [] } = useListLeadActivities(id, { query: { enabled: !!id, queryKey: getListLeadActivitiesQueryKey(id) } });
   const { data: notes = [] } = useListLeadNotes(id, { query: { enabled: !!id, queryKey: getListLeadNotesQueryKey(id) } });
   const { data: campaigns = [] } = useListCampaigns();
-  const { data: stages = [] } = useQuery<PipelineStage[]>({ queryKey: ["pipeline-stages"], queryFn: () => apiFetch("/api/pipeline/stages") });
-  const { data: tasks = [], refetch: refetchTasks } = useQuery<ContactTask[]>({
+  const { data: stagesResponse = [] } = useQuery<PipelineStage[]>({ queryKey: ["pipeline-stages"], queryFn: () => apiFetch("/api/pipeline/stages") });
+  const { data: tasksResponse = [], refetch: refetchTasks } = useQuery<ContactTask[]>({
     queryKey: ["contact-tasks", id],
     queryFn: () => apiFetch(`/api/leads/${id}/tasks`),
     enabled: !!id,
   });
+  const stages = asArray<PipelineStage>(stagesResponse);
+  const tasks = asArray<ContactTask>(tasksResponse);
 
   const updateLead = useUpdateLead();
   const updateScore = useUpdateLeadScore();

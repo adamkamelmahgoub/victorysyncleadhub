@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useListLeads } from "@workspace/api-client-react";
 import { Users, Plus, Filter, Trash2, ChevronRight, Search, SlidersHorizontal, ExternalLink } from "lucide-react";
 import { Link } from "wouter";
+import { apiFetch } from "@/lib/api";
+import { asArray } from "@/lib/data-shape";
 
 interface Segment {
   id: number;
@@ -23,13 +25,6 @@ interface Segment {
 const STATUS_OPTIONS = ["new", "contacted", "qualified", "proposal", "converted", "lost"];
 const SOURCE_OPTIONS = ["LinkedIn", "Facebook", "Google Ads", "Referral", "Website", "Email", "Cold Outreach", "Webinar", "Other"];
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-async function apiFetch(path: string, opts?: RequestInit) {
-  const res = await fetch(`${BASE}${path}`, { headers: { "Content-Type": "application/json" }, ...opts });
-  if (!res.ok) throw new Error(await res.text());
-  return res.status === 204 ? null : res.json();
-}
-
 type Filters = Segment["filters"];
 
 const SEGMENT_COLORS = [
@@ -46,10 +41,11 @@ export default function Segments() {
   const [form, setForm] = useState({ name: "", description: "", filters: {} as Filters });
   const [previewFilters, setPreviewFilters] = useState<Filters>({});
 
-  const { data: segments = [], isLoading } = useQuery<Segment[]>({
+  const { data: segmentsResponse = [], isLoading } = useQuery<Segment[]>({
     queryKey: ["segments"],
     queryFn: () => apiFetch("/api/segments"),
   });
+  const segments = asArray<Segment>(segmentsResponse);
 
   const create = useMutation({
     mutationFn: (body: object) => apiFetch("/api/segments", { method: "POST", body: JSON.stringify(body) }),

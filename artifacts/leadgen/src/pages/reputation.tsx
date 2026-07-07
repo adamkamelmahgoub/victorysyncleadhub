@@ -5,13 +5,8 @@ import {
   CheckCircle, AlertCircle, Globe, Settings, Trash2,
   ExternalLink, Mail, Phone, ChevronDown, BarChart3,
 } from "lucide-react";
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-async function apiFetch(path: string, opts?: RequestInit) {
-  const res = await fetch(`${BASE}${path}`, { headers: { "Content-Type": "application/json" }, ...opts });
-  if (!res.ok) throw new Error(await res.text());
-  return res.status === 204 ? null : res.json();
-}
+import { apiFetch } from "@/lib/api";
+import { asArray } from "@/lib/data-shape";
 
 interface ReviewSource {
   id: number;
@@ -176,10 +171,13 @@ export default function Reputation() {
     setTimeout(() => setToast(null), 3000);
   }
 
-  const { data: sources = [] } = useQuery<ReviewSource[]>({ queryKey: ["review-sources"], queryFn: () => apiFetch("/api/review-sources") });
+  const { data: sourcesResponse = [] } = useQuery<ReviewSource[]>({ queryKey: ["review-sources"], queryFn: () => apiFetch("/api/review-sources") });
   const { data: stats } = useQuery<ReviewStats>({ queryKey: ["review-stats"], queryFn: () => apiFetch("/api/reviews/stats") });
-  const { data: reviews = [] } = useQuery<Review[]>({ queryKey: ["reviews", platformFilter, ratingFilter, replyFilter], queryFn: () => apiFetch(`/api/reviews?platform=${platformFilter === "all" ? "" : platformFilter}&rating=${ratingFilter === "all" ? "" : ratingFilter}&replied=${replyFilter === "unanswered" ? "false" : ""}`) });
-  const { data: requests = [] } = useQuery<ReviewRequest[]>({ queryKey: ["review-requests"], queryFn: () => apiFetch("/api/review-requests") });
+  const { data: reviewsResponse = [] } = useQuery<Review[]>({ queryKey: ["reviews", platformFilter, ratingFilter, replyFilter], queryFn: () => apiFetch(`/api/reviews?platform=${platformFilter === "all" ? "" : platformFilter}&rating=${ratingFilter === "all" ? "" : ratingFilter}&replied=${replyFilter === "unanswered" ? "false" : ""}`) });
+  const { data: requestsResponse = [] } = useQuery<ReviewRequest[]>({ queryKey: ["review-requests"], queryFn: () => apiFetch("/api/review-requests") });
+  const sources = asArray<ReviewSource>(sourcesResponse);
+  const reviews = asArray<Review>(reviewsResponse);
+  const requests = asArray<ReviewRequest>(requestsResponse);
 
   const addSource = useMutation({
     mutationFn: (body: object) => apiFetch("/api/review-sources", { method: "POST", body: JSON.stringify(body) }),

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Mail, Plus, Search, Edit3, Trash2, Copy, Eye, Save, X, Star } from "lucide-react";
+import { apiFetch } from "@/lib/api";
+import { asArray } from "@/lib/data-shape";
 
 interface EmailTemplate {
   id: number;
@@ -29,13 +31,6 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 const VARS = ["{{firstName}}", "{{lastName}}", "{{email}}", "{{company}}", "{{senderName}}", "{{appointmentDate}}", "{{appointmentTime}}"];
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-async function apiFetch(path: string, opts?: RequestInit) {
-  const res = await fetch(`${BASE}${path}`, { headers: { "Content-Type": "application/json" }, ...opts });
-  if (!res.ok) throw new Error(await res.text());
-  return res.status === 204 ? null : res.json();
-}
-
 type ModalMode = { type: "none" } | { type: "edit"; template: EmailTemplate } | { type: "create" } | { type: "preview"; template: EmailTemplate };
 
 export default function EmailTemplates() {
@@ -50,10 +45,11 @@ export default function EmailTemplates() {
   function openCreate() { setForm({ name: "", subject: "", body: "", previewText: "", category: "general" }); setModal({ type: "create" }); }
   function openEdit(t: EmailTemplate) { setForm({ name: t.name, subject: t.subject, body: t.body, previewText: t.previewText ?? "", category: t.category }); setModal({ type: "edit", template: t }); }
 
-  const { data: templates = [], isLoading } = useQuery<EmailTemplate[]>({
+  const { data: templatesResponse = [], isLoading } = useQuery<EmailTemplate[]>({
     queryKey: ["email-templates"],
     queryFn: () => apiFetch("/api/email-templates"),
   });
+  const templates = asArray<EmailTemplate>(templatesResponse);
 
   const create = useMutation({
     mutationFn: (body: object) => apiFetch("/api/email-templates", { method: "POST", body: JSON.stringify(body) }),

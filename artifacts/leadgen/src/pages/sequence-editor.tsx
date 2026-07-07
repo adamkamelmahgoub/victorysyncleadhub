@@ -25,8 +25,8 @@ import {
   Check,
 } from "lucide-react";
 import { Link } from "wouter";
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { apiFetch } from "@/lib/api";
+import { asArray } from "@/lib/data-shape";
 
 type Step = {
   id: number;
@@ -183,22 +183,23 @@ export default function SequenceEditorPage() {
   const [savingStep, setSavingStep] = useState<number | null>(null);
 
   const loadSeq = useCallback(async () => {
-    const r = await fetch(`${BASE}/api/sequences/${id}`);
-    if (r.ok) setSeq(await r.json());
+    setSeq(await apiFetch(`/api/sequences/${id}`) as Sequence);
   }, [id]);
 
   useEffect(() => {
     loadSeq();
-    fetch(`${BASE}/api/leads`).then((r) => r.ok && r.json()).then((d) => d && setLeads(d.leads ?? d));
-    fetch(`${BASE}/api/email-accounts`).then((r) => r.ok && r.json()).then((d) => d && setAccounts(d));
+    apiFetch("/api/leads").then((d) => {
+      const response = d as { leads?: Lead[] } | Lead[];
+      setLeads(Array.isArray(response) ? response : asArray<Lead>(response.leads));
+    });
+    apiFetch("/api/email-accounts").then((d) => setAccounts(asArray<EmailAccount>(d)));
   }, [loadSeq]);
 
   async function addStep() {
     if (!seq) return;
     const nextNum = (seq.steps.length ?? 0) + 1;
-    await fetch(`${BASE}/api/sequences/${id}/steps`, {
+    await apiFetch(`/api/sequences/${id}/steps`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sequenceId: id,
         stepNumber: nextNum,
@@ -212,9 +213,8 @@ export default function SequenceEditorPage() {
 
   async function updateStep(stepId: number, data: Partial<Step>) {
     setSavingStep(stepId);
-    await fetch(`${BASE}/api/sequences/${id}/steps/${stepId}`, {
+    await apiFetch(`/api/sequences/${id}/steps/${stepId}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
     setSavingStep(null);
@@ -222,23 +222,21 @@ export default function SequenceEditorPage() {
   }
 
   async function deleteStep(stepId: number) {
-    await fetch(`${BASE}/api/sequences/${id}/steps/${stepId}`, { method: "DELETE" });
+    await apiFetch(`/api/sequences/${id}/steps/${stepId}`, { method: "DELETE" });
     loadSeq();
   }
 
   async function updateName(newName: string) {
-    await fetch(`${BASE}/api/sequences/${id}`, {
+    await apiFetch(`/api/sequences/${id}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: newName }),
     });
     loadSeq();
   }
 
   async function updateAccount(emailAccountId: number) {
-    await fetch(`${BASE}/api/sequences/${id}`, {
+    await apiFetch(`/api/sequences/${id}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ emailAccountId }),
     });
     loadSeq();
@@ -248,12 +246,10 @@ export default function SequenceEditorPage() {
     if (!selectedLeads.size) return;
     setEnrolling(true);
     try {
-      const r = await fetch(`${BASE}/api/sequences/${id}/enroll`, {
+      const data = await apiFetch(`/api/sequences/${id}/enroll`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ leadIds: Array.from(selectedLeads) }),
-      });
-      const data = await r.json();
+      }) as { enrolled: number };
       toast({ title: `${data.enrolled} lead${data.enrolled !== 1 ? "s" : ""} enrolled` });
       setEnrollOpen(false);
       setSelectedLeads(new Set());

@@ -3,8 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, User, Building2, Star, GripVertical } from "lucide-react";
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { apiFetch } from "@/lib/api";
+import { asArray } from "@/lib/data-shape";
 
 type Lead = {
   id: number;
@@ -115,8 +115,11 @@ export default function PipelinePage() {
   const { toast } = useToast();
 
   const load = useCallback(async () => {
-    const r = await fetch(`${BASE}/api/pipeline/leads`);
-    if (r.ok) setData(await r.json());
+    const result = await apiFetch("/api/pipeline/leads") as Partial<PipelineData>;
+    setData({
+      stages: asArray<Stage>(result.stages),
+      unassigned: asArray<Lead>(result.unassigned),
+    });
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -124,12 +127,12 @@ export default function PipelinePage() {
   async function handleDrop(stageId: number) {
     if (!draggingId) return;
     setDraggingId(null);
-    const r = await fetch(`${BASE}/api/pipeline/leads/${draggingId}/stage`, {
+    try {
+      await apiFetch(`/api/pipeline/leads/${draggingId}/stage`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ stageId }),
-    });
-    if (!r.ok) {
+      });
+    } catch {
       toast({ title: "Failed to move lead", variant: "destructive" });
     }
     load();
@@ -138,9 +141,8 @@ export default function PipelinePage() {
   async function handleDropUnassigned() {
     if (!draggingId) return;
     setDraggingId(null);
-    await fetch(`${BASE}/api/pipeline/leads/${draggingId}/stage`, {
+    await apiFetch(`/api/pipeline/leads/${draggingId}/stage`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ stageId: null }),
     });
     load();

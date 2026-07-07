@@ -15,6 +15,7 @@ import { Link } from "wouter";
 import { useListCampaigns } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow, parseISO } from "date-fns";
+import { asArray, type ArrayElement } from "@/lib/data-shape";
 
 export default function Forms() {
   const [showCreate, setShowCreate] = useState(false);
@@ -23,8 +24,10 @@ export default function Forms() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: forms, isLoading } = useListForms();
+  const { data: formsResponse, isLoading } = useListForms();
   const { data: campaigns } = useListCampaigns();
+  const forms = asArray<ArrayElement<NonNullable<typeof formsResponse>>>(formsResponse);
+  const campaignRows = asArray<ArrayElement<NonNullable<typeof campaigns>>>(campaigns);
   const createForm = useCreateForm();
   const deleteForm = useDeleteForm();
 
@@ -80,7 +83,7 @@ export default function Forms() {
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-52" />)}
           </div>
-        ) : !forms?.length ? (
+        ) : forms.length === 0 ? (
           <Card className="p-12 border border-border bg-card text-center">
             <FormInput className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
             <p className="text-foreground font-medium">No forms yet</p>
@@ -168,7 +171,7 @@ export default function Forms() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="">No campaign</SelectItem>
-                    {(campaigns ?? []).map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
+                    {campaignRows.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

@@ -18,14 +18,14 @@ router.post("/meeting/event-types", async (req, res) => {
   res.status(201).json(type);
 });
 
-router.get("/meeting/event-types/:id", async (req, res) => {
-  const [type] = await db.select().from(meetingEventTypesTable).where(eq(meetingEventTypesTable.id, parseInt(req.params.id)));
+router.get("/meeting/event-types/slug/:slug", async (req, res) => {
+  const [type] = await db.select().from(meetingEventTypesTable).where(eq(meetingEventTypesTable.slug, req.params.slug));
   if (!type) { res.status(404).json({ error: "Not found" }); return; }
   res.json(type);
 });
 
-router.get("/meeting/event-types/slug/:slug", async (req, res) => {
-  const [type] = await db.select().from(meetingEventTypesTable).where(eq(meetingEventTypesTable.slug, req.params.slug));
+router.get("/meeting/event-types/:id", async (req, res) => {
+  const [type] = await db.select().from(meetingEventTypesTable).where(eq(meetingEventTypesTable.id, parseInt(req.params.id)));
   if (!type) { res.status(404).json({ error: "Not found" }); return; }
   res.json(type);
 });

@@ -23,8 +23,8 @@ import {
   ChevronUp,
   Send,
 } from "lucide-react";
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { apiFetch } from "@/lib/api";
+import { asArray } from "@/lib/data-shape";
 
 type Account = {
   id: number;
@@ -70,8 +70,7 @@ const PROVIDERS = [
 function useAccounts() {
   const [accounts, setAccounts] = React.useState<Account[]>([]);
   const load = React.useCallback(async () => {
-    const r = await fetch(`${BASE}/api/email-accounts`);
-    if (r.ok) setAccounts(await r.json());
+    setAccounts(asArray<Account>(await apiFetch("/api/email-accounts")));
   }, []);
   React.useEffect(() => { load(); }, [load]);
   return { accounts, reload: load };
@@ -106,16 +105,10 @@ export default function EmailAccountsPage() {
   async function handleSave() {
     setSaving(true);
     try {
-      const r = await fetch(`${BASE}/api/email-accounts`, {
+      await apiFetch("/api/email-accounts", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
-      if (!r.ok) {
-        const e = await r.json();
-        toast({ title: "Error", description: JSON.stringify(e.error), variant: "destructive" });
-        return;
-      }
       toast({ title: "Account connected" });
       setOpen(false);
       reload();
@@ -125,20 +118,19 @@ export default function EmailAccountsPage() {
   }
 
   async function handleDelete(id: number) {
-    await fetch(`${BASE}/api/email-accounts/${id}`, { method: "DELETE" });
+    await apiFetch(`/api/email-accounts/${id}`, { method: "DELETE" });
     reload();
   }
 
   async function handleSetDefault(id: number) {
-    await fetch(`${BASE}/api/email-accounts/${id}/set-default`, { method: "POST" });
+    await apiFetch(`/api/email-accounts/${id}/set-default`, { method: "POST" });
     reload();
   }
 
   async function handleTest(id: number) {
     setTesting(id);
     try {
-      const r = await fetch(`${BASE}/api/email-accounts/${id}/test`, { method: "POST" });
-      const data = await r.json();
+      const data = await apiFetch(`/api/email-accounts/${id}/test`, { method: "POST" }) as { success: boolean; message: string };
       setTestResult((prev) => ({ ...prev, [id]: { ok: data.success, msg: data.message } }));
     } finally {
       setTesting(null);

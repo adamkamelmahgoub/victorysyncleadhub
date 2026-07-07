@@ -7,6 +7,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCreateLead, getListLeadsQueryKey } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
+import { apiFetch } from "@/lib/api";
+import { asArray } from "@/lib/data-shape";
 import {
   Globe,
   Search,
@@ -33,8 +35,6 @@ interface ScrapedLead {
   sourceUrl: string;
   confidence: "high" | "medium" | "low";
 }
-
-const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
 const CONF_COLOR: Record<string, string> = {
   high: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30",
@@ -178,11 +178,10 @@ export default function ScraperPage() {
     if (!urlInput.trim()) return;
     setUrlLoading(true); setUrlError(""); setUrlResults([]); setUrlSelected(new Set());
     try {
-      const res = await fetch(`${BASE}/api/scraper/url`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: urlInput.trim() }) });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Scraping failed");
-      setUrlResults(data.leads ?? []); setUrlTitle(data.pageTitle ?? urlInput);
-      if (!data.leads?.length) setUrlError("No contacts found. Try a /team, /about, or /people page with email addresses visible.");
+      const data = await apiFetch("/api/scraper/url", { method: "POST", body: JSON.stringify({ url: urlInput.trim() }) }) as { leads?: ScrapedLead[]; pageTitle?: string };
+      const leads = asArray<ScrapedLead>(data.leads);
+      setUrlResults(leads); setUrlTitle(data.pageTitle ?? urlInput);
+      if (!leads.length) setUrlError("No contacts found. Try a /team, /about, or /people page with email addresses visible.");
     } catch (err) { setUrlError(String(err instanceof Error ? err.message : err)); }
     finally { setUrlLoading(false); }
   }
@@ -191,13 +190,12 @@ export default function ScraperPage() {
     if (!domainInput.trim()) return;
     setDomainLoading(true); setDomainError(""); setDomainResults([]); setDomainSelected(new Set()); setDomainPatterns([]);
     try {
-      const res = await fetch(`${BASE}/api/scraper/domain`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain: domainInput.trim() }) });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Domain search failed");
-      setDomainResults(data.leads ?? []);
-      setDomainPatterns(data.emailPatterns ?? []);
+      const data = await apiFetch("/api/scraper/domain", { method: "POST", body: JSON.stringify({ domain: domainInput.trim() }) }) as { leads?: ScrapedLead[]; emailPatterns?: string[]; pagesChecked?: number };
+      const leads = asArray<ScrapedLead>(data.leads);
+      setDomainResults(leads);
+      setDomainPatterns(asArray<string>(data.emailPatterns));
       setDomainChecked(data.pagesChecked ?? 0);
-      if (!data.leads?.length) setDomainError("No contacts found on this domain's team/about pages. They may use a JS-rendered site. Try pasting a specific URL instead.");
+      if (!leads.length) setDomainError("No contacts found on this domain's team/about pages. They may use a JS-rendered site. Try pasting a specific URL instead.");
     } catch (err) { setDomainError(String(err instanceof Error ? err.message : err)); }
     finally { setDomainLoading(false); }
   }
@@ -206,11 +204,10 @@ export default function ScraperPage() {
     if (!searchQuery.trim()) return;
     setSearchLoading(true); setSearchError(""); setSearchResults([]); setSearchSelected(new Set()); setPagesScraped(0);
     try {
-      const res = await fetch(`${BASE}/api/scraper/search`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: searchQuery.trim() }) });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Search failed");
-      setSearchResults(data.leads ?? []); setPagesScraped(data.pagesScraped ?? 0);
-      if (!data.leads?.length) setSearchError(data.message ?? "No contacts found. Try using Company Domain for specific companies, or paste a direct URL.");
+      const data = await apiFetch("/api/scraper/search", { method: "POST", body: JSON.stringify({ query: searchQuery.trim() }) }) as { leads?: ScrapedLead[]; pagesScraped?: number; message?: string };
+      const leads = asArray<ScrapedLead>(data.leads);
+      setSearchResults(leads); setPagesScraped(data.pagesScraped ?? 0);
+      if (!leads.length) setSearchError(data.message ?? "No contacts found. Try using Company Domain for specific companies, or paste a direct URL.");
     } catch (err) { setSearchError(String(err instanceof Error ? err.message : err)); }
     finally { setSearchLoading(false); }
   }

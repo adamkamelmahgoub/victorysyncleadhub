@@ -12,8 +12,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 import { Plus, Mail, Users, BarChart3, PlayCircle, PauseCircle, Trash2, ArrowRight } from "lucide-react";
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { apiFetch } from "@/lib/api";
+import { asArray } from "@/lib/data-shape";
 
 type Sequence = {
   id: number;
@@ -34,8 +34,8 @@ export default function SequencesPage() {
   const { toast } = useToast();
 
   const load = useCallback(async () => {
-    const r = await fetch(`${BASE}/api/sequences`);
-    if (r.ok) setSequences(await r.json());
+    const result = await apiFetch("/api/sequences");
+    setSequences(asArray<Sequence>(result));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -44,17 +44,14 @@ export default function SequencesPage() {
     if (!name.trim()) return;
     setSaving(true);
     try {
-      const r = await fetch(`${BASE}/api/sequences`, {
+      await apiFetch("/api/sequences", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim(), status: "draft" }),
       });
-      if (r.ok) {
-        toast({ title: "Sequence created" });
-        setOpen(false);
-        setName("");
-        load();
-      }
+      toast({ title: "Sequence created" });
+      setOpen(false);
+      setName("");
+      load();
     } finally {
       setSaving(false);
     }
@@ -62,9 +59,8 @@ export default function SequencesPage() {
 
   async function handleToggleStatus(seq: Sequence) {
     const newStatus = seq.status === "active" ? "paused" : "active";
-    await fetch(`${BASE}/api/sequences/${seq.id}`, {
+    await apiFetch(`/api/sequences/${seq.id}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: newStatus }),
     });
     load();
@@ -72,7 +68,7 @@ export default function SequencesPage() {
 
   async function handleDelete(id: number) {
     if (!confirm("Delete this sequence and all its enrollments?")) return;
-    await fetch(`${BASE}/api/sequences/${id}`, { method: "DELETE" });
+    await apiFetch(`/api/sequences/${id}`, { method: "DELETE" });
     load();
     toast({ title: "Sequence deleted" });
   }

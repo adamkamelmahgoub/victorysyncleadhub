@@ -8,8 +8,11 @@ import {
   User, Facebook, Instagram, ExternalLink, Plug,
 } from "lucide-react";
 import { Link } from "wouter";
+import { apiFetch } from "@/lib/api";
+import { asArray } from "@/lib/data-shape";
 
 type Channel = "all" | "email" | "sms" | "facebook" | "instagram" | "whatsapp";
+type EmailLog = { id: number; leadId: number; subject?: string; body?: string; sentAt?: string; status?: string };
 
 const CHANNEL_CONFIG: Record<Channel, { label: string; color: string; icon: React.ElementType; connected: boolean }> = {
   all: { label: "All", color: "text-foreground", icon: MessageSquare, connected: true },
@@ -19,8 +22,6 @@ const CHANNEL_CONFIG: Record<Channel, { label: string; color: string; icon: Reac
   instagram: { label: "Instagram", color: "text-pink-500", icon: Instagram, connected: false },
   whatsapp: { label: "WhatsApp", color: "text-green-500", icon: MessageSquare, connected: false },
 };
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 const STATUS_COLOR: Record<string, string> = {
   new: "bg-blue-100 text-blue-700",
@@ -48,9 +49,7 @@ export default function Conversations() {
     queryKey: ["activities", selectedId],
     queryFn: async () => {
       if (!selectedId) return [];
-      const res = await fetch(`${BASE}/api/leads/${selectedId}/activities`);
-      if (!res.ok) return [];
-      return res.json();
+      return asArray(await apiFetch(`/api/leads/${selectedId}/activities`));
     },
     enabled: !!selectedId,
   });
@@ -58,10 +57,8 @@ export default function Conversations() {
   const { data: emailLogs } = useQuery({
     queryKey: ["email-logs", selectedId],
     queryFn: async () => {
-      const res = await fetch(`${BASE}/api/email/logs`);
-      if (!res.ok) return [];
-      const all = await res.json();
-      return all.filter((l: { leadId: number }) => l.leadId === selectedId);
+      const all = asArray<EmailLog>(await apiFetch("/api/email/logs"));
+      return all.filter((l) => l.leadId === selectedId);
     },
     enabled: !!selectedId,
   });
@@ -230,7 +227,7 @@ export default function Conversations() {
               </div>
 
               {/* Real email logs */}
-              {Array.isArray(emailLogs) && emailLogs.map((log: { id: number; subject: string; body: string; sentAt: string; status: string }) => (
+              {Array.isArray(emailLogs) && emailLogs.map((log: EmailLog) => (
                 <div key={log.id} className="flex gap-3 justify-end">
                   <div className="max-w-lg">
                     <div className="bg-primary text-white rounded-2xl rounded-tr-sm px-4 py-2.5">

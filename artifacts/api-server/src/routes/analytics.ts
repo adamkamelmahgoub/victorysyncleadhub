@@ -76,6 +76,19 @@ router.get("/analytics/by-source", async (_req, res): Promise<void> => {
   res.json(rows.map((r) => ({ source: r.source ?? "Unknown", count: r.count })));
 });
 
+router.get("/analytics/lead-sources", async (_req, res): Promise<void> => {
+  const rows = await db
+    .select({
+      source: sql<string>`COALESCE(source, 'Unknown')`,
+      count: sql<number>`COUNT(*)::int`,
+    })
+    .from(leadsTable)
+    .groupBy(leadsTable.source)
+    .orderBy(desc(sql`COUNT(*)`));
+
+  res.json(rows.map((r) => ({ source: r.source ?? "Unknown", count: r.count })));
+});
+
 router.get("/analytics/by-campaign", async (_req, res): Promise<void> => {
   const rows = await db
     .select({

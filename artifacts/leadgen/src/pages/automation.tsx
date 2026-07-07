@@ -6,6 +6,8 @@ import {
   TrendingUp, Copy, Search, X, ArrowUp, ArrowDown,
   Save, Edit3, Globe, FileText, Bell,
 } from "lucide-react";
+import { apiFetch } from "@/lib/api";
+import { asArray } from "@/lib/data-shape";
 
 type TriggerType = "contact_created" | "tag_added" | "form_submitted" | "appointment_scheduled" |
   "opportunity_stage_changed" | "email_opened" | "sms_replied" | "deal_won" | "page_visit";
@@ -151,13 +153,6 @@ const TEMPLATES = [
   { name: "Blank Workflow", triggerType: "contact_created" as TriggerType, actions: [] },
 ];
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-async function apiFetch(path: string, opts?: RequestInit) {
-  const res = await fetch(`${BASE}${path}`, { headers: { "Content-Type": "application/json" }, ...opts });
-  if (!res.ok) throw new Error(await res.text());
-  return res.status === 204 ? null : res.json();
-}
-
 function ActionCard({
   action, index, total, editing, onEdit, onDelete, onMove, onChange,
 }: {
@@ -269,10 +264,11 @@ export default function Automation() {
   const [editingStep, setEditingStep] = useState<number | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
 
-  const { data: automations = [], isLoading } = useQuery<Automation[]>({
+  const { data: automationsResponse = [], isLoading } = useQuery<Automation[]>({
     queryKey: ["automations"],
     queryFn: () => apiFetch("/api/automations"),
   });
+  const automations = asArray<Automation>(automationsResponse);
 
   const create = useMutation({
     mutationFn: (body: object) => apiFetch("/api/automations", { method: "POST", body: JSON.stringify(body) }),

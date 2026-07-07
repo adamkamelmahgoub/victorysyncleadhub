@@ -3,6 +3,7 @@ import { apiFetch } from "@/lib/api";
 import { Mail, Eye, MessageSquare, Users, ChevronDown, ChevronUp } from "lucide-react";
 import { useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { asArray } from "@/lib/data-shape";
 
 interface Sequence { id: number; name: string; status: string; totalEnrolled: number; totalSent: number; totalOpened: number; totalReplied: number; }
 
@@ -69,8 +70,9 @@ function SequenceCard({ seq }: { seq: Sequence }) {
 }
 
 export default function SequenceAnalytics() {
-  const { data: sequences = [] } = useQuery<Sequence[]>({ queryKey: ["sequences-analytics"], queryFn: () => apiFetch("/sequences") });
+  const { data: sequencesResponse = [] } = useQuery<Sequence[]>({ queryKey: ["sequences-analytics"], queryFn: () => apiFetch("/sequences") });
   const [sortBy, setSortBy] = useState("openRate");
+  const sequences = asArray<Sequence>(sequencesResponse);
 
   const totalEnrolled = sequences.reduce((s, q) => s + q.totalEnrolled, 0);
   const totalSent = sequences.reduce((s, q) => s + q.totalSent, 0);

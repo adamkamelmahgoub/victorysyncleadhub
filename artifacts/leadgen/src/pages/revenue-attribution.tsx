@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { DollarSign, TrendingUp, Users, Target, ArrowRight, BarChart3 } from "lucide-react";
 import { useState } from "react";
+import { asArray } from "@/lib/data-shape";
 
 interface Lead { id: number; firstName: string; lastName: string; source?: string; status: string; score: number; campaignName?: string; createdAt: string; }
 
@@ -48,9 +49,9 @@ function StageBar({ label, count, color }: { label: string; count: number; color
 export default function RevenueAttribution() {
   const [period, setPeriod] = useState("30");
   const { data: leadsData } = useQuery({ queryKey: ["leads-attribution"], queryFn: () => apiFetch("/leads?limit=500") });
-  const { data: analytics } = useQuery({ queryKey: ["analytics-attribution"], queryFn: () => apiFetch("/analytics/lead-sources") });
 
-  const leads: Lead[] = leadsData?.leads || [];
+  const leadResponse = leadsData as { leads?: Lead[] } | undefined;
+  const leads: Lead[] = asArray<Lead>(leadResponse?.leads);
   const cutoff = new Date(Date.now() - parseInt(period) * 24 * 60 * 60 * 1000);
   const periodLeads = leads.filter(l => new Date(l.createdAt) > cutoff);
 
@@ -59,8 +60,8 @@ export default function RevenueAttribution() {
     const src = l.source?.replace(/_/g, " ") || "Unknown";
     if (!bySource[src]) bySource[src] = { count: 0, qualified: 0, closed: 0 };
     bySource[src].count++;
-    if (l.status === "qualified" || l.status === "proposal" || l.status === "closed") bySource[src].qualified++;
-    if (l.status === "closed") bySource[src].closed++;
+    if (l.status === "qualified" || l.status === "proposal" || l.status === "converted") bySource[src].qualified++;
+    if (l.status === "converted") bySource[src].closed++;
   });
 
   const sourceSorted = Object.entries(bySource).sort((a, b) => b[1].count - a[1].count);
@@ -68,11 +69,11 @@ export default function RevenueAttribution() {
 
   const byStatus: Record<string, number> = {};
   periodLeads.forEach(l => { byStatus[l.status] = (byStatus[l.status] || 0) + 1; });
-  const STATUS_COLORS: Record<string, string> = { new: "#6b7280", contacted: "#3b82f6", qualified: "#8b5cf6", proposal: "#f59e0b", closed: "#10b981", lost: "#ef4444" };
+  const STATUS_COLORS: Record<string, string> = { new: "#6b7280", contacted: "#3b82f6", qualified: "#8b5cf6", proposal: "#f59e0b", converted: "#10b981", lost: "#ef4444" };
 
   const avgScore = periodLeads.length ? Math.round(periodLeads.reduce((s, l) => s + l.score, 0) / periodLeads.length) : 0;
-  const qualified = periodLeads.filter(l => ["qualified", "proposal", "closed"].includes(l.status)).length;
-  const closed = periodLeads.filter(l => l.status === "closed").length;
+  const qualified = periodLeads.filter(l => ["qualified", "proposal", "converted"].includes(l.status)).length;
+  const closed = periodLeads.filter(l => l.status === "converted").length;
   const estRevenue = closed * 4800;
 
   const byCampaign: Record<string, number> = {};

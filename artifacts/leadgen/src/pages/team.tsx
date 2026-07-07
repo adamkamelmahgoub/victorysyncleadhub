@@ -5,6 +5,7 @@ import {
   CheckCircle, Clock, XCircle, Trash2, Edit3, Search, Crown, Copy,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { asArray } from "@/lib/data-shape";
 
 interface TeamMember {
   id: number;
@@ -55,10 +56,11 @@ export default function Team() {
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const [createdInvite, setCreatedInvite] = useState<InviteResponse["invite"] | null>(null);
 
-  const { data: members = [], isLoading } = useQuery<TeamMember[]>({
+  const { data: membersResponse = [], isLoading } = useQuery<TeamMember[]>({
     queryKey: ["team"],
     queryFn: () => apiFetch("/team"),
   });
+  const members = asArray<TeamMember>(membersResponse);
 
   const invite = useMutation({
     mutationFn: (body: typeof form) => apiFetch("/team/invite", { method: "POST", body: JSON.stringify(body) }) as Promise<InviteResponse>,

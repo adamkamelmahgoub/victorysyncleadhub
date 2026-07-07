@@ -20,6 +20,7 @@ import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { apiFetch } from "@/lib/api";
+import { asArray, type ArrayElement } from "@/lib/data-shape";
 
 const SOURCE_TYPES = ["email", "linkedin", "paid_search", "organic", "referral", "event", "social", "other"];
 const STATUS_COLORS: Record<string, string> = {
@@ -54,10 +55,11 @@ export default function Campaigns() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: campaigns, isLoading } = useListCampaigns();
+  const { data: campaignsResponse, isLoading } = useListCampaigns();
   const createCampaign = useCreateCampaign();
   const deleteCampaign = useDeleteCampaign();
   const { data: leadsData } = useListLeads();
+  const campaigns = asArray<ArrayElement<NonNullable<typeof campaignsResponse>>>(campaignsResponse);
 
   const filteredLeads = useMemo(() => {
     const all = leadsData?.leads ?? [];
@@ -167,7 +169,7 @@ export default function Campaigns() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Campaigns</h1>
-            <p className="text-sm text-muted-foreground mt-1">{campaigns?.length ?? 0} campaigns</p>
+            <p className="text-sm text-muted-foreground mt-1">{campaigns.length} campaigns</p>
           </div>
           <Button size="sm" onClick={openWizard} className="gap-1.5">
             <Plus className="w-4 h-4" /> New Campaign
@@ -178,7 +180,7 @@ export default function Campaigns() {
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-44" />)}
           </div>
-        ) : !campaigns?.length ? (
+        ) : campaigns.length === 0 ? (
           <Card className="p-12 border border-border bg-card text-center">
             <Megaphone className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
             <p className="text-foreground font-medium">No campaigns yet</p>

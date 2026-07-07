@@ -1,6 +1,8 @@
 import { useState, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Upload, FileText, CheckCircle, AlertCircle, X, Download, ChevronRight } from "lucide-react";
+import { apiFetch } from "@/lib/api";
+import { Link } from "wouter";
 
 const LEAD_FIELDS = [
   { key: "firstName", label: "First Name", required: true },
@@ -32,8 +34,6 @@ function downloadTemplate() {
   a.click();
 }
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-
 export default function LeadImport() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<"upload" | "map" | "preview" | "done">("upload");
@@ -45,13 +45,10 @@ export default function LeadImport() {
 
   const importMutation = useMutation({
     mutationFn: async (leads: object[]) => {
-      const res = await fetch(`${BASE}/api/leads/import`, {
+      return apiFetch("/api/leads/import", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ leads }),
       });
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
     },
     onSuccess: (data) => { setResult(data); setStep("done"); },
   });
@@ -270,9 +267,9 @@ export default function LeadImport() {
               </div>
             )}
             <div className="flex gap-3 justify-center">
-              <a href={`${BASE}/leads`} className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90">
+              <Link href="/leads" className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90">
                 View Contacts
-              </a>
+              </Link>
               <button
                 onClick={() => { setStep("upload"); setParsed(null); setMapping({}); setResult(null); setFileName(""); }}
                 className="px-4 py-2 text-sm font-medium border border-border rounded-lg text-muted-foreground hover:bg-muted"

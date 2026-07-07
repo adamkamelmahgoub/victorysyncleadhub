@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { asArray } from "@/lib/data-shape";
 
 interface Affiliate { id: number; name: string; email: string; phone?: string; company?: string; referralCode: string; commissionRate: string; status: string; totalReferrals: number; totalConverted: number; totalEarned: string; totalPaid: string; }
 interface Referral { id: number; affiliateId: number; referredEmail: string; referredName?: string; referredCompany?: string; status: string; dealValue?: string; commission?: string; commissionPaid: boolean; createdAt: string; }
@@ -23,13 +24,15 @@ export default function Affiliates() {
   const [form, setForm] = useState({ name: "", email: "", phone: "", company: "", commissionRate: "20.00", referralCode: "" });
   const [refForm, setRefForm] = useState({ referredEmail: "", referredName: "", referredCompany: "" });
 
-  const { data: affiliates = [] } = useQuery<Affiliate[]>({ queryKey: ["affiliates"], queryFn: () => apiFetch("/affiliates") });
+  const { data: affiliatesResponse = [] } = useQuery<Affiliate[]>({ queryKey: ["affiliates"], queryFn: () => apiFetch("/affiliates") });
   const { data: stats } = useQuery({ queryKey: ["affiliates-stats"], queryFn: () => apiFetch("/affiliates-stats") });
-  const { data: referrals = [] } = useQuery<Referral[]>({
+  const { data: referralsResponse = [] } = useQuery<Referral[]>({
     queryKey: ["referrals", selected?.id],
     queryFn: () => apiFetch(`/affiliates/${selected!.id}/referrals`),
     enabled: !!selected,
   });
+  const affiliates = asArray<Affiliate>(affiliatesResponse);
+  const referrals = asArray<Referral>(referralsResponse);
 
   const addAffiliate = useMutation({
     mutationFn: (data: typeof form) => apiFetch("/affiliates", { method: "POST", body: JSON.stringify(data) }),
