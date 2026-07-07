@@ -7,3 +7,6 @@ export * from "./email-accounts";
 export * from "./pipeline-stages";
 export * from "./sequences";
 export * from "./email-logs";
+export * from "./team-members";
+export * from "./integrations";
+export * from "./automations";

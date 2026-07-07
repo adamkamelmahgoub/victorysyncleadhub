@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Layout } from "@/components/layout";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Zap, Plus, Play, Pause, Trash2, MoreHorizontal, ChevronRight,
-  Mail, Clock, Tag, User, GitBranch, MessageSquare, Star,
+  Zap, Plus, Play, Pause, Trash2, ChevronRight,
+  Mail, Clock, Tag, User, GitBranch, MessageSquare,
   TrendingUp, Edit3, Copy, Search,
 } from "lucide-react";
 
@@ -14,91 +15,17 @@ interface WorkflowAction {
   config: Record<string, string>;
 }
 
-interface Workflow {
+interface Automation {
   id: number;
   name: string;
-  trigger: TriggerType;
+  triggerType: TriggerType;
+  triggerConfig: Record<string, unknown>;
   actions: WorkflowAction[];
-  status: "active" | "paused" | "draft";
-  enrolled: number;
-  completed: number;
+  isActive: boolean;
+  enrolledCount: number;
+  completedCount: number;
   createdAt: string;
 }
-
-const SAMPLE_WORKFLOWS: Workflow[] = [
-  {
-    id: 1,
-    name: "New Lead Welcome Sequence",
-    trigger: "contact_created",
-    actions: [
-      { type: "send_email", config: { subject: "Welcome!", delay: "0" } },
-      { type: "wait", config: { days: "1" } },
-      { type: "add_tag", config: { tag: "welcomed" } },
-      { type: "enroll_sequence", config: { sequence: "Nurture Series" } },
-    ],
-    status: "active",
-    enrolled: 124,
-    completed: 89,
-    createdAt: "2024-06-01",
-  },
-  {
-    id: 2,
-    name: "Form Submission Follow-up",
-    trigger: "form_submitted",
-    actions: [
-      { type: "send_email", config: { subject: "Got your info!" } },
-      { type: "wait", config: { days: "2" } },
-      { type: "update_status", config: { status: "contacted" } },
-    ],
-    status: "active",
-    enrolled: 67,
-    completed: 42,
-    createdAt: "2024-06-10",
-  },
-  {
-    id: 3,
-    name: "Deal Won Celebration",
-    trigger: "opportunity_stage_changed",
-    actions: [
-      { type: "send_email", config: { subject: "🎉 Welcome aboard!" } },
-      { type: "add_tag", config: { tag: "customer" } },
-      { type: "assign_user", config: { user: "Account Manager" } },
-    ],
-    status: "active",
-    enrolled: 23,
-    completed: 23,
-    createdAt: "2024-06-15",
-  },
-  {
-    id: 4,
-    name: "Re-engagement Campaign",
-    trigger: "tag_added",
-    actions: [
-      { type: "wait", config: { days: "3" } },
-      { type: "send_email", config: { subject: "Still interested?" } },
-      { type: "wait", config: { days: "5" } },
-      { type: "send_sms", config: { message: "Hi {{firstName}}, just checking in!" } },
-    ],
-    status: "paused",
-    enrolled: 45,
-    completed: 12,
-    createdAt: "2024-06-20",
-  },
-  {
-    id: 5,
-    name: "Post-Appointment Follow-up",
-    trigger: "appointment_scheduled",
-    actions: [
-      { type: "send_email", config: { subject: "Your appointment is confirmed!" } },
-      { type: "wait", config: { days: "1" } },
-      { type: "send_sms", config: { message: "Reminder: your call is tomorrow!" } },
-    ],
-    status: "draft",
-    enrolled: 0,
-    completed: 0,
-    createdAt: "2024-07-01",
-  },
-];
 
 const TRIGGER_LABELS: Record<TriggerType, string> = {
   contact_created: "Contact Created",
@@ -135,79 +62,142 @@ const STATUS_STYLES = {
   draft: "bg-gray-100 text-gray-600 border-gray-200",
 };
 
+const TEMPLATES = [
+  {
+    name: "New Lead Welcome",
+    triggerType: "contact_created" as TriggerType,
+    actions: [
+      { type: "send_email" as ActionType, config: { subject: "Welcome!", delay: "0" } },
+      { type: "wait" as ActionType, config: { days: "1" } },
+      { type: "add_tag" as ActionType, config: { tag: "welcomed" } },
+    ],
+  },
+  {
+    name: "Post-Form Follow-up",
+    triggerType: "form_submitted" as TriggerType,
+    actions: [
+      { type: "send_email" as ActionType, config: { subject: "Got your info!" } },
+      { type: "wait" as ActionType, config: { days: "2" } },
+      { type: "update_status" as ActionType, config: { status: "contacted" } },
+    ],
+  },
+  {
+    name: "Deal Won Celebration",
+    triggerType: "opportunity_stage_changed" as TriggerType,
+    actions: [
+      { type: "send_email" as ActionType, config: { subject: "Welcome aboard!" } },
+      { type: "add_tag" as ActionType, config: { tag: "customer" } },
+    ],
+  },
+  { name: "Blank Workflow", triggerType: "contact_created" as TriggerType, actions: [] },
+];
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+async function apiFetch(path: string, opts?: RequestInit) {
+  const res = await fetch(`${BASE}${path}`, { headers: { "Content-Type": "application/json" }, ...opts });
+  if (!res.ok) throw new Error(await res.text());
+  return res.status === 204 ? null : res.json();
+}
+
 export default function Automation() {
-  const [workflows, setWorkflows] = useState<Workflow[]>(SAMPLE_WORKFLOWS);
+  const qc = useQueryClient();
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<Workflow | null>(null);
+  const [selected, setSelected] = useState<Automation | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState("");
+  const [selectedTemplate, setSelectedTemplate] = useState(0);
 
-  const filtered = workflows.filter((w) => w.name.toLowerCase().includes(search.toLowerCase()));
+  const { data: automations = [], isLoading } = useQuery<Automation[]>({
+    queryKey: ["automations"],
+    queryFn: () => apiFetch("/api/automations"),
+  });
 
-  function toggleStatus(id: number) {
-    setWorkflows((prev) =>
-      prev.map((w) =>
-        w.id === id ? { ...w, status: w.status === "active" ? "paused" : "active" } : w
-      )
-    );
-    if (selected?.id === id) {
-      setSelected((s) => s ? { ...s, status: s.status === "active" ? "paused" : "active" } : null);
-    }
-  }
+  const create = useMutation({
+    mutationFn: (body: object) => apiFetch("/api/automations", { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["automations"] });
+      setShowNew(false);
+      setNewName("");
+      setSelectedTemplate(0);
+      setSelected(data);
+    },
+  });
 
-  function deleteWorkflow(id: number) {
-    setWorkflows((prev) => prev.filter((w) => w.id !== id));
-    if (selected?.id === id) setSelected(null);
+  const update = useMutation({
+    mutationFn: ({ id, ...body }: { id: number } & Partial<Automation>) =>
+      apiFetch(`/api/automations/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["automations"] });
+      if (selected?.id === data.id) setSelected(data);
+    },
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: number) => apiFetch(`/api/automations/${id}`, { method: "DELETE" }),
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ["automations"] });
+      if (selected?.id === id) setSelected(null);
+    },
+  });
+
+  function toggleActive(automation: Automation) {
+    update.mutate({ id: automation.id, isActive: !automation.isActive });
   }
 
   function createWorkflow() {
     if (!newName.trim()) return;
-    const w: Workflow = {
-      id: Date.now(),
+    const tmpl = TEMPLATES[selectedTemplate];
+    create.mutate({
       name: newName.trim(),
-      trigger: "contact_created",
-      actions: [],
-      status: "draft",
-      enrolled: 0,
-      completed: 0,
-      createdAt: new Date().toISOString().split("T")[0]!,
-    };
-    setWorkflows((prev) => [w, ...prev]);
-    setShowNew(false);
-    setNewName("");
-    setSelected(w);
+      triggerType: tmpl?.triggerType ?? "contact_created",
+      triggerConfig: {},
+      actions: tmpl?.actions ?? [],
+      isActive: false,
+    });
   }
+
+  const filtered = automations.filter((w) => w.name.toLowerCase().includes(search.toLowerCase()));
+
+  const status = (a: Automation): "active" | "paused" | "draft" =>
+    a.actions.length === 0 ? "draft" : a.isActive ? "active" : "paused";
 
   return (
     <Layout>
       <div className="space-y-5">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-foreground">Automation</h1>
             <p className="text-sm text-muted-foreground mt-0.5">Build automated workflows to engage your contacts</p>
           </div>
-          <button onClick={() => setShowNew(true)} className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors">
+          <button
+            onClick={() => setShowNew(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors"
+          >
             <Plus className="w-4 h-4" /> Create Workflow
           </button>
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-4 gap-4">
           {[
-            { label: "Active Workflows", value: workflows.filter((w) => w.status === "active").length, color: "text-green-600", bg: "bg-green-50" },
-            { label: "Total Enrolled", value: workflows.reduce((s, w) => s + w.enrolled, 0), color: "text-blue-600", bg: "bg-blue-50" },
-            { label: "Completed", value: workflows.reduce((s, w) => s + w.completed, 0), color: "text-purple-600", bg: "bg-purple-50" },
-            { label: "Conversion Rate", value: `${Math.round(workflows.reduce((s, w) => s + w.completed, 0) / Math.max(1, workflows.reduce((s, w) => s + w.enrolled, 0)) * 100)}%`, color: "text-orange-600", bg: "bg-orange-50" },
-          ].map((stat) => (
-            <div key={stat.label} className="bg-white rounded-xl border border-border p-4 shadow-sm">
-              <div className="text-xs text-muted-foreground mb-1">{stat.label}</div>
-              <div className={`text-2xl font-bold ${stat.color}`}>{stat.value}</div>
+            { label: "Active Workflows", value: automations.filter((a) => a.isActive).length, color: "text-green-600" },
+            { label: "Total Enrolled", value: automations.reduce((s, a) => s + a.enrolledCount, 0), color: "text-blue-600" },
+            { label: "Completed", value: automations.reduce((s, a) => s + a.completedCount, 0), color: "text-purple-600" },
+            {
+              label: "Conversion Rate",
+              value: `${Math.round(
+                (automations.reduce((s, a) => s + a.completedCount, 0) /
+                  Math.max(1, automations.reduce((s, a) => s + a.enrolledCount, 0))) * 100
+              )}%`,
+              color: "text-primary",
+            },
+          ].map((s) => (
+            <div key={s.label} className="bg-white rounded-xl border border-border shadow-sm p-4">
+              <div className="text-xs text-muted-foreground mb-1">{s.label}</div>
+              <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
             </div>
           ))}
         </div>
 
-        {/* Search */}
         <div className="flex gap-3">
           <div className="relative flex-1 max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -221,92 +211,78 @@ export default function Automation() {
         </div>
 
         {selected ? (
-          /* ── Workflow Detail View ── */
           <div className="space-y-4">
             <button onClick={() => setSelected(null)} className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1">
               ← Back to all workflows
             </button>
-            <div className="grid grid-cols-[1fr_320px] gap-5">
-              {/* Flow builder */}
+            <div className="grid grid-cols-[1fr_280px] gap-5">
               <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
                 <div className="px-5 py-4 border-b border-border flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <h2 className="font-semibold text-foreground">{selected.name}</h2>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${STATUS_STYLES[selected.status]}`}>
-                      {selected.status}
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${STATUS_STYLES[status(selected)]}`}>
+                      {status(selected)}
                     </span>
                   </div>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => toggleStatus(selected.id)}
+                      onClick={() => toggleActive(selected)}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                        selected.status === "active"
+                        selected.isActive
                           ? "bg-amber-100 text-amber-700 hover:bg-amber-200"
                           : "bg-green-100 text-green-700 hover:bg-green-200"
                       }`}
                     >
-                      {selected.status === "active" ? <><Pause className="w-3.5 h-3.5" /> Pause</> : <><Play className="w-3.5 h-3.5" /> Activate</>}
+                      {selected.isActive ? <><Pause className="w-3.5 h-3.5" /> Pause</> : <><Play className="w-3.5 h-3.5" /> Activate</>}
                     </button>
-                    <button className="p-1.5 rounded-lg border border-border hover:bg-muted text-muted-foreground"><Edit3 className="w-4 h-4" /></button>
                   </div>
                 </div>
-                <div className="p-6">
-                  {/* Trigger */}
-                  <div className="flex flex-col items-center">
-                    <div className="w-full max-w-sm">
-                      <div className="bg-primary/10 border-2 border-primary/30 rounded-xl p-4 text-center">
-                        <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center mx-auto mb-2">
-                          <Zap className="w-4 h-4 text-white" />
-                        </div>
-                        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Trigger</div>
-                        <div className="text-sm font-semibold text-foreground">{TRIGGER_LABELS[selected.trigger]}</div>
+                <div className="p-6 flex flex-col items-center">
+                  <div className="w-full max-w-sm">
+                    <div className="bg-primary/10 border-2 border-primary/30 rounded-xl p-4 text-center">
+                      <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center mx-auto mb-2">
+                        <Zap className="w-4 h-4 text-white" />
                       </div>
-
-                      {/* Actions */}
-                      {selected.actions.map((action, i) => {
-                        const Icon = ACTION_ICONS[action.type];
-                        return (
-                          <div key={i} className="flex flex-col items-center">
-                            <div className="w-0.5 h-6 bg-border" />
-                            <ChevronRight className="w-4 h-4 text-muted-foreground -mt-3 -mb-1 rotate-90" />
-                            <div className="w-0.5 h-6 bg-border" />
-                            <div className="w-full bg-white border border-border rounded-xl p-3 flex items-center gap-3 hover:border-primary/40 cursor-pointer transition-colors group">
-                              <div className="w-8 h-8 bg-muted rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-primary/10 transition-colors">
-                                <Icon className="w-4 h-4 text-muted-foreground group-hover:text-primary" />
-                              </div>
-                              <div>
-                                <div className="text-xs font-semibold text-foreground">{ACTION_LABELS[action.type]}</div>
-                                {action.config.days && <div className="text-[11px] text-muted-foreground">Wait {action.config.days} day{action.config.days !== "1" ? "s" : ""}</div>}
-                                {action.config.subject && <div className="text-[11px] text-muted-foreground truncate max-w-[200px]">"{action.config.subject}"</div>}
-                                {action.config.tag && <div className="text-[11px] text-muted-foreground">Tag: {action.config.tag}</div>}
-                                {action.config.status && <div className="text-[11px] text-muted-foreground">Status → {action.config.status}</div>}
-                                {action.config.sequence && <div className="text-[11px] text-muted-foreground">{action.config.sequence}</div>}
-                                {action.config.message && <div className="text-[11px] text-muted-foreground truncate max-w-[200px]">"{action.config.message}"</div>}
-                              </div>
+                      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Trigger</div>
+                      <div className="text-sm font-semibold text-foreground">{TRIGGER_LABELS[selected.triggerType] ?? selected.triggerType}</div>
+                    </div>
+                    {selected.actions.map((action, i) => {
+                      const Icon = ACTION_ICONS[action.type] ?? Zap;
+                      return (
+                        <div key={i} className="flex flex-col items-center">
+                          <div className="w-0.5 h-6 bg-border" />
+                          <ChevronRight className="w-4 h-4 text-muted-foreground -mt-3 -mb-1 rotate-90" />
+                          <div className="w-0.5 h-6 bg-border" />
+                          <div className="w-full bg-white border border-border rounded-xl p-3 flex items-center gap-3 hover:border-primary/40 cursor-pointer transition-colors group">
+                            <div className="w-8 h-8 bg-muted rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-primary/10 transition-colors">
+                              <Icon className="w-4 h-4 text-muted-foreground group-hover:text-primary" />
+                            </div>
+                            <div>
+                              <div className="text-xs font-semibold text-foreground">{ACTION_LABELS[action.type]}</div>
+                              {action.config.days && <div className="text-[11px] text-muted-foreground">Wait {action.config.days} day(s)</div>}
+                              {action.config.subject && <div className="text-[11px] text-muted-foreground truncate max-w-[200px]">"{action.config.subject}"</div>}
+                              {action.config.tag && <div className="text-[11px] text-muted-foreground">Tag: {action.config.tag}</div>}
+                              {action.config.status && <div className="text-[11px] text-muted-foreground">→ {action.config.status}</div>}
                             </div>
                           </div>
-                        );
-                      })}
-
-                      {/* Add action */}
-                      <div className="flex justify-center mt-4">
-                        <button className="flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 font-medium border border-dashed border-primary/40 px-4 py-2 rounded-lg hover:bg-primary/5 transition-colors">
-                          <Plus className="w-4 h-4" /> Add Action
-                        </button>
-                      </div>
+                        </div>
+                      );
+                    })}
+                    <div className="flex justify-center mt-4">
+                      <button className="flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 font-medium border border-dashed border-primary/40 px-4 py-2 rounded-lg hover:bg-primary/5 transition-colors">
+                        <Plus className="w-4 h-4" /> Add Action
+                      </button>
                     </div>
                   </div>
                 </div>
               </div>
-
-              {/* Stats sidebar */}
               <div className="space-y-4">
-                <div className="bg-white rounded-xl border border-border shadow-sm p-4 space-y-4">
+                <div className="bg-white rounded-xl border border-border shadow-sm p-4 space-y-3">
                   <h3 className="text-sm font-semibold text-foreground">Performance</h3>
                   {[
-                    { label: "Enrolled", value: selected.enrolled, color: "bg-blue-500" },
-                    { label: "Completed", value: selected.completed, color: "bg-green-500" },
-                    { label: "In Progress", value: selected.enrolled - selected.completed, color: "bg-amber-500" },
+                    { label: "Enrolled", value: selected.enrolledCount, color: "bg-blue-500" },
+                    { label: "Completed", value: selected.completedCount, color: "bg-green-500" },
+                    { label: "In Progress", value: selected.enrolledCount - selected.completedCount, color: "bg-amber-500" },
                   ].map((s) => (
                     <div key={s.label}>
                       <div className="flex justify-between text-xs mb-1">
@@ -314,7 +290,7 @@ export default function Automation() {
                         <span className="font-semibold text-foreground">{s.value}</span>
                       </div>
                       <div className="w-full bg-muted rounded-full h-1.5">
-                        <div className={`${s.color} h-1.5 rounded-full`} style={{ width: `${Math.min(100, (s.value / Math.max(1, selected.enrolled)) * 100)}%` }} />
+                        <div className={`${s.color} h-1.5 rounded-full`} style={{ width: `${Math.min(100, (s.value / Math.max(1, selected.enrolledCount)) * 100)}%` }} />
                       </div>
                     </div>
                   ))}
@@ -322,16 +298,21 @@ export default function Automation() {
                 <div className="bg-white rounded-xl border border-border shadow-sm p-4">
                   <h3 className="text-sm font-semibold text-foreground mb-3">Details</h3>
                   <div className="space-y-2 text-xs">
-                    <div className="flex justify-between"><span className="text-muted-foreground">Created</span><span className="text-foreground">{selected.createdAt}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Trigger</span><span className="text-foreground">{TRIGGER_LABELS[selected.trigger]}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Created</span><span className="text-foreground">{new Date(selected.createdAt).toLocaleDateString()}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Trigger</span><span className="text-foreground">{TRIGGER_LABELS[selected.triggerType] ?? selected.triggerType}</span></div>
                     <div className="flex justify-between"><span className="text-muted-foreground">Steps</span><span className="text-foreground">{selected.actions.length}</span></div>
                   </div>
+                  <button
+                    onClick={() => remove.mutate(selected.id)}
+                    className="mt-4 w-full text-xs py-2 border border-red-200 text-red-500 rounded-lg hover:bg-red-50 transition-colors"
+                  >
+                    Delete Workflow
+                  </button>
                 </div>
               </div>
             </div>
           </div>
         ) : (
-          /* ── Workflow List ── */
           <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
             <table className="w-full">
               <thead>
@@ -345,61 +326,64 @@ export default function Automation() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filtered.map((w) => (
-                  <tr key={w.id} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-5 py-3.5">
-                      <button onClick={() => setSelected(w)} className="flex items-center gap-2.5 text-left group">
-                        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                          <Zap className="w-4 h-4 text-primary" />
-                        </div>
-                        <div>
-                          <div className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">{w.name}</div>
-                          <div className="text-xs text-muted-foreground">{w.actions.length} step{w.actions.length !== 1 ? "s" : ""}</div>
-                        </div>
-                      </button>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className="text-xs text-muted-foreground">{TRIGGER_LABELS[w.trigger]}</span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium border ${STATUS_STYLES[w.status]}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${w.status === "active" ? "bg-green-500" : w.status === "paused" ? "bg-amber-500" : "bg-gray-400"}`} />
-                        {w.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 text-right text-sm font-medium text-foreground">{w.enrolled}</td>
-                    <td className="px-4 py-3.5 text-right text-sm text-muted-foreground">
-                      {w.completed}
-                      {w.enrolled > 0 && <span className="text-xs ml-1 text-muted-foreground/60">({Math.round(w.completed / w.enrolled * 100)}%)</span>}
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => toggleStatus(w.id)} className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground" title={w.status === "active" ? "Pause" : "Activate"}>
-                          {w.status === "active" ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                        </button>
-                        <button className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"><Copy className="w-3.5 h-3.5" /></button>
-                        <button onClick={() => deleteWorkflow(w.id)} className="p-1.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
-                      </div>
+                {isLoading ? (
+                  <tr><td colSpan={6} className="text-center py-8 text-sm text-muted-foreground">Loading...</td></tr>
+                ) : filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-16 text-center">
+                      <Zap className="w-12 h-12 text-muted-foreground/20 mx-auto mb-3" />
+                      <p className="text-sm font-medium text-foreground">No workflows yet</p>
+                      <button onClick={() => setShowNew(true)} className="text-sm text-primary hover:underline mt-1">Create your first workflow</button>
                     </td>
                   </tr>
-                ))}
+                ) : filtered.map((w) => {
+                  const s = status(w);
+                  return (
+                    <tr key={w.id} className="hover:bg-muted/20 transition-colors">
+                      <td className="px-5 py-3.5">
+                        <button onClick={() => setSelected(w)} className="flex items-center gap-2.5 text-left group">
+                          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                            <Zap className="w-4 h-4 text-primary" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">{w.name}</div>
+                            <div className="text-xs text-muted-foreground">{w.actions.length} step{w.actions.length !== 1 ? "s" : ""}</div>
+                          </div>
+                        </button>
+                      </td>
+                      <td className="px-4 py-3.5 text-xs text-muted-foreground">{TRIGGER_LABELS[w.triggerType] ?? w.triggerType}</td>
+                      <td className="px-4 py-3.5">
+                        <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium border ${STATUS_STYLES[s]}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${s === "active" ? "bg-green-500" : s === "paused" ? "bg-amber-500" : "bg-gray-400"}`} />
+                          {s}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5 text-right text-sm font-medium text-foreground">{w.enrolledCount}</td>
+                      <td className="px-4 py-3.5 text-right text-sm text-muted-foreground">
+                        {w.completedCount}
+                        {w.enrolledCount > 0 && <span className="text-xs ml-1 text-muted-foreground/60">({Math.round(w.completedCount / w.enrolledCount * 100)}%)</span>}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center justify-end gap-1">
+                          <button onClick={() => toggleActive(w)} className="p-1.5 rounded hover:bg-muted text-muted-foreground" title={w.isActive ? "Pause" : "Activate"}>
+                            {w.isActive ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                          </button>
+                          <button className="p-1.5 rounded hover:bg-muted text-muted-foreground"><Copy className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => remove.mutate(w.id)} className="p-1.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
-            {filtered.length === 0 && (
-              <div className="py-16 text-center">
-                <Zap className="w-12 h-12 text-muted-foreground/20 mx-auto mb-3" />
-                <p className="text-sm font-medium text-foreground">No workflows found</p>
-                <button onClick={() => setShowNew(true)} className="text-sm text-primary hover:underline mt-1">Create your first workflow</button>
-              </div>
-            )}
           </div>
         )}
       </div>
 
-      {/* ── New workflow modal ── */}
       {showNew && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md border border-border">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowNew(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md border border-border" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
               <h3 className="font-semibold text-foreground">New Workflow</h3>
               <button onClick={() => setShowNew(false)} className="text-muted-foreground hover:text-foreground">✕</button>
@@ -412,34 +396,35 @@ export default function Automation() {
                   onChange={(e) => setNewName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && createWorkflow()}
                   autoFocus
-                  className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 bg-background"
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
                   placeholder="e.g. New Lead Welcome Series"
                 />
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-2">Start from a template</label>
                 <div className="space-y-2">
-                  {[
-                    { name: "Welcome new contacts", trigger: "contact_created" },
-                    { name: "Post-form follow-up", trigger: "form_submitted" },
-                    { name: "Re-engagement", trigger: "tag_added" },
-                    { name: "Blank canvas", trigger: "contact_created" },
-                  ].map((t) => (
+                  {TEMPLATES.map((t, i) => (
                     <button
                       key={t.name}
-                      onClick={() => setNewName(t.name)}
-                      className={`w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-colors ${newName === t.name ? "border-primary bg-primary/5 text-primary" : "border-border hover:border-primary/40 text-foreground"}`}
+                      onClick={() => { setSelectedTemplate(i); if (!newName) setNewName(t.name); }}
+                      className={`w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-colors ${selectedTemplate === i ? "border-primary bg-primary/5 text-primary" : "border-border hover:border-primary/40 text-foreground"}`}
                     >
-                      {t.name}
+                      <div className="font-medium">{t.name}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">{t.actions.length} steps · Trigger: {TRIGGER_LABELS[t.triggerType]}</div>
                     </button>
                   ))}
                 </div>
               </div>
+              {create.error && <p className="text-xs text-red-500">{String(create.error)}</p>}
             </div>
             <div className="px-6 pb-6 flex gap-2 justify-end">
-              <button onClick={() => setShowNew(false)} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground border border-border rounded-lg">Cancel</button>
-              <button onClick={createWorkflow} disabled={!newName.trim()} className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                Create Workflow
+              <button onClick={() => setShowNew(false)} className="px-4 py-2 text-sm font-medium text-muted-foreground border border-border rounded-lg">Cancel</button>
+              <button
+                onClick={createWorkflow}
+                disabled={!newName.trim() || create.isPending}
+                className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-40 transition-colors"
+              >
+                {create.isPending ? "Creating..." : "Create Workflow"}
               </button>
             </div>
           </div>

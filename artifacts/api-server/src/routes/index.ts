@@ -10,6 +10,9 @@ import scraperRouter from "./scraper";
 import emailAccountsRouter from "./email-accounts";
 import pipelineRouter from "./pipeline";
 import sequencesRouter from "./sequences";
+import teamRouter from "./team";
+import integrationsRouter from "./integrations";
+import automationsRouter from "./automations";
 
 const router: IRouter = Router();
 
@@ -24,5 +27,8 @@ router.use(scraperRouter);
 router.use(emailAccountsRouter);
 router.use(pipelineRouter);
 router.use(sequencesRouter);
+router.use(teamRouter);
+router.use(integrationsRouter);
+router.use(automationsRouter);
 
 export default router;

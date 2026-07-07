@@ -21,13 +21,14 @@ import Conversations from "@/pages/conversations";
 import CalendarPage from "@/pages/calendar";
 import Automation from "@/pages/automation";
 import Reputation from "@/pages/reputation";
+import Team from "@/pages/team";
+import Integrations from "@/pages/integrations";
+import LeadImport from "@/pages/lead-import";
+import SocialPlanner from "@/pages/social-planner";
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: {
-      staleTime: 30_000,
-      retry: 1,
-    },
+    queries: { staleTime: 30_000, retry: 1 },
   },
 });
 
@@ -52,6 +53,10 @@ function Router() {
       <Route path="/scraper" component={Scraper} />
       <Route path="/email-accounts" component={EmailAccounts} />
       <Route path="/settings" component={Settings} />
+      <Route path="/team" component={Team} />
+      <Route path="/integrations" component={Integrations} />
+      <Route path="/lead-import" component={LeadImport} />
+      <Route path="/social-planner" component={SocialPlanner} />
       <Route component={NotFound} />
     </Switch>
   );
