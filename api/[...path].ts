@@ -223,7 +223,7 @@ async function listLeads(req: VercelRequest, res: VercelResponse) {
   if (search) {
     query.set(
       "or",
-      `(first_name.ilike.*${search}*,last_name.ilike.*${search}*,email.ilike.*${search}*,company.ilike.*${search}*)`,
+      `(first_name.ilike.*${search}*,last_name.ilike.*${search}*,email.ilike.*${search}*)`,
     );
   }
 
