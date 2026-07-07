@@ -3,20 +3,32 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: LeadGen Platform API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: leads
+    description: Lead management
+  - name: campaigns
+    description: Campaign management
+  - name: forms
+    description: Embeddable form management
+  - name: activities
+    description: Lead activity log
+  - name: notes
+    description: Lead notes
+  - name: analytics
+    description: Analytics and reporting
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +36,612 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # ── Leads ────────────────────────────────────────────────────────────────────
+  /leads:
+    get:
+      operationId: listLeads
+      tags: [leads]
+      summary: List leads
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: campaignId
+          in: query
+          schema:
+            type: integer
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: scoreMin
+          in: query
+          schema:
+            type: integer
+        - name: scoreMax
+          in: query
+          schema:
+            type: integer
+        - name: source
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of leads
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeadListResponse"
+
+    post:
+      operationId: createLead
+      tags: [leads]
+      summary: Create a lead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeadInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Lead"
+
+  /leads/import:
+    post:
+      operationId: importLeads
+      tags: [leads]
+      summary: Bulk import leads
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeadImportInput"
+      responses:
+        "200":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeadImportResult"
+
+  /leads/{id}:
+    get:
+      operationId: getLead
+      tags: [leads]
+      summary: Get a lead by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Lead
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Lead"
+        "404":
+          description: Not found
+
+    patch:
+      operationId: updateLead
+      tags: [leads]
+      summary: Update a lead
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeadUpdate"
+      responses:
+        "200":
+          description: Updated lead
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Lead"
+        "404":
+          description: Not found
+
+    delete:
+      operationId: deleteLead
+      tags: [leads]
+      summary: Delete a lead
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /leads/{id}/score:
+    patch:
+      operationId: updateLeadScore
+      tags: [leads]
+      summary: Update lead score
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeadScoreUpdate"
+      responses:
+        "200":
+          description: Updated lead
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Lead"
+
+  # ── Campaigns ────────────────────────────────────────────────────────────────
+  /campaigns:
+    get:
+      operationId: listCampaigns
+      tags: [campaigns]
+      summary: List campaigns
+      responses:
+        "200":
+          description: List of campaigns
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Campaign"
+
+    post:
+      operationId: createCampaign
+      tags: [campaigns]
+      summary: Create a campaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CampaignInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+
+  /campaigns/{id}:
+    get:
+      operationId: getCampaign
+      tags: [campaigns]
+      summary: Get a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Campaign
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+        "404":
+          description: Not found
+
+    patch:
+      operationId: updateCampaign
+      tags: [campaigns]
+      summary: Update a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CampaignUpdate"
+      responses:
+        "200":
+          description: Updated campaign
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+
+    delete:
+      operationId: deleteCampaign
+      tags: [campaigns]
+      summary: Delete a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /campaigns/{id}/leads:
+    get:
+      operationId: getCampaignLeads
+      tags: [campaigns]
+      summary: Get leads for a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Campaign leads
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeadListResponse"
+
+  # ── Forms ─────────────────────────────────────────────────────────────────────
+  /forms:
+    get:
+      operationId: listForms
+      tags: [forms]
+      summary: List forms
+      responses:
+        "200":
+          description: List of forms
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Form"
+
+    post:
+      operationId: createForm
+      tags: [forms]
+      summary: Create a form
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FormInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Form"
+
+  /forms/{id}:
+    get:
+      operationId: getForm
+      tags: [forms]
+      summary: Get a form
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Form
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Form"
+        "404":
+          description: Not found
+
+    patch:
+      operationId: updateForm
+      tags: [forms]
+      summary: Update a form
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FormUpdate"
+      responses:
+        "200":
+          description: Updated form
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Form"
+
+    delete:
+      operationId: deleteForm
+      tags: [forms]
+      summary: Delete a form
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /forms/{id}/submit:
+    post:
+      operationId: submitForm
+      tags: [forms]
+      summary: Submit a form (public endpoint for lead capture)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FormSubmission"
+      responses:
+        "201":
+          description: Submission recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Lead"
+        "404":
+          description: Form not found
+
+  # ── Activities ────────────────────────────────────────────────────────────────
+  /leads/{id}/activities:
+    get:
+      operationId: listLeadActivities
+      tags: [activities]
+      summary: Get activity log for a lead
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Activities
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Activity"
+
+    post:
+      operationId: createLeadActivity
+      tags: [activities]
+      summary: Log an activity for a lead
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivityInput"
+      responses:
+        "201":
+          description: Created activity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Activity"
+
+  # ── Notes ─────────────────────────────────────────────────────────────────────
+  /leads/{id}/notes:
+    get:
+      operationId: listLeadNotes
+      tags: [notes]
+      summary: Get notes for a lead
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Notes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Note"
+
+    post:
+      operationId: createLeadNote
+      tags: [notes]
+      summary: Add a note to a lead
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NoteInput"
+      responses:
+        "201":
+          description: Created note
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Note"
+
+  /leads/{leadId}/notes/{noteId}:
+    delete:
+      operationId: deleteLeadNote
+      tags: [notes]
+      summary: Delete a note
+      parameters:
+        - name: leadId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: noteId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  # ── Analytics ─────────────────────────────────────────────────────────────────
+  /analytics/overview:
+    get:
+      operationId: getAnalyticsOverview
+      tags: [analytics]
+      summary: Dashboard overview metrics
+      responses:
+        "200":
+          description: Overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsOverview"
+
+  /analytics/by-status:
+    get:
+      operationId: getAnalyticsByStatus
+      tags: [analytics]
+      summary: Lead counts grouped by status
+      responses:
+        "200":
+          description: By status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StatusBreakdown"
+
+  /analytics/by-source:
+    get:
+      operationId: getAnalyticsBySource
+      tags: [analytics]
+      summary: Lead counts grouped by source
+      responses:
+        "200":
+          description: By source
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SourceBreakdown"
+
+  /analytics/by-campaign:
+    get:
+      operationId: getAnalyticsByCampaign
+      tags: [analytics]
+      summary: Lead counts grouped by campaign
+      responses:
+        "200":
+          description: By campaign
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CampaignBreakdown"
+
+  /analytics/timeline:
+    get:
+      operationId: getAnalyticsTimeline
+      tags: [analytics]
+      summary: Lead volume over time (daily, last 30 days)
+      responses:
+        "200":
+          description: Timeline
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TimelinePoint"
+
+  /analytics/top-leads:
+    get:
+      operationId: getTopLeads
+      tags: [analytics]
+      summary: Top scoring leads
+      responses:
+        "200":
+          description: Top leads
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Lead"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +649,427 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    # ── Lead schemas ────────────────────────────────────────────────────────────
+    Lead:
+      type: object
+      required: [id, firstName, lastName, email, status, score, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+        phone:
+          type: ["string", "null"]
+        company:
+          type: ["string", "null"]
+        title:
+          type: ["string", "null"]
+        source:
+          type: ["string", "null"]
+        status:
+          type: string
+        score:
+          type: integer
+        campaignId:
+          type: ["integer", "null"]
+        campaignName:
+          type: ["string", "null"]
+        formId:
+          type: ["integer", "null"]
+        tags:
+          type: array
+          items:
+            type: string
+        customFields:
+          type: object
+          additionalProperties:
+            type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    LeadInput:
+      type: object
+      required: [firstName, lastName, email]
+      properties:
+        firstName:
+          type: string
+          minLength: 1
+        lastName:
+          type: string
+          minLength: 1
+        email:
+          type: string
+          minLength: 1
+        phone:
+          type: string
+        company:
+          type: string
+        title:
+          type: string
+        source:
+          type: string
+        status:
+          type: string
+        score:
+          type: integer
+        campaignId:
+          type: integer
+        tags:
+          type: array
+          items:
+            type: string
+        customFields:
+          type: object
+          additionalProperties:
+            type: string
+
+    LeadUpdate:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        company:
+          type: string
+        title:
+          type: string
+        source:
+          type: string
+        status:
+          type: string
+        score:
+          type: integer
+        campaignId:
+          type: integer
+        tags:
+          type: array
+          items:
+            type: string
+        customFields:
+          type: object
+          additionalProperties:
+            type: string
+
+    LeadScoreUpdate:
+      type: object
+      required: [score]
+      properties:
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+
+    LeadListResponse:
+      type: object
+      required: [leads, total, page, limit]
+      properties:
+        leads:
+          type: array
+          items:
+            $ref: "#/components/schemas/Lead"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    LeadImportInput:
+      type: object
+      required: [leads]
+      properties:
+        leads:
+          type: array
+          items:
+            $ref: "#/components/schemas/LeadInput"
+        campaignId:
+          type: integer
+
+    LeadImportResult:
+      type: object
+      required: [imported, failed, total]
+      properties:
+        imported:
+          type: integer
+        failed:
+          type: integer
+        total:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: string
+
+    # ── Campaign schemas ─────────────────────────────────────────────────────────
+    Campaign:
+      type: object
+      required: [id, name, status, leadCount, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        status:
+          type: string
+        sourceType:
+          type: ["string", "null"]
+        leadCount:
+          type: integer
+        convertedCount:
+          type: integer
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    CampaignInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        status:
+          type: string
+        sourceType:
+          type: string
+
+    CampaignUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        sourceType:
+          type: string
+
+    # ── Form schemas ────────────────────────────────────────────────────────────
+    FormField:
+      type: object
+      required: [id, label, fieldType, required, order]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        fieldType:
+          type: string
+        required:
+          type: boolean
+        order:
+          type: integer
+        placeholder:
+          type: ["string", "null"]
+        options:
+          type: array
+          items:
+            type: string
+        mappedLeadField:
+          type: ["string", "null"]
+
+    Form:
+      type: object
+      required: [id, name, status, fields, submissionCount, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        status:
+          type: string
+        campaignId:
+          type: ["integer", "null"]
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/FormField"
+        submissionCount:
+          type: integer
+        embedCode:
+          type: ["string", "null"]
+        successMessage:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    FormInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        status:
+          type: string
+        campaignId:
+          type: integer
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/FormField"
+        successMessage:
+          type: string
+
+    FormUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        campaignId:
+          type: integer
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/FormField"
+        successMessage:
+          type: string
+
+    FormSubmission:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties:
+            type: string
+
+    # ── Activity schemas ─────────────────────────────────────────────────────────
+    Activity:
+      type: object
+      required: [id, leadId, type, description, createdAt]
+      properties:
+        id:
+          type: integer
+        leadId:
+          type: integer
+        type:
+          type: string
+        description:
+          type: string
+        createdAt:
+          type: string
+
+    ActivityInput:
+      type: object
+      required: [type, description]
+      properties:
+        type:
+          type: string
+          minLength: 1
+        description:
+          type: string
+          minLength: 1
+
+    # ── Note schemas ────────────────────────────────────────────────────────────
+    Note:
+      type: object
+      required: [id, leadId, content, createdAt]
+      properties:
+        id:
+          type: integer
+        leadId:
+          type: integer
+        content:
+          type: string
+        createdAt:
+          type: string
+
+    NoteInput:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          minLength: 1
+
+    # ── Analytics schemas ─────────────────────────────────────────────────────────
+    AnalyticsOverview:
+      type: object
+      required: [totalLeads, newLeadsToday, newLeadsThisWeek, newLeadsThisMonth, convertedLeads, conversionRate, averageScore, hotLeads]
+      properties:
+        totalLeads:
+          type: integer
+        newLeadsToday:
+          type: integer
+        newLeadsThisWeek:
+          type: integer
+        newLeadsThisMonth:
+          type: integer
+        convertedLeads:
+          type: integer
+        conversionRate:
+          type: number
+        averageScore:
+          type: number
+        hotLeads:
+          type: integer
+
+    StatusBreakdown:
+      type: object
+      required: [status, count]
+      properties:
+        status:
+          type: string
+        count:
+          type: integer
+
+    SourceBreakdown:
+      type: object
+      required: [source, count]
+      properties:
+        source:
+          type: string
+        count:
+          type: integer
+
+    CampaignBreakdown:
+      type: object
+      required: [campaignId, campaignName, count, convertedCount]
+      properties:
+        campaignId:
+          type: integer
+        campaignName:
+          type: string
+        count:
+          type: integer
+        convertedCount:
+          type: integer
+
+    TimelinePoint:
+      type: object
+      required: [date, count]
+      properties:
+        date:
+          type: string
+        count:
+          type: integer
