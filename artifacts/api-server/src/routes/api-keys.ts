@@ -32,7 +32,7 @@ router.get("/api-keys", async (_req, res) => {
 
 router.post("/api-keys", async (req, res) => {
   const { name, scopes, expiresAt } = req.body;
-  if (!name) return res.status(400).json({ error: "name is required" });
+  if (!name) { res.status(400).json({ error: "name is required" }); return; }
   const rawKey = generateKey();
   const keyHash = hashKey(rawKey);
   const keyPrefix = rawKey.slice(0, 12);
@@ -51,7 +51,7 @@ router.post("/api-keys", async (req, res) => {
 router.patch("/api-keys/:id", async (req, res) => {
   const id = parseInt(req.params.id);
   const [updated] = await db.update(apiKeysTable).set({ ...req.body, updatedAt: new Date() }).where(eq(apiKeysTable.id, id)).returning();
-  if (!updated) return res.status(404).json({ error: "Not found" });
+  if (!updated) { res.status(404).json({ error: "Not found" }); return; }
   res.json(updated);
 });
 
@@ -63,7 +63,7 @@ router.delete("/api-keys/:id", async (req, res) => {
 router.post("/auth/sso", async (req, res) => {
   const { subAccountId, externalUserId, email, name, role } = req.body;
   if (!subAccountId || !externalUserId || !email) {
-    return res.status(400).json({ error: "subAccountId, externalUserId, and email are required" });
+    res.status(400).json({ error: "subAccountId, externalUserId, and email are required" }); return;
   }
   const token = crypto.randomBytes(48).toString("hex");
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
@@ -74,11 +74,11 @@ router.post("/auth/sso", async (req, res) => {
 
 router.get("/auth/sso/validate", async (req, res) => {
   const { token } = req.query as { token: string };
-  if (!token) return res.status(400).json({ error: "token required" });
+  if (!token) { res.status(400).json({ error: "token required" }); return; }
   const [record] = await db.select().from(ssoTokensTable).where(eq(ssoTokensTable.token, token));
-  if (!record) return res.status(404).json({ error: "Invalid token" });
-  if (record.usedAt) return res.status(410).json({ error: "Token already used" });
-  if (new Date() > record.expiresAt) return res.status(410).json({ error: "Token expired" });
+  if (!record) { res.status(404).json({ error: "Invalid token" }); return; }
+  if (record.usedAt) { res.status(410).json({ error: "Token already used" }); return; }
+  if (new Date() > record.expiresAt) { res.status(410).json({ error: "Token expired" }); return; }
   await db.update(ssoTokensTable).set({ usedAt: new Date() }).where(eq(ssoTokensTable.id, record.id));
   res.json({ valid: true, subAccountId: record.subAccountId, email: record.email, name: record.name, role: record.role });
 });

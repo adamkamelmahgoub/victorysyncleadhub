@@ -217,7 +217,7 @@ export default function ScraperPage() {
 
   async function importLeads(leads: ScrapedLead[], selected: Set<string>) {
     const toImport = leads.filter((l) => selected.has(l.email));
-    if (!toImport.length) return toast({ title: "Select at least one contact", variant: "destructive" });
+    if (!toImport.length) { toast({ title: "Select at least one contact", variant: "destructive" }); return; }
     setImporting(true);
     let ok = 0, fail = 0;
     for (const l of toImport) {

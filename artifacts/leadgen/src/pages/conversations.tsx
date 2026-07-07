@@ -32,7 +32,7 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 export default function Conversations() {
-  const { data: leadsData } = useListLeads({ params: { query: { limit: 50 } } });
+  const { data: leadsData } = useListLeads();
   const leads = leadsData?.leads ?? [];
 
   const [channel, setChannel] = useState<Channel>("all");

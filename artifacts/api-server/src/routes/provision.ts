@@ -15,10 +15,10 @@ function verifyApiKey(authHeader: string | undefined): boolean {
 
 router.post("/provision/accounts", async (req, res) => {
   const { name, ownerEmail, ownerName, plan, externalId, phone, industry } = req.body;
-  if (!name || !ownerEmail || !ownerName) return res.status(400).json({ error: "name, ownerEmail, ownerName required" });
+  if (!name || !ownerEmail || !ownerName) { res.status(400).json({ error: "name, ownerEmail, ownerName required" }); return; }
 
   const existing = externalId ? await db.select().from(subAccountsTable).where(eq(subAccountsTable.externalId, externalId)) : [];
-  if (existing.length) return res.status(409).json({ error: "Account with this externalId already exists", account: existing[0] });
+  if (existing.length) { res.status(409).json({ error: "Account with this externalId already exists", account: existing[0] }); return; }
 
   const slug = `${name.toLowerCase().replace(/[^a-z0-9]/g, "-")}-${crypto.randomBytes(3).toString("hex")}`;
   const [account] = await db.insert(subAccountsTable).values({ name, slug, ownerEmail, ownerName, plan: plan || "starter", externalId, phone, industry, status: "active" }).returning();
@@ -29,23 +29,23 @@ router.post("/provision/accounts", async (req, res) => {
 
 router.patch("/provision/accounts/:externalId/status", async (req, res) => {
   const { status } = req.body;
-  if (!["active", "suspended", "cancelled"].includes(status)) return res.status(400).json({ error: "status must be active, suspended, or cancelled" });
+  if (!["active", "suspended", "cancelled"].includes(status)) { res.status(400).json({ error: "status must be active, suspended, or cancelled" }); return; }
   const [updated] = await db.update(subAccountsTable).set({ status, updatedAt: new Date() }).where(eq(subAccountsTable.externalId, req.params.externalId)).returning();
-  if (!updated) return res.status(404).json({ error: "Account not found" });
+  if (!updated) { res.status(404).json({ error: "Account not found" }); return; }
   res.json({ success: true, account: updated });
 });
 
 router.patch("/provision/accounts/:externalId/plan", async (req, res) => {
   const { plan } = req.body;
-  if (!plan) return res.status(400).json({ error: "plan is required" });
+  if (!plan) { res.status(400).json({ error: "plan is required" }); return; }
   const [updated] = await db.update(subAccountsTable).set({ plan, updatedAt: new Date() }).where(eq(subAccountsTable.externalId, req.params.externalId)).returning();
-  if (!updated) return res.status(404).json({ error: "Account not found" });
+  if (!updated) { res.status(404).json({ error: "Account not found" }); return; }
   res.json({ success: true, account: updated });
 });
 
 router.get("/provision/accounts/:externalId/stats", async (req, res) => {
   const [account] = await db.select().from(subAccountsTable).where(eq(subAccountsTable.externalId, req.params.externalId));
-  if (!account) return res.status(404).json({ error: "Account not found" });
+  if (!account) { res.status(404).json({ error: "Account not found" }); return; }
 
   const [{ leadCount }] = await db.select({ leadCount: count() }).from(leadsTable);
   const [{ campaignCount }] = await db.select({ campaignCount: count() }).from(campaignsTable);

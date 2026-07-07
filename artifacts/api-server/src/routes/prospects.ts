@@ -31,7 +31,7 @@ router.get("/prospects", async (req, res) => {
       if (minIntent && p.intentScore < parseInt(minIntent)) return false;
       return true;
     });
-    return res.json({ prospects: filtered.map((p, i) => ({ ...p, id: i + 1, source: "sample", savedToLeads: false, tags: [], keywords: [] })), total: filtered.length });
+    res.json({ prospects: filtered.map((p, i) => ({ ...p, id: i + 1, source: "sample", savedToLeads: false, tags: [], keywords: [] })), total: filtered.length }); return;
   }
 
   res.json({ prospects: dbProspects, total: dbProspects.length });
@@ -39,14 +39,14 @@ router.get("/prospects", async (req, res) => {
 
 router.post("/prospects", async (req, res) => {
   const parsed = insertProspectSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
-  const [prospect] = await db.insert(prospectsTable).values(parsed.data).returning();
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+  const [prospect] = await db.insert(prospectsTable).values({ ...parsed.data }).returning();
   res.status(201).json(prospect);
 });
 
 router.post("/prospects/save-to-leads", async (req, res) => {
   const { prospects } = req.body as { prospects: Array<{ firstName: string; lastName: string; email?: string; phone?: string; title?: string; company?: string; industry?: string; city?: string }> };
-  if (!prospects?.length) return res.status(400).json({ error: "prospects array required" });
+  if (!prospects?.length) { res.status(400).json({ error: "prospects array required" }); return; }
 
   const inserted = [];
   for (const p of prospects) {

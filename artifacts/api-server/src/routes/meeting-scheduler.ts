@@ -12,7 +12,7 @@ router.get("/meeting/event-types", async (_req, res) => {
 
 router.post("/meeting/event-types", async (req, res) => {
   const parsed = insertMeetingEventTypeSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
   const slug = (parsed.data.title || "meeting").toLowerCase().replace(/[^a-z0-9]/g, "-");
   const [type] = await db.insert(meetingEventTypesTable).values({ ...parsed.data, slug }).returning();
   res.status(201).json(type);
@@ -20,19 +20,19 @@ router.post("/meeting/event-types", async (req, res) => {
 
 router.get("/meeting/event-types/:id", async (req, res) => {
   const [type] = await db.select().from(meetingEventTypesTable).where(eq(meetingEventTypesTable.id, parseInt(req.params.id)));
-  if (!type) return res.status(404).json({ error: "Not found" });
+  if (!type) { res.status(404).json({ error: "Not found" }); return; }
   res.json(type);
 });
 
 router.get("/meeting/event-types/slug/:slug", async (req, res) => {
   const [type] = await db.select().from(meetingEventTypesTable).where(eq(meetingEventTypesTable.slug, req.params.slug));
-  if (!type) return res.status(404).json({ error: "Not found" });
+  if (!type) { res.status(404).json({ error: "Not found" }); return; }
   res.json(type);
 });
 
 router.patch("/meeting/event-types/:id", async (req, res) => {
   const [updated] = await db.update(meetingEventTypesTable).set({ ...req.body, updatedAt: new Date() }).where(eq(meetingEventTypesTable.id, parseInt(req.params.id))).returning();
-  if (!updated) return res.status(404).json({ error: "Not found" });
+  if (!updated) { res.status(404).json({ error: "Not found" }); return; }
   res.json(updated);
 });
 
@@ -55,22 +55,22 @@ router.get("/meeting/appointments", async (req, res) => {
 
 router.post("/meeting/appointments", async (req, res) => {
   const parsed = insertBookingSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
-  const [appt] = await db.insert(bookingAppointmentsTable).values(parsed.data).returning();
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+  const [appt] = await db.insert(bookingAppointmentsTable).values({ ...parsed.data }).returning();
   res.status(201).json(appt);
 });
 
 router.patch("/meeting/appointments/:id", async (req, res) => {
   const [updated] = await db.update(bookingAppointmentsTable).set({ ...req.body, updatedAt: new Date() }).where(eq(bookingAppointmentsTable.id, parseInt(req.params.id))).returning();
-  if (!updated) return res.status(404).json({ error: "Not found" });
+  if (!updated) { res.status(404).json({ error: "Not found" }); return; }
   res.json(updated);
 });
 
 router.get("/meeting/slots", async (req, res) => {
   const { eventTypeId, date } = req.query as Record<string, string>;
-  if (!eventTypeId || !date) return res.status(400).json({ error: "eventTypeId and date required" });
+  if (!eventTypeId || !date) { res.status(400).json({ error: "eventTypeId and date required" }); return; }
   const [type] = await db.select().from(meetingEventTypesTable).where(eq(meetingEventTypesTable.id, parseInt(eventTypeId)));
-  if (!type) return res.status(404).json({ error: "Event type not found" });
+  if (!type) { res.status(404).json({ error: "Event type not found" }); return; }
   const day = new Date(date);
   const startHour = parseInt(type.availableStart.split(":")[0]);
   const endHour = parseInt(type.availableEnd.split(":")[0]);

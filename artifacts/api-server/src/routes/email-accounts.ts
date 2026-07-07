@@ -17,13 +17,13 @@ router.get("/email-accounts", async (req, res) => {
 
 router.post("/email-accounts", async (req, res) => {
   const parsed = insertEmailAccountSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
 
   if (parsed.data.isDefault) {
     await db.update(emailAccountsTable).set({ isDefault: false });
   }
 
-  const [account] = await db.insert(emailAccountsTable).values(parsed.data).returning();
+  const [account] = await db.insert(emailAccountsTable).values({ ...parsed.data }).returning();
   const { smtpPassword: _, ...safe } = account;
   res.status(201).json(safe);
 });
@@ -31,7 +31,7 @@ router.post("/email-accounts", async (req, res) => {
 router.put("/email-accounts/:id", async (req, res) => {
   const id = Number(req.params.id);
   const parsed = insertEmailAccountSchema.partial().safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
 
   if (parsed.data.isDefault) {
     await db.update(emailAccountsTable).set({ isDefault: false });
@@ -39,10 +39,10 @@ router.put("/email-accounts/:id", async (req, res) => {
 
   const [account] = await db
     .update(emailAccountsTable)
-    .set(parsed.data)
+    .set({ ...parsed.data })
     .where(eq(emailAccountsTable.id, id))
     .returning();
-  if (!account) return res.status(404).json({ error: "Not found" });
+  if (!account) { res.status(404).json({ error: "Not found" }); return; }
   const { smtpPassword: _, ...safe } = account;
   res.json(safe);
 });
@@ -61,7 +61,7 @@ router.post("/email-accounts/:id/set-default", async (req, res) => {
     .set({ isDefault: true })
     .where(eq(emailAccountsTable.id, id))
     .returning();
-  if (!account) return res.status(404).json({ error: "Not found" });
+  if (!account) { res.status(404).json({ error: "Not found" }); return; }
   const { smtpPassword: _, ...safe } = account;
   res.json(safe);
 });
@@ -72,7 +72,7 @@ router.post("/email-accounts/:id/test", async (req, res) => {
     .select()
     .from(emailAccountsTable)
     .where(eq(emailAccountsTable.id, id));
-  if (!account) return res.status(404).json({ error: "Not found" });
+  if (!account) { res.status(404).json({ error: "Not found" }); return; }
 
   try {
     const transporter = nodemailer.createTransport({
@@ -84,7 +84,7 @@ router.post("/email-accounts/:id/test", async (req, res) => {
     await transporter.verify();
     res.json({ success: true, message: "Connection successful" });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
+    const msg = err instanceof Error ? (err as Error).message : "Unknown error";
     res.status(400).json({ success: false, message: msg });
   }
 });

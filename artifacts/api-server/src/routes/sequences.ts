@@ -33,15 +33,15 @@ router.get("/sequences", async (_req, res) => {
 
 router.post("/sequences", async (req, res) => {
   const parsed = insertSequenceSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const [seq] = await db.insert(sequencesTable).values(parsed.data).returning();
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+  const [seq] = await db.insert(sequencesTable).values({ ...parsed.data }).returning();
   res.status(201).json(seq);
 });
 
 router.get("/sequences/:id", async (req, res) => {
   const id = Number(req.params.id);
   const [seq] = await db.select().from(sequencesTable).where(eq(sequencesTable.id, id));
-  if (!seq) return res.status(404).json({ error: "Not found" });
+  if (!seq) { res.status(404).json({ error: "Not found" }); return; }
   const steps = await db
     .select()
     .from(sequenceStepsTable)
@@ -53,13 +53,13 @@ router.get("/sequences/:id", async (req, res) => {
 router.put("/sequences/:id", async (req, res) => {
   const id = Number(req.params.id);
   const parsed = insertSequenceSchema.partial().safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
   const [seq] = await db
     .update(sequencesTable)
-    .set(parsed.data)
+    .set({ ...parsed.data })
     .where(eq(sequencesTable.id, id))
     .returning();
-  if (!seq) return res.status(404).json({ error: "Not found" });
+  if (!seq) { res.status(404).json({ error: "Not found" }); return; }
   res.json(seq);
 });
 
@@ -86,21 +86,21 @@ router.get("/sequences/:id/steps", async (req, res) => {
 router.post("/sequences/:id/steps", async (req, res) => {
   const id = Number(req.params.id);
   const parsed = insertSequenceStepSchema.safeParse({ ...req.body, sequenceId: id });
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const [step] = await db.insert(sequenceStepsTable).values(parsed.data).returning();
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+  const [step] = await db.insert(sequenceStepsTable).values({ ...parsed.data }).returning();
   res.status(201).json(step);
 });
 
 router.put("/sequences/:id/steps/:stepId", async (req, res) => {
   const stepId = Number(req.params.stepId);
   const parsed = insertSequenceStepSchema.partial().safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
   const [step] = await db
     .update(sequenceStepsTable)
-    .set(parsed.data)
+    .set({ ...parsed.data })
     .where(eq(sequenceStepsTable.id, stepId))
     .returning();
-  if (!step) return res.status(404).json({ error: "Not found" });
+  if (!step) { res.status(404).json({ error: "Not found" }); return; }
   res.json(step);
 });
 
@@ -133,7 +133,7 @@ router.post("/sequences/:id/enroll", async (req, res) => {
   const seqId = Number(req.params.id);
   const { leadIds } = req.body as { leadIds: number[] };
   if (!Array.isArray(leadIds) || leadIds.length === 0) {
-    return res.status(400).json({ error: "leadIds must be a non-empty array" });
+    res.status(400).json({ error: "leadIds must be a non-empty array" }); return;
   }
 
   const [firstStep] = await db
@@ -175,13 +175,13 @@ router.post("/email/send", async (req, res) => {
   };
 
   const [lead] = await db.select().from(leadsTable).where(eq(leadsTable.id, leadId));
-  if (!lead) return res.status(404).json({ error: "Lead not found" });
+  if (!lead) { res.status(404).json({ error: "Lead not found" }); return; }
 
   const [account] = await db
     .select()
     .from(emailAccountsTable)
     .where(eq(emailAccountsTable.id, emailAccountId));
-  if (!account) return res.status(404).json({ error: "Email account not found" });
+  if (!account) { res.status(404).json({ error: "Email account not found" }); return; }
 
   const renderedSubject = interpolate(subject, lead as unknown as Record<string, unknown>);
   const renderedBody = interpolate(body, lead as unknown as Record<string, unknown>);
@@ -213,7 +213,7 @@ router.post("/email/send", async (req, res) => {
 
     res.json({ success: true });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Send failed";
+    const msg = err instanceof Error ? (err as Error).message : "Send failed";
     await db.insert(emailLogsTable).values({
       leadId,
       emailAccountId,

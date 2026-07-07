@@ -23,7 +23,7 @@ export default function CampaignDetail() {
   const { data: leadsData, isLoading: leadsLoading } = useGetCampaignLeads(id, { query: { enabled: !!id, queryKey: getGetCampaignLeadsQueryKey(id) } });
 
   const leads = leadsData?.leads ?? [];
-  const convRate = campaign && campaign.leadCount > 0 ? Math.round((campaign.convertedCount / campaign.leadCount) * 100) : 0;
+  const convRate = campaign && campaign.leadCount > 0 ? Math.round(((campaign.convertedCount ?? 0) / campaign.leadCount) * 100) : 0;
 
   if (isLoading) {
     return (

@@ -15,21 +15,21 @@ router.get("/pipeline/stages", async (_req, res) => {
 
 router.post("/pipeline/stages", async (req, res) => {
   const parsed = insertPipelineStageSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const [stage] = await db.insert(pipelineStagesTable).values(parsed.data).returning();
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+  const [stage] = await db.insert(pipelineStagesTable).values({ ...parsed.data }).returning();
   res.status(201).json(stage);
 });
 
 router.put("/pipeline/stages/:id", async (req, res) => {
   const id = Number(req.params.id);
   const parsed = insertPipelineStageSchema.partial().safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
   const [stage] = await db
     .update(pipelineStagesTable)
-    .set(parsed.data)
+    .set({ ...parsed.data })
     .where(eq(pipelineStagesTable.id, id))
     .returning();
-  if (!stage) return res.status(404).json({ error: "Not found" });
+  if (!stage) { res.status(404).json({ error: "Not found" }); return; }
   res.json(stage);
 });
 
@@ -62,7 +62,7 @@ router.patch("/pipeline/leads/:id/stage", async (req, res) => {
     .set({ pipelineStageId: stageId ?? null })
     .where(eq(leadsTable.id, id))
     .returning();
-  if (!lead) return res.status(404).json({ error: "Not found" });
+  if (!lead) { res.status(404).json({ error: "Not found" }); return; }
   res.json(lead);
 });
 

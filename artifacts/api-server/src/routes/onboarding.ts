@@ -32,7 +32,7 @@ router.get("/onboarding", async (req, res) => {
 
 router.post("/onboarding/complete-step", async (req, res) => {
   const { stepId, subAccountId = 1 } = req.body;
-  if (!stepId) return res.status(400).json({ error: "stepId required" });
+  if (!stepId) { res.status(400).json({ error: "stepId required" }); return; }
 
   let [progress] = await db.select().from(onboardingProgressTable).where(eq(onboardingProgressTable.subAccountId, subAccountId));
   if (!progress) {

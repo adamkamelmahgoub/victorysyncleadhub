@@ -21,7 +21,7 @@ router.get("/sub-accounts", async (req, res) => {
 
 router.post("/sub-accounts", async (req, res) => {
   const parsed = insertSubAccountSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
   const slug = parsed.data.name.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-");
   const [account] = await db.insert(subAccountsTable).values({ ...parsed.data, slug }).returning();
   await db.insert(whiteLabelSettingsTable).values({ subAccountId: account.id, brandName: account.name }).onConflictDoNothing();
@@ -30,7 +30,7 @@ router.post("/sub-accounts", async (req, res) => {
 
 router.get("/sub-accounts/:id", async (req, res) => {
   const [account] = await db.select().from(subAccountsTable).where(eq(subAccountsTable.id, parseInt(req.params.id)));
-  if (!account) return res.status(404).json({ error: "Not found" });
+  if (!account) { res.status(404).json({ error: "Not found" }); return; }
   const [wl] = await db.select().from(whiteLabelSettingsTable).where(eq(whiteLabelSettingsTable.subAccountId, account.id));
   res.json({ ...account, whiteLabel: wl || null });
 });
@@ -38,7 +38,7 @@ router.get("/sub-accounts/:id", async (req, res) => {
 router.patch("/sub-accounts/:id", async (req, res) => {
   const id = parseInt(req.params.id);
   const [updated] = await db.update(subAccountsTable).set({ ...req.body, updatedAt: new Date() }).where(eq(subAccountsTable.id, id)).returning();
-  if (!updated) return res.status(404).json({ error: "Not found" });
+  if (!updated) { res.status(404).json({ error: "Not found" }); return; }
   res.json(updated);
 });
 
@@ -59,7 +59,7 @@ router.put("/sub-accounts/:id/white-label", async (req, res) => {
   const [existing] = await db.select().from(whiteLabelSettingsTable).where(eq(whiteLabelSettingsTable.subAccountId, id));
   if (existing) {
     const [updated] = await db.update(whiteLabelSettingsTable).set({ ...req.body, updatedAt: new Date() }).where(eq(whiteLabelSettingsTable.subAccountId, id)).returning();
-    return res.json(updated);
+    res.json(updated); return;
   }
   const [created] = await db.insert(whiteLabelSettingsTable).values({ ...req.body, subAccountId: id }).returning();
   res.status(201).json(created);

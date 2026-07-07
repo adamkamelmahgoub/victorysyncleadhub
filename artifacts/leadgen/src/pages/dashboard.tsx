@@ -179,7 +179,7 @@ export default function Dashboard() {
             </div>
             <div className="space-y-2">
               {(campaigns ?? []).filter((c) => c.status === "active").slice(0, 5).map((c) => {
-                const rate = c.leadCount > 0 ? Math.round((c.convertedCount / c.leadCount) * 100) : 0;
+                const rate = c.leadCount > 0 ? Math.round(((c.convertedCount ?? 0) / c.leadCount) * 100) : 0;
                 return (
                   <Link key={c.id} href={`/campaigns/${c.id}`}>
                     <div className="flex items-center justify-between py-2 px-2 rounded-md hover:bg-muted/40 transition-colors cursor-pointer">

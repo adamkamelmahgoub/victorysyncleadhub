@@ -39,7 +39,7 @@ const SEGMENT_COLORS = [
 
 export default function Segments() {
   const qc = useQueryClient();
-  const { data: leadsData } = useListLeads({ params: { query: { limit: 1000 } } });
+  const { data: leadsData } = useListLeads();
   const allLeads = leadsData?.leads ?? [];
 
   const [showCreate, setShowCreate] = useState(false);

@@ -13,7 +13,7 @@ router.get("/affiliates", async (_req, res) => {
 
 router.post("/affiliates", async (req, res) => {
   const parsed = insertAffiliateSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
   const referralCode = parsed.data.referralCode || `VS-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
   const [affiliate] = await db.insert(affiliatesTable).values({ ...parsed.data, referralCode }).returning();
   res.status(201).json(affiliate);
@@ -21,14 +21,14 @@ router.post("/affiliates", async (req, res) => {
 
 router.get("/affiliates/:id", async (req, res) => {
   const [affiliate] = await db.select().from(affiliatesTable).where(eq(affiliatesTable.id, parseInt(req.params.id)));
-  if (!affiliate) return res.status(404).json({ error: "Not found" });
+  if (!affiliate) { res.status(404).json({ error: "Not found" }); return; }
   const referrals = await db.select().from(referralsTable).where(eq(referralsTable.affiliateId, affiliate.id)).orderBy(desc(referralsTable.createdAt));
   res.json({ ...affiliate, referrals });
 });
 
 router.patch("/affiliates/:id", async (req, res) => {
   const [updated] = await db.update(affiliatesTable).set({ ...req.body, updatedAt: new Date() }).where(eq(affiliatesTable.id, parseInt(req.params.id))).returning();
-  if (!updated) return res.status(404).json({ error: "Not found" });
+  if (!updated) { res.status(404).json({ error: "Not found" }); return; }
   res.json(updated);
 });
 
@@ -44,15 +44,15 @@ router.get("/affiliates/:id/referrals", async (req, res) => {
 
 router.post("/affiliates/:id/referrals", async (req, res) => {
   const parsed = insertReferralSchema.safeParse({ ...req.body, affiliateId: parseInt(req.params.id) });
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
-  const [referral] = await db.insert(referralsTable).values(parsed.data).returning();
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+  const [referral] = await db.insert(referralsTable).values({ ...parsed.data }).returning();
   await db.update(affiliatesTable).set({ totalReferrals: sql`total_referrals + 1`, updatedAt: new Date() }).where(eq(affiliatesTable.id, parseInt(req.params.id)));
   res.status(201).json(referral);
 });
 
 router.patch("/referrals/:id", async (req, res) => {
   const [referral] = await db.select().from(referralsTable).where(eq(referralsTable.id, parseInt(req.params.id)));
-  if (!referral) return res.status(404).json({ error: "Not found" });
+  if (!referral) { res.status(404).json({ error: "Not found" }); return; }
   const [updated] = await db.update(referralsTable).set({ ...req.body, updatedAt: new Date() }).where(eq(referralsTable.id, referral.id)).returning();
   if (req.body.status === "converted" && referral.status !== "converted") {
     await db.update(affiliatesTable).set({ totalConverted: sql`total_converted + 1`, updatedAt: new Date() }).where(eq(affiliatesTable.id, referral.affiliateId));
