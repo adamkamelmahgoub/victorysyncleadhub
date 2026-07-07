@@ -196,7 +196,8 @@ type Tab = "timeline" | "notes" | "tasks" | "details";
 
 export default function LeadDetail() {
   const [, params] = useRoute("/leads/:id");
-  const id = parseInt(params?.id ?? "0", 10);
+  const id = params?.id ?? "";
+  const apiId = id as unknown as number;
   const qc = useQueryClient();
   const { toast } = useToast();
 
@@ -212,9 +213,9 @@ export default function LeadDetail() {
   const [localScore, setLocalScore] = useState<number | null>(null);
   const tagInputRef = useRef<HTMLInputElement>(null);
 
-  const { data: lead, isLoading } = useGetLead(id, { query: { enabled: !!id, queryKey: getGetLeadQueryKey(id) } });
-  const { data: activitiesResponse = [] } = useListLeadActivities(id, { query: { enabled: !!id, queryKey: getListLeadActivitiesQueryKey(id) } });
-  const { data: notesResponse = [] } = useListLeadNotes(id, { query: { enabled: !!id, queryKey: getListLeadNotesQueryKey(id) } });
+  const { data: lead, isLoading } = useGetLead(apiId, { query: { enabled: !!id, queryKey: getGetLeadQueryKey(apiId) } });
+  const { data: activitiesResponse = [] } = useListLeadActivities(apiId, { query: { enabled: !!id, queryKey: getListLeadActivitiesQueryKey(apiId) } });
+  const { data: notesResponse = [] } = useListLeadNotes(apiId, { query: { enabled: !!id, queryKey: getListLeadNotesQueryKey(apiId) } });
   const { data: campaignsResponse = [] } = useListCampaigns();
   const { data: stagesResponse = [] } = useQuery<PipelineStage[]>({ queryKey: ["pipeline-stages"], queryFn: () => apiFetch("/api/pipeline/stages") });
   const { data: tasksResponse = [], refetch: refetchTasks } = useQuery<ContactTask[]>({
@@ -254,26 +255,26 @@ export default function LeadDetail() {
 
   function saveField(key: string, value: string) {
     if (["firstName", "lastName", "email", "phone", "company", "title", "source"].includes(key)) {
-      updateLead.mutate({ id, data: { [key]: value } as Parameters<typeof updateLead.mutate>[0]["data"] }, {
-        onSuccess: () => { qc.invalidateQueries({ queryKey: getGetLeadQueryKey(id) }); toast({ title: "Saved" }); },
+      updateLead.mutate({ id: apiId, data: { [key]: value } as Parameters<typeof updateLead.mutate>[0]["data"] }, {
+        onSuccess: () => { qc.invalidateQueries({ queryKey: getGetLeadQueryKey(apiId) }); toast({ title: "Saved" }); },
       });
     } else {
-      updateLead.mutate({ id, data: { customFields: { ...customFields, [key]: value } } as Parameters<typeof updateLead.mutate>[0]["data"] }, {
-        onSuccess: () => { qc.invalidateQueries({ queryKey: getGetLeadQueryKey(id) }); toast({ title: "Saved" }); },
+      updateLead.mutate({ id: apiId, data: { customFields: { ...customFields, [key]: value } } as Parameters<typeof updateLead.mutate>[0]["data"] }, {
+        onSuccess: () => { qc.invalidateQueries({ queryKey: getGetLeadQueryKey(apiId) }); toast({ title: "Saved" }); },
       });
     }
   }
 
   function saveStatus(status: string) {
-    updateLead.mutate({ id, data: { status } as Parameters<typeof updateLead.mutate>[0]["data"] }, {
-      onSuccess: () => { qc.invalidateQueries({ queryKey: getGetLeadQueryKey(id) }); setEditingStatus(false); },
+    updateLead.mutate({ id: apiId, data: { status } as Parameters<typeof updateLead.mutate>[0]["data"] }, {
+      onSuccess: () => { qc.invalidateQueries({ queryKey: getGetLeadQueryKey(apiId) }); setEditingStatus(false); },
     });
   }
 
   function saveScore() {
     if (localScore === null) return;
-    updateScore.mutate({ id, data: { score: localScore } }, {
-      onSuccess: () => { qc.invalidateQueries({ queryKey: getGetLeadQueryKey(id) }); setLocalScore(null); toast({ title: "Score updated" }); },
+    updateScore.mutate({ id: apiId, data: { score: localScore } }, {
+      onSuccess: () => { qc.invalidateQueries({ queryKey: getGetLeadQueryKey(apiId) }); setLocalScore(null); toast({ title: "Score updated" }); },
     });
   }
 
@@ -281,30 +282,30 @@ export default function LeadDetail() {
     const tag = newTag.trim().toLowerCase();
     if (!tag || !lead) return;
     const tags = [...asArray<string>(lead.tags), tag];
-    updateLead.mutate({ id, data: { tags } as Parameters<typeof updateLead.mutate>[0]["data"] }, {
-      onSuccess: () => { qc.invalidateQueries({ queryKey: getGetLeadQueryKey(id) }); setNewTag(""); setAddingTag(false); },
+    updateLead.mutate({ id: apiId, data: { tags } as Parameters<typeof updateLead.mutate>[0]["data"] }, {
+      onSuccess: () => { qc.invalidateQueries({ queryKey: getGetLeadQueryKey(apiId) }); setNewTag(""); setAddingTag(false); },
     });
   }
 
   function removeTag(tag: string) {
     if (!lead) return;
     const tags = asArray<string>(lead.tags).filter((t) => t !== tag);
-    updateLead.mutate({ id, data: { tags } as Parameters<typeof updateLead.mutate>[0]["data"] }, {
-      onSuccess: () => qc.invalidateQueries({ queryKey: getGetLeadQueryKey(id) }),
+    updateLead.mutate({ id: apiId, data: { tags } as Parameters<typeof updateLead.mutate>[0]["data"] }, {
+      onSuccess: () => qc.invalidateQueries({ queryKey: getGetLeadQueryKey(apiId) }),
     });
   }
 
   function addActivity() {
     if (!newActivityDesc.trim()) return;
-    createActivity.mutate({ id, data: { type: newActivityType, description: newActivityDesc } }, {
-      onSuccess: () => { qc.invalidateQueries({ queryKey: getListLeadActivitiesQueryKey(id) }); setNewActivityDesc(""); toast({ title: "Activity logged" }); },
+    createActivity.mutate({ id: apiId, data: { type: newActivityType, description: newActivityDesc } }, {
+      onSuccess: () => { qc.invalidateQueries({ queryKey: getListLeadActivitiesQueryKey(apiId) }); setNewActivityDesc(""); toast({ title: "Activity logged" }); },
     });
   }
 
   function addNote() {
     if (!newNote.trim()) return;
-    createNote.mutate({ id, data: { content: newNote } }, {
-      onSuccess: () => { qc.invalidateQueries({ queryKey: getListLeadNotesQueryKey(id) }); setNewNote(""); toast({ title: "Note added" }); },
+    createNote.mutate({ id: apiId, data: { content: newNote } }, {
+      onSuccess: () => { qc.invalidateQueries({ queryKey: getListLeadNotesQueryKey(apiId) }); setNewNote(""); toast({ title: "Note added" }); },
     });
   }
 
@@ -526,7 +527,7 @@ export default function LeadDetail() {
                   {stages.sort((a, b) => a.position - b.position).map((stage, i) => (
                     <button
                       key={stage.id}
-                      onClick={() => updateLead.mutate({ id, data: { pipelineStageId: stage.id } as Parameters<typeof updateLead.mutate>[0]["data"] }, { onSuccess: () => qc.invalidateQueries({ queryKey: getGetLeadQueryKey(id) }) })}
+                      onClick={() => updateLead.mutate({ id: apiId, data: { pipelineStageId: stage.id } as Parameters<typeof updateLead.mutate>[0]["data"] }, { onSuccess: () => qc.invalidateQueries({ queryKey: getGetLeadQueryKey(apiId) }) })}
                       className={`flex items-center gap-2 w-full py-1.5 px-2 rounded-lg text-xs font-medium transition-all ${lead.pipelineStageId === stage.id ? "bg-primary/10 text-primary border border-primary/30" : "text-muted-foreground hover:bg-muted border border-transparent"}`}
                     >
                       <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${lead.pipelineStageId === stage.id ? "ring-2 ring-primary/40" : ""}`} style={{ backgroundColor: stage.color }} />
@@ -666,7 +667,7 @@ export default function LeadDetail() {
                             <span className="text-xs text-muted-foreground">{formatDistanceToNow(parseISO(n.createdAt), { addSuffix: true })}</span>
                           </div>
                           <button
-                            onClick={() => deleteNote.mutate({ leadId: id, noteId: n.id }, { onSuccess: () => qc.invalidateQueries({ queryKey: getListLeadNotesQueryKey(id) }) })}
+                            onClick={() => deleteNote.mutate({ leadId: apiId, noteId: n.id }, { onSuccess: () => qc.invalidateQueries({ queryKey: getListLeadNotesQueryKey(apiId) }) })}
                             className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-all"
                           >
                             <Trash2 className="w-3.5 h-3.5" />

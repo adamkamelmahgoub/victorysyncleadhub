@@ -53,7 +53,7 @@ export default function Leads() {
   const params = {
     ...(search ? { search } : {}),
     ...(statusFilter !== "all" ? { status: statusFilter } : {}),
-    limit: 100,
+    limit: 1000,
   };
 
   const { data, isLoading } = useListLeads(params);

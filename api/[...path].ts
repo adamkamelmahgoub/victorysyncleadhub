@@ -328,7 +328,7 @@ function getSequenceStepsMatch(path: string) {
 async function listLeads(req: VercelRequest, res: VercelResponse) {
   const url = new URL(req.url ?? "/api/leads", "https://local.invalid");
   const page = Math.max(Number(url.searchParams.get("page") ?? "1"), 1);
-  const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? "50"), 1), 250);
+  const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? "50"), 1), 1000);
   const offset = (page - 1) * limit;
   const search = url.searchParams.get("search")?.trim();
   const status = url.searchParams.get("status")?.trim();
