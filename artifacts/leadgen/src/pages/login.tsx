@@ -13,7 +13,9 @@ export default function Login() {
   const [email, setEmail] = useState(inviteParams.get("email") ?? "");
   const [password, setPassword] = useState("");
   const [inviteCode, setInviteCode] = useState(inviteParams.get("invite") ?? "");
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<"signin" | "signup">(
+    inviteParams.has("invite") ? "signup" : "signin",
+  );
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

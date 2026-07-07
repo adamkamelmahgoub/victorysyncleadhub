@@ -187,7 +187,7 @@ export default function Leads() {
                     <td className="px-4 py-3 text-muted-foreground text-xs">{lead.campaignName ?? "—"}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
-                        <Link href={`/leads/${lead.id}`}>
+                    <Link href={`/leadgen/leads/${lead.id}`}>
                           <Button variant="ghost" size="icon" className="w-7 h-7 text-muted-foreground hover:text-foreground">
                             <ExternalLink className="w-3.5 h-3.5" />
                           </Button>

@@ -145,7 +145,7 @@ export default function Conversations() {
             <div className="mx-3 mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs flex-shrink-0">
               <div className="font-semibold text-amber-700 mb-1">{channelConfig.label} not connected</div>
               <p className="text-amber-600 mb-2">Connect your {channelConfig.label} account to see conversations here.</p>
-              <Link href="/integrations">
+          <Link href="/leadgen/integrations">
                 <span className="flex items-center gap-1 text-primary font-medium hover:underline">
                   <Plug className="w-3 h-3" /> Connect now
                 </span>
@@ -398,7 +398,7 @@ export default function Conversations() {
               <div>
                 <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Quick Actions</div>
                 <div className="space-y-1">
-                  <Link href={`/leads/${selected.id}`}>
+                    <Link href={`/leadgen/leads/${selected.id}`}>
                     <div className="w-full text-left text-xs px-3 py-2 rounded-lg border border-border hover:bg-muted transition-colors flex items-center gap-2 cursor-pointer">
                       <User className="w-3.5 h-3.5 text-muted-foreground" /> View Profile
                     </div>

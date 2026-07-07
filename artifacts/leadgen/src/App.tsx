@@ -37,6 +37,7 @@ import RevenueAttribution from "@/pages/revenue-attribution";
 import Onboarding from "@/pages/onboarding";
 import Affiliates from "@/pages/affiliates";
 import BillingIntegration from "@/pages/billing-integration";
+import VictorySyncHome from "@/pages/victorysync-home";
 import { Layout } from "@/components/layout";
 import Login from "@/pages/login";
 import { AuthProvider, useAuth } from "@/lib/auth";
@@ -50,7 +51,37 @@ const queryClient = new QueryClient({
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Dashboard} />
+      <Route path="/" component={VictorySyncHome} />
+      <Route path="/leadgen" component={Dashboard} />
+      <Route path="/leadgen/leads" component={Leads} />
+      <Route path="/leadgen/leads/:id" component={LeadDetail} />
+      <Route path="/leadgen/conversations" component={Conversations} />
+      <Route path="/leadgen/calendars" component={CalendarPage} />
+      <Route path="/leadgen/automation" component={Automation} />
+      <Route path="/leadgen/reputation" component={Reputation} />
+      <Route path="/leadgen/pipeline" component={Pipeline} />
+      <Route path="/leadgen/sequences" component={Sequences} />
+      <Route path="/leadgen/sequences/:id" component={SequenceEditor} />
+      <Route path="/leadgen/campaigns" component={Campaigns} />
+      <Route path="/leadgen/campaigns/:id" component={CampaignDetail} />
+      <Route path="/leadgen/forms" component={Forms} />
+      <Route path="/leadgen/forms/:id" component={FormEditor} />
+      <Route path="/leadgen/analytics" component={Analytics} />
+      <Route path="/leadgen/scraper" component={Scraper} />
+      <Route path="/leadgen/email-accounts" component={EmailAccounts} />
+      <Route path="/leadgen/integrations" component={Integrations} />
+      <Route path="/leadgen/lead-import" component={LeadImport} />
+      <Route path="/leadgen/social-planner" component={SocialPlanner} />
+      <Route path="/leadgen/segments" component={Segments} />
+      <Route path="/leadgen/webhooks" component={Webhooks} />
+      <Route path="/leadgen/email-templates" component={EmailTemplatesPage} />
+      <Route path="/leadgen/prospect-search" component={ProspectSearch} />
+      <Route path="/leadgen/meeting-scheduler" component={MeetingScheduler} />
+      <Route path="/leadgen/sequence-analytics" component={SequenceAnalytics} />
+      <Route path="/leadgen/revenue-attribution" component={RevenueAttribution} />
+      <Route path="/leadgen/getting-started" component={Onboarding} />
+
+      <Route path="/dashboard" component={Dashboard} />
       <Route path="/leads" component={Leads} />
       <Route path="/leads/:id" component={LeadDetail} />
       <Route path="/conversations" component={Conversations} />

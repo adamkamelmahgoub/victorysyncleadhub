@@ -276,7 +276,7 @@ export default function SequenceEditorPage() {
       <div className="p-6 max-w-3xl mx-auto space-y-6">
         {/* Back + Header */}
         <div className="flex items-center gap-3">
-          <Link href="/sequences">
+            <Link href="/leadgen/sequences">
             <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
               <ArrowLeft className="w-4 h-4 mr-1" /> Sequences
             </Button>
@@ -323,7 +323,7 @@ export default function SequenceEditorPage() {
           {accounts.length === 0 ? (
             <div className="text-sm text-muted-foreground">
               No email accounts connected.{" "}
-              <Link href="/email-accounts" className="text-primary hover:underline">
+                <Link href="/leadgen/email-accounts" className="text-primary hover:underline">
                 Connect one →
               </Link>
             </div>

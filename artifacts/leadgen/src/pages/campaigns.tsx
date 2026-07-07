@@ -228,7 +228,7 @@ export default function Campaigns() {
 
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-muted-foreground">{formatDistanceToNow(parseISO(c.createdAt), { addSuffix: true })}</span>
-                    <Link href={`/campaigns/${c.id}`}>
+                    <Link href={`/leadgen/campaigns/${c.id}`}>
                       <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-primary">
                         View leads <ArrowRight className="w-3 h-3" />
                       </Button>

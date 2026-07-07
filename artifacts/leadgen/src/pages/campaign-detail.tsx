@@ -46,7 +46,7 @@ export default function CampaignDetail() {
 
       <div className="space-y-5">
         <div className="flex items-center gap-3">
-          <Link href="/campaigns">
+            <Link href="/leadgen/campaigns">
             <Button variant="ghost" size="icon" className="w-8 h-8">
               <ArrowLeft className="w-4 h-4" />
             </Button>
@@ -123,7 +123,7 @@ export default function CampaignDetail() {
                       <span className="text-sm font-bold text-primary">{lead.score}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <Link href={`/leads/${lead.id}`}>
+                        <Link href={`/leadgen/leads/${lead.id}`}>
                         <Button variant="ghost" size="icon" className="w-7 h-7 text-muted-foreground hover:text-foreground">
                           <ExternalLink className="w-3.5 h-3.5" />
                         </Button>

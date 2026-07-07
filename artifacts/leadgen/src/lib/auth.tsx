@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
+import { setAuthTokenGetter } from "@workspace/api-client-react";
 import { supabase } from "./supabase";
 
 type AuthContextValue = {
@@ -24,6 +25,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    setAuthTokenGetter(async () => {
+      const { data } = await supabase.auth.getSession();
+      return data.session?.access_token ?? null;
+    });
 
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
@@ -38,6 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       mounted = false;
+      setAuthTokenGetter(null);
       data.subscription.unsubscribe();
     };
   }, []);
