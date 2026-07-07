@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Layout } from "@/components/layout";
 import { useListLeads } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
@@ -94,7 +93,7 @@ export default function Conversations() {
   const CHANNELS: Channel[] = ["all", "email", "sms", "facebook", "instagram", "whatsapp"];
 
   return (
-    <Layout>
+
       <div className="flex -m-6 overflow-hidden" style={{ height: "calc(100vh - 3.5rem)" }}>
 
         {/* ── Left: conversation list ── */}
@@ -413,6 +412,6 @@ export default function Conversations() {
           </div>
         )}
       </div>
-    </Layout>
+
   );
 }

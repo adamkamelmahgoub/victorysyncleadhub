@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -149,16 +148,16 @@ export default function PipelinePage() {
 
   if (!data) {
     return (
-      <Layout>
+
         <div className="p-6 flex items-center justify-center text-muted-foreground">Loading pipeline…</div>
-      </Layout>
+
     );
   }
 
   const totalLeads = data.stages.reduce((s, st) => s + st.leads.length, 0) + data.unassigned.length;
 
   return (
-    <Layout>
+
       <div className="p-6 flex flex-col h-full">
         {/* Header */}
         <div className="flex items-center justify-between mb-6 flex-shrink-0">
@@ -216,6 +215,6 @@ export default function PipelinePage() {
           </p>
         </div>
       </div>
-    </Layout>
+
   );
 }

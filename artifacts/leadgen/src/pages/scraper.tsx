@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -248,7 +247,7 @@ export default function ScraperPage() {
   ];
 
   return (
-    <Layout>
+
       <div className="max-w-2xl space-y-5">
         {/* Header */}
         <div>
@@ -484,6 +483,6 @@ export default function ScraperPage() {
           </div>
         )}
       </div>
-    </Layout>
+
   );
 }

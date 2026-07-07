@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Layout } from "@/components/layout";
 import {
   ChevronLeft, ChevronRight, Plus, Calendar as CalIcon,
   Clock, Video, Phone, User, MoreHorizontal, Search,
@@ -60,7 +59,7 @@ export default function CalendarPage() {
     .sort((a, b) => a.date.localeCompare(b.date));
 
   return (
-    <Layout>
+    <>
       <div className="space-y-5">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -253,6 +252,7 @@ export default function CalendarPage() {
           </div>
         </div>
       )}
-    </Layout>
+
+    </>
   );
 }

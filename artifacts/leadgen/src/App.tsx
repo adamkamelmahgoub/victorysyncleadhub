@@ -36,6 +36,7 @@ import RevenueAttribution from "@/pages/revenue-attribution";
 import Onboarding from "@/pages/onboarding";
 import Affiliates from "@/pages/affiliates";
 import BillingIntegration from "@/pages/billing-integration";
+import { Layout } from "@/components/layout";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -89,7 +90,9 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Router />
+          <Layout>
+            <Router />
+          </Layout>
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

@@ -1,5 +1,4 @@
 import { useState, useCallback } from "react";
-import { Layout } from "@/components/layout";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Zap, Plus, Play, Pause, Trash2, ChevronRight,
@@ -358,7 +357,7 @@ export default function Automation() {
   const triggerFields = TRIGGER_CONFIG[editTrigger]?.fields ?? [];
 
   return (
-    <Layout>
+    <>
       <div className="space-y-5">
         <div className="flex items-center justify-between">
           <div>
@@ -640,6 +639,7 @@ export default function Automation() {
           </div>
         </div>
       )}
-    </Layout>
+
+    </>
   );
 }

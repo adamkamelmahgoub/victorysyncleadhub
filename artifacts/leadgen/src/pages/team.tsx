@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Layout } from "@/components/layout";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users, UserPlus, Shield, MoreHorizontal, Mail,
@@ -84,7 +83,7 @@ export default function Team() {
   ];
 
   return (
-    <Layout>
+    <>
       <div className="space-y-5">
         <div className="flex items-center justify-between">
           <div>
@@ -341,6 +340,7 @@ export default function Team() {
       )}
 
       {openMenu !== null && <div className="fixed inset-0 z-10" onClick={() => setOpenMenu(null)} />}
-    </Layout>
+
+    </>
   );
 }

@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Layout } from "@/components/layout";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Star, TrendingUp, Send, MessageSquare, Search, Plus,
@@ -230,7 +229,7 @@ export default function Reputation() {
   ];
 
   return (
-    <Layout>
+    <>
       <div className="space-y-5">
         {toast && (
           <div className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium flex items-center gap-2 ${toast.type === "success" ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700"}`}>
@@ -622,6 +621,7 @@ export default function Reputation() {
           </div>
         </div>
       )}
-    </Layout>
+
+    </>
   );
 }

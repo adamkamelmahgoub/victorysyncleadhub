@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { Layout } from "@/components/layout";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle, XCircle, Settings, ExternalLink, AlertCircle,
@@ -376,7 +375,7 @@ export default function Integrations() {
   const connectedCount = connected.filter((c) => c.status === "connected").length;
 
   return (
-    <Layout>
+    <>
       <div className="space-y-5">
         {/* Toast */}
         {toast && (
@@ -534,6 +533,7 @@ export default function Integrations() {
           </div>
         </div>
       )}
-    </Layout>
+
+    </>
   );
 }

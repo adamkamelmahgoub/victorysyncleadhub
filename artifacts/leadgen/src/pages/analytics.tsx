@@ -5,7 +5,6 @@ import {
   useGetAnalyticsByCampaign,
   useGetAnalyticsTimeline,
 } from "@workspace/api-client-react";
-import { Layout } from "@/components/layout";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -66,7 +65,7 @@ export default function Analytics() {
     }));
 
   return (
-    <Layout>
+
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Analytics</h1>
@@ -194,6 +193,6 @@ export default function Analytics() {
           </Card>
         </div>
       </div>
-    </Layout>
+
   );
 }

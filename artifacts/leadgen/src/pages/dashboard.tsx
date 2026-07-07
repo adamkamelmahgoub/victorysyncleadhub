@@ -1,5 +1,4 @@
 import { useGetAnalyticsOverview, useGetAnalyticsByStatus, useGetAnalyticsTimeline, useGetTopLeads, useListCampaigns } from "@workspace/api-client-react";
-import { Layout } from "@/components/layout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -53,7 +52,7 @@ export default function Dashboard() {
   })) ?? [];
 
   return (
-    <Layout>
+
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
@@ -203,6 +202,6 @@ export default function Dashboard() {
           </Card>
         </div>
       </div>
-    </Layout>
+
   );
 }

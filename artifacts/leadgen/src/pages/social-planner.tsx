@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Layout } from "@/components/layout";
 import {
   Calendar, Plus, Image, Link2, Clock, CheckCircle,
   MoreHorizontal, ThumbsUp, MessageSquare, Share2, Eye,
@@ -111,7 +110,7 @@ export default function SocialPlanner() {
   }
 
   return (
-    <Layout>
+    <>
       <div className="space-y-5">
         <div className="flex items-center justify-between">
           <div>
@@ -312,6 +311,7 @@ export default function SocialPlanner() {
           </div>
         </div>
       )}
-    </Layout>
+
+    </>
   );
 }

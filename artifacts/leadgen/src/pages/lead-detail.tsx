@@ -8,7 +8,6 @@ import {
   useListCampaigns,
 } from "@workspace/api-client-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Layout } from "@/components/layout";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
 import { formatDistanceToNow, parseISO, format, isToday, isYesterday } from "date-fns";
@@ -319,7 +318,7 @@ export default function LeadDetail() {
 
   if (isLoading) {
     return (
-      <Layout>
+
         <div className="space-y-4">
           <Skeleton className="h-32 rounded-2xl" />
           <div className="grid grid-cols-3 gap-4">
@@ -327,15 +326,15 @@ export default function LeadDetail() {
             <Skeleton className="col-span-2 h-96 rounded-xl" />
           </div>
         </div>
-      </Layout>
+
     );
   }
 
   if (!lead) {
     return (
-      <Layout>
+
         <div className="text-center py-20 text-muted-foreground">Contact not found.</div>
-      </Layout>
+
     );
   }
 
@@ -345,7 +344,7 @@ export default function LeadDetail() {
   const cf = customFields;
 
   return (
-    <Layout>
+
       <div className="space-y-4">
         {/* ── Back nav ─────────────────────────────────────────────────────── */}
         <div className="flex items-center gap-2">
@@ -873,6 +872,6 @@ export default function LeadDetail() {
           </div>
         </div>
       </div>
-    </Layout>
+
   );
 }

@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Layout } from "@/components/layout";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useListLeads } from "@workspace/api-client-react";
 import { Users, Plus, Filter, Trash2, ChevronRight, Search, SlidersHorizontal, ExternalLink } from "lucide-react";
@@ -100,7 +99,7 @@ export default function Segments() {
   ];
 
   return (
-    <Layout>
+    <>
       <div className="space-y-5">
         <div className="flex items-center justify-between">
           <div>
@@ -287,6 +286,7 @@ export default function Segments() {
           </div>
         </div>
       )}
-    </Layout>
+
+    </>
   );
 }

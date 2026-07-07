@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Layout } from "@/components/layout";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Globe, Plus, Trash2, Play, CheckCircle, XCircle, AlertCircle,
@@ -88,7 +87,7 @@ export default function Webhooks() {
   }
 
   return (
-    <Layout>
+    <>
       <div className="space-y-5">
         {toast && (
           <div className="fixed top-5 right-5 z-50 px-4 py-3 rounded-xl shadow-lg bg-green-50 border border-green-200 text-green-700 text-sm font-medium flex items-center gap-2">
@@ -245,6 +244,7 @@ export default function Webhooks() {
           </div>
         </div>
       )}
-    </Layout>
+
+    </>
   );
 }

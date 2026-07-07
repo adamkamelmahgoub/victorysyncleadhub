@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useListCampaigns, useCreateCampaign, useDeleteCampaign, getListCampaignsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Layout } from "@/components/layout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -61,7 +60,7 @@ export default function Campaigns() {
   }
 
   return (
-    <Layout>
+    <>
       <div className="space-y-5">
         <div className="flex items-center justify-between">
           <div>
@@ -189,6 +188,7 @@ export default function Campaigns() {
           </div>
         </DialogContent>
       </Dialog>
-    </Layout>
+
+    </>
   );
 }

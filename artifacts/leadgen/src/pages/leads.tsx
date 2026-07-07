@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useListLeads, useDeleteLead, useListCampaigns, getListLeadsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Layout } from "@/components/layout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -91,7 +90,7 @@ export default function Leads() {
   const leads = data?.leads ?? [];
 
   return (
-    <Layout>
+    <>
       <div className="space-y-5">
         <div className="flex items-center justify-between">
           <div>
@@ -308,6 +307,7 @@ export default function Leads() {
           </div>
         </DialogContent>
       </Dialog>
-    </Layout>
+
+    </>
   );
 }

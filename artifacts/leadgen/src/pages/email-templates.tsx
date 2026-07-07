@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Layout } from "@/components/layout";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Mail, Plus, Search, Edit3, Trash2, Copy, Eye, Save, X, Star } from "lucide-react";
 
@@ -97,7 +96,7 @@ export default function EmailTemplates() {
   const byCategory = CATEGORIES.slice(1).map((c) => ({ c, count: templates.filter((t) => t.category === c).length })).filter((x) => x.count > 0);
 
   return (
-    <Layout>
+    <>
       <div className="space-y-5">
         {toast && (
           <div className="fixed top-5 right-5 z-50 px-4 py-3 rounded-xl shadow-lg bg-green-50 border border-green-200 text-green-700 text-sm font-medium">
@@ -286,6 +285,7 @@ export default function EmailTemplates() {
           </div>
         </div>
       )}
-    </Layout>
+
+    </>
   );
 }

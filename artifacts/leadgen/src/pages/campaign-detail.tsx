@@ -1,6 +1,5 @@
 import { useRoute, Link } from "wouter";
 import { useGetCampaign, getGetCampaignQueryKey, useGetCampaignLeads, getGetCampaignLeadsQueryKey, useUpdateCampaign } from "@workspace/api-client-react";
-import { Layout } from "@/components/layout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,23 +27,23 @@ export default function CampaignDetail() {
 
   if (isLoading) {
     return (
-      <Layout>
+
         <div className="space-y-5">
           <Skeleton className="h-8 w-64" />
           <div className="grid grid-cols-3 gap-4">
             {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24" />)}
           </div>
         </div>
-      </Layout>
+
     );
   }
 
   if (!campaign) {
-    return <Layout><div className="text-center py-20 text-muted-foreground">Campaign not found.</div></Layout>;
+    return <div className="text-center py-20 text-muted-foreground">Campaign not found.</div>;
   }
 
   return (
-    <Layout>
+
       <div className="space-y-5">
         <div className="flex items-center gap-3">
           <Link href="/campaigns">
@@ -137,6 +136,6 @@ export default function CampaignDetail() {
           </div>
         </Card>
       </div>
-    </Layout>
+
   );
 }

@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useRoute, Link } from "wouter";
 import { useGetForm, getGetFormQueryKey, useUpdateForm } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Layout } from "@/components/layout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -108,14 +107,14 @@ export default function FormEditor() {
   }
 
   if (isLoading) {
-    return <Layout><div className="space-y-4"><Skeleton className="h-8 w-64" /><Skeleton className="h-96 w-full" /></div></Layout>;
+    return <div className="space-y-4"><Skeleton className="h-8 w-64" /><Skeleton className="h-96 w-full" /></div>;
   }
   if (!form) {
-    return <Layout><div className="text-center py-20 text-muted-foreground">Form not found.</div></Layout>;
+    return <div className="text-center py-20 text-muted-foreground">Form not found.</div>;
   }
 
   return (
-    <Layout>
+
       <div className="space-y-5">
         <div className="flex items-center gap-3">
           <Link href="/forms">
@@ -287,6 +286,6 @@ export default function FormEditor() {
           </div>
         </div>
       </div>
-    </Layout>
+
   );
 }

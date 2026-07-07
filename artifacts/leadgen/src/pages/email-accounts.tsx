@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -149,7 +148,7 @@ export default function EmailAccountsPage() {
   const currentPreset = PROVIDERS.find((p) => p.key === preset);
 
   return (
-    <Layout>
+
       <div className="p-6 max-w-3xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -381,6 +380,6 @@ export default function EmailAccountsPage() {
           </DialogContent>
         </Dialog>
       </div>
-    </Layout>
+
   );
 }

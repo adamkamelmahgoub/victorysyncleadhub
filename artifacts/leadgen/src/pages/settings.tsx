@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Layout } from "@/components/layout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,7 +34,7 @@ export default function Settings() {
   }
 
   return (
-    <Layout>
+
       <div className="space-y-6 max-w-2xl">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Settings</h1>
@@ -149,6 +148,6 @@ export default function Settings() {
           </div>
         </Card>
       </div>
-    </Layout>
+
   );
 }

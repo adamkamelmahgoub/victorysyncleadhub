@@ -1,5 +1,4 @@
 import { useState, useRef } from "react";
-import { Layout } from "@/components/layout";
 import { useMutation } from "@tanstack/react-query";
 import { Upload, FileText, CheckCircle, AlertCircle, X, Download, ChevronRight } from "lucide-react";
 
@@ -118,7 +117,7 @@ export default function LeadImport() {
   const stepIdx = ["upload", "map", "preview", "done"].indexOf(step);
 
   return (
-    <Layout>
+
       <div className="max-w-3xl mx-auto space-y-6">
         <div>
           <h1 className="text-xl font-bold text-foreground">Import Leads</h1>
@@ -284,6 +283,6 @@ export default function LeadImport() {
           </div>
         )}
       </div>
-    </Layout>
+
   );
 }
