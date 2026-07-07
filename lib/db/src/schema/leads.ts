@@ -15,6 +15,7 @@ export const leadsTable = pgTable("leads", {
   score: integer("score").notNull().default(0),
   campaignId: integer("campaign_id"),
   formId: integer("form_id"),
+  pipelineStageId: integer("pipeline_stage_id"),
   tags: text("tags").array().notNull().default([]),
   customFields: jsonb("custom_fields").notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

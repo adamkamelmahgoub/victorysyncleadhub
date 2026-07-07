@@ -11,6 +11,9 @@ import {
   Search,
   Menu,
   Globe,
+  Mail,
+  GitBranch,
+  Layers,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -18,7 +21,10 @@ import { Input } from "./ui/input";
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/leads", label: "Leads", icon: Users },
+  { href: "/pipeline", label: "Pipeline", icon: GitBranch },
   { href: "/scraper", label: "Find Leads", icon: Globe },
+  { href: "/sequences", label: "Sequences", icon: Layers },
+  { href: "/email-accounts", label: "Email Accounts", icon: Mail },
   { href: "/campaigns", label: "Campaigns", icon: Megaphone },
   { href: "/forms", label: "Forms", icon: FormInput },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },

@@ -5,6 +5,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
 import Scraper from "@/pages/scraper";
+import EmailAccounts from "@/pages/email-accounts";
+import Pipeline from "@/pages/pipeline";
+import Sequences from "@/pages/sequences";
+import SequenceEditor from "@/pages/sequence-editor";
 import Leads from "@/pages/leads";
 import LeadDetail from "@/pages/lead-detail";
 import Campaigns from "@/pages/campaigns";
@@ -35,6 +39,10 @@ function Router() {
       <Route path="/forms/:id" component={FormEditor} />
       <Route path="/analytics" component={Analytics} />
       <Route path="/scraper" component={Scraper} />
+      <Route path="/pipeline" component={Pipeline} />
+      <Route path="/sequences" component={Sequences} />
+      <Route path="/sequences/:id" component={SequenceEditor} />
+      <Route path="/email-accounts" component={EmailAccounts} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>

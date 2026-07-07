@@ -3,3 +3,7 @@ export * from "./campaigns";
 export * from "./forms";
 export * from "./activities";
 export * from "./notes";
+export * from "./email-accounts";
+export * from "./pipeline-stages";
+export * from "./sequences";
+export * from "./email-logs";
