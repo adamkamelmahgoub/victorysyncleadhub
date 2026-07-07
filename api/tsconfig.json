@@ -1,0 +1,16 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"]
+  },
+  "include": [
+    "./**/*.ts",
+    "../artifacts/api-server/src/**/*.ts",
+    "../lib/db/src/**/*.ts",
+    "../lib/api-zod/src/**/*.ts"
+  ]
+}

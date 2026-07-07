@@ -4,9 +4,9 @@ import pinoHttp from "pino-http";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { existsSync } from "fs";
-import router from "./routes";
-import { logger } from "./lib/logger";
-import { requireSupabaseUser } from "./middleware/auth";
+import router from "./routes/index.js";
+import { logger } from "./lib/logger.js";
+import { requireSupabaseUser } from "./middleware/auth.js";
 
 const app: Express = express();
 

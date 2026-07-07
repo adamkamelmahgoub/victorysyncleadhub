@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import { isSupabaseConfigured, supabase } from "../lib/supabase";
+import { isSupabaseConfigured, supabase } from "../lib/supabase.js";
 
 const publicApiPaths = [
   "/healthz",
