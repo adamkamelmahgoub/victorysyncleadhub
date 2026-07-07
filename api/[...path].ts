@@ -73,6 +73,9 @@ function pathFromUrl(url = "/") {
 
 async function readJson(req: VercelRequest) {
   if (req.body && typeof req.body === "object") return req.body;
+  if (typeof req.body === "string") {
+    return req.body.trim() ? JSON.parse(req.body) : {};
+  }
 
   const body = await new Promise<string>((resolve, reject) => {
     const chunks: Buffer[] = [];
