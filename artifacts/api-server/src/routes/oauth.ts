@@ -6,12 +6,14 @@ import { z } from "zod";
 const router: IRouter = Router();
 
 function getBaseUrl(req: { headers: Record<string, string | string[] | undefined> }): string {
-  const domains = process.env.REPLIT_DOMAINS;
-  if (domains) return `https://${domains.split(",")[0]}`;
-  const devDomain = process.env.REPLIT_DEV_DOMAIN;
-  if (devDomain) return `https://${devDomain}`;
-  const host = req.headers.host;
-  return `http://${host ?? "localhost"}`;
+  const appUrl = process.env.APP_URL;
+  if (appUrl) return appUrl.replace(/\/$/, "");
+  const proto = req.headers["x-forwarded-proto"];
+  const host = req.headers["x-forwarded-host"] ?? req.headers.host;
+  const protocol = Array.isArray(proto) ? proto[0] : proto;
+  const hostname = Array.isArray(host) ? host[0] : host;
+  if (hostname) return `${protocol ?? "https"}://${hostname}`;
+  return "http://localhost";
 }
 
 // Simple in-memory state store (for CSRF)
@@ -131,7 +133,8 @@ router.get("/oauth/:provider/start", (req, res): void => {
   if (!cfg) { res.status(404).json({ error: "Unknown provider" }); return; }
 
   const clientId = process.env[cfg.clientIdEnv];
-  if (!clientId) {
+  const clientSecret = process.env[cfg.clientSecretEnv];
+  if (!clientId || !clientSecret) {
     const base = getBaseUrl(req as Parameters<typeof getBaseUrl>[0]);
     res.redirect(`${base}/integrations?error=not_configured&provider=${provider}`);
     return;
@@ -223,7 +226,14 @@ router.get("/oauth/:provider/callback", async (req, res): Promise<void> => {
       name: cfg.name,
       accountIdentifier: accountIdentifier || `${cfg.name} account`,
       status: "connected" as const,
-      config: { access_token: accessToken, token_type: String(tokenData.token_type ?? "Bearer") },
+      config: {
+        access_token: accessToken,
+        refresh_token: String(tokenData.refresh_token ?? ""),
+        token_type: String(tokenData.token_type ?? "Bearer"),
+        expires_in: tokenData.expires_in,
+        scope: String(tokenData.scope ?? cfg.scope),
+        connected_at: new Date().toISOString(),
+      },
       updatedAt: new Date(),
     };
 
@@ -270,7 +280,7 @@ router.post("/oauth/twilio/validate", async (req, res): Promise<void> => {
       name: "Twilio SMS",
       accountIdentifier: fromNumber ?? accountName,
       status: "connected" as const,
-      config: { account_sid: accountSid, from_number: fromNumber ?? "" },
+      config: { account_sid: accountSid, auth_token: authToken, from_number: fromNumber ?? "" },
       updatedAt: new Date(),
     };
     if (existing[0]) {
@@ -296,6 +306,10 @@ router.post("/oauth/zapier/validate", async (req, res): Promise<void> => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ event: "test", source: "victorysync", timestamp: new Date().toISOString() }),
     });
+    if (!testRes.ok) {
+      res.status(400).json({ error: "Zapier webhook did not accept the test event" });
+      return;
+    }
 
     const existing = await db.select().from(integrationsTable).where(eq(integrationsTable.type, "zapier")).limit(1);
     const integrationData = {

@@ -35,7 +35,7 @@ if (process.env.NODE_ENV === "production") {
   const staticPath = join(__dirname, "../../leadgen/dist/public");
   if (existsSync(staticPath)) {
     app.use(express.static(staticPath));
-    app.get("*", (_req, res) => {
+    app.get(/.*/, (_req, res) => {
       res.sendFile(join(staticPath, "index.html"));
     });
     logger.info({ staticPath }, "Serving frontend static files");

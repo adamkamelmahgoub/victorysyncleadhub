@@ -1,6 +1,6 @@
 # VictorySync Deployment Guide
 
-This guide covers deploying VictorySync outside of Replit to your own infrastructure.
+This guide covers deploying VictorySync to production infrastructure.
 
 ---
 
@@ -194,7 +194,7 @@ Then update OAuth redirect URIs in each provider's developer portal to point to 
 ## Production Checklist
 
 - [ ] `SESSION_SECRET` is a long random string (not a word)
-- [ ] `DATABASE_URL` points to a persistent database (not Replit's ephemeral one)
+- [ ] `DATABASE_URL` points to a persistent production database
 - [ ] SSL/HTTPS is configured on your domain
 - [ ] OAuth redirect URIs updated in each provider's developer portal
 - [ ] DB migrations have been run: `pnpm --filter @workspace/db run push`

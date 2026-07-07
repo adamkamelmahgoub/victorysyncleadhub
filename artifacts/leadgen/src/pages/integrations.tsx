@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  CheckCircle, XCircle, Settings, ExternalLink, AlertCircle,
-  Plug, Copy, Info, ChevronDown, ChevronRight,
+  CheckCircle, Settings, ExternalLink, AlertCircle,
+  Plug, Copy, Info, RefreshCw,
 } from "lucide-react";
+import { apiFetch } from "@/lib/api";
 
 interface Integration {
   id: number;
@@ -113,6 +114,8 @@ const ALL_INTEGRATIONS: IntegrationDef[] = [
     type: "stripe", name: "Stripe", category: "Payments", connectType: "apikey",
     description: "Track payment events, invoices and revenue from Stripe contacts.",
     logo: "$", color: "bg-indigo-600",
+    validateEndpoint: "/api/integrations/stripe/validate",
+    validatePayloadMap: { publishable_key: "publishableKey", secret_key: "secretKey" },
     fields: [
       { key: "publishable_key", label: "Publishable Key", placeholder: "pk_live_..." },
       { key: "secret_key", label: "Secret Key", placeholder: "sk_live_...", type: "password" },
@@ -130,11 +133,6 @@ const ALL_INTEGRATIONS: IntegrationDef[] = [
 const CATEGORIES = ["All", "Email", "SMS", "Social", "Messaging", "Reviews", "Notifications", "Automation", "Payments", "Scheduling"];
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-async function apiFetch(path: string, opts?: RequestInit) {
-  const res = await fetch(`${BASE}${path}`, { headers: { "Content-Type": "application/json" }, ...opts });
-  if (!res.ok) throw new Error(await res.text());
-  return res.status === 204 ? null : res.json();
-}
 
 function SetupGuide({ def, callbackUrls, onClose }: { def: IntegrationDef; callbackUrls: Record<string, string>; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
@@ -165,7 +163,7 @@ function SetupGuide({ def, callbackUrls, onClose }: { def: IntegrationDef; callb
               <li>Create a new app / OAuth client</li>
               <li>Add the callback URL below as an authorized redirect URI</li>
               <li>Copy the Client ID and Client Secret</li>
-              <li>Add them as Replit Secrets (see below)</li>
+              <li>Add them as environment variables in your hosting provider</li>
             </ol>
           </div>
 
@@ -182,7 +180,7 @@ function SetupGuide({ def, callbackUrls, onClose }: { def: IntegrationDef; callb
           )}
 
           <div>
-            <div className="text-xs font-semibold text-muted-foreground mb-2">Required Replit Secrets</div>
+            <div className="text-xs font-semibold text-muted-foreground mb-2">Required Environment Variables</div>
             {def.oauthProvider === "google" || def.oauthProvider === "google_business" ? (
               <div className="space-y-2">
                 <SecretItem name="GOOGLE_CLIENT_ID" desc="From Google Cloud Console → Credentials" />
@@ -217,7 +215,7 @@ function SetupGuide({ def, callbackUrls, onClose }: { def: IntegrationDef; callb
           </div>
 
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700">
-            <span className="font-semibold">Add secrets:</span> In Replit, click the 🔒 lock icon in the left sidebar → Secrets → add the key-value pairs above. Once added, click "Connect" again.
+            <span className="font-semibold">Add secrets:</span> In your hosting provider, add the key-value pairs above as environment variables. Once added, redeploy and click "Connect" again.
           </div>
         </div>
         <div className="px-6 pb-6 flex justify-end gap-2">
@@ -303,6 +301,19 @@ export default function Integrations() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["integrations"] }); setToast({ msg: "Disconnected.", type: "success" }); },
   });
 
+  const syncIntegration = useMutation({
+    mutationFn: (id: number) => apiFetch(`/api/integrations/${id}/sync`, { method: "POST" }) as Promise<{ pulled: number; imported: number }>,
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["integrations"] });
+      qc.invalidateQueries({ queryKey: ["leads"] });
+      setToast({ msg: `Sync complete: pulled ${result.pulled}, imported ${result.imported}.`, type: "success" });
+    },
+    onError: (error) => {
+      setToast({ msg: error instanceof Error ? error.message : "Sync failed", type: "error" });
+      qc.invalidateQueries({ queryKey: ["integrations"] });
+    },
+  });
+
   const connectApiKey = useMutation({
     mutationFn: (body: object) => apiFetch("/api/integrations", { method: "POST", body: JSON.stringify(body) }),
     onSuccess: () => {
@@ -343,13 +354,11 @@ export default function Integrations() {
         for (const [fieldKey, payloadKey] of Object.entries(configuring.validatePayloadMap)) {
           payload[payloadKey] = fieldValues[fieldKey] ?? "";
         }
-        const res = await fetch(`${BASE}${configuring.validateEndpoint}`, {
+        const data = await apiFetch(configuring.validateEndpoint, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
-        });
-        const data = await res.json() as { success?: boolean; error?: string };
-        if (!res.ok || !data.success) {
+        }) as { success?: boolean; error?: string };
+        if (!data.success) {
           setValidationError(data.error ?? "Validation failed");
           setValidating(false);
           return;
@@ -463,8 +472,12 @@ export default function Integrations() {
                 <div className="flex gap-2">
                   {isConnected ? (
                     <>
-                      <button className="flex-1 flex items-center justify-center gap-1.5 text-xs py-2 border border-border rounded-lg text-muted-foreground hover:bg-muted transition-colors">
-                        <Settings className="w-3.5 h-3.5" /> Settings
+                      <button
+                        onClick={() => conn && syncIntegration.mutate(conn.id)}
+                        disabled={syncIntegration.isPending}
+                        className="flex-1 flex items-center justify-center gap-1.5 text-xs py-2 border border-border rounded-lg text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${syncIntegration.isPending ? "animate-spin" : ""}`} /> Sync now
                       </button>
                       <button onClick={() => conn && disconnect.mutate(conn.id)} className="flex-1 text-xs py-2 border border-red-200 rounded-lg text-red-500 hover:bg-red-50 transition-colors">
                         Disconnect

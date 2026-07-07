@@ -1,5 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -137,7 +137,7 @@ function App() {
 }
 
 class AppErrorBoundary extends Component<
-  { children: ReactNode },
+  { children: ReactNode; resetKey?: string },
   { error: Error | null }
 > {
   state: { error: Error | null } = { error: null };
@@ -148,6 +148,12 @@ class AppErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("App render failed", error, info);
+  }
+
+  componentDidUpdate(prevProps: { resetKey?: string }) {
+    if (this.state.error && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ error: null });
+    }
   }
 
   render() {
@@ -177,6 +183,7 @@ class AppErrorBoundary extends Component<
 
 function AuthenticatedApp() {
   const { loading, session } = useAuth();
+  const [location] = useLocation();
 
   if (loading) {
     return (
@@ -191,9 +198,11 @@ function AuthenticatedApp() {
   }
 
   return (
-    <Layout>
-      <Router />
-    </Layout>
+    <AppErrorBoundary resetKey={location}>
+      <Layout>
+        <Router />
+      </Layout>
+    </AppErrorBoundary>
   );
 }
 
