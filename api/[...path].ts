@@ -126,6 +126,7 @@ function leadInsertPayload(lead: ReturnType<typeof normalizeLead>) {
     first_name: lead.first_name,
     last_name: lead.last_name,
     email: lead.email,
+    phone: lead.phone ?? "",
   };
 }
 
