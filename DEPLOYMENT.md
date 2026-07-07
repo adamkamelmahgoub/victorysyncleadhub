@@ -4,7 +4,41 @@ This guide covers deploying VictorySync outside of Replit to your own infrastruc
 
 ---
 
-## Option A — Railway (Recommended, ~5 min)
+## Option A - Vercel
+
+This repo includes `vercel.json` for Vercel:
+
+- Install command: `pnpm install --frozen-lockfile`
+- Build command: `pnpm --filter @workspace/leadgen build`
+- Output directory: `artifacts/leadgen/dist/public`
+- API routes: `/api/*` handled by `api/[...path].ts`, which delegates to the Express app
+- SPA fallback: non-API routes rewrite to `/index.html`
+
+### Steps
+
+1. Push this repository to GitHub.
+2. In Vercel, choose **Add New Project** and import the repo.
+3. Keep the root directory as the repository root.
+4. Add environment variables in Vercel Project Settings:
+   ```
+   DATABASE_URL=<your_postgres_connection_string>
+   SESSION_SECRET=<random 64 chars>
+   NODE_ENV=production
+   BASE_PATH=/
+   APP_URL=https://your-vercel-domain.vercel.app
+   ```
+   Add OAuth variables from `.env.example` only for providers you plan to use.
+5. Deploy.
+6. Run database migrations once from your machine or another trusted shell:
+   ```bash
+   DATABASE_URL=<your_postgres_connection_string> pnpm --filter @workspace/db run push
+   ```
+
+For production, use a persistent PostgreSQL provider such as Vercel Postgres/Neon, Supabase, Railway Postgres, or another managed Postgres database. Update OAuth callback URLs to `https://yourdomain.com/api/oauth/<provider>/callback`.
+
+---
+
+## Option B — Railway (Recommended, ~5 min)
 
 Railway handles PostgreSQL, builds, and deploys automatically from GitHub.
 
@@ -43,7 +77,7 @@ Railway handles PostgreSQL, builds, and deploys automatically from GitHub.
 
 ---
 
-## Option B — Render (Free tier available)
+## Option C — Render (Free tier available)
 
 1. Connect your GitHub repo at [render.com](https://render.com) → New Web Service
 2. Choose **Docker** as runtime (Render reads your Dockerfile)
@@ -53,7 +87,7 @@ Railway handles PostgreSQL, builds, and deploys automatically from GitHub.
 
 ---
 
-## Option C — Docker on any VPS (DigitalOcean, Linode, etc.)
+## Option D — Docker on any VPS (DigitalOcean, Linode, etc.)
 
 ### Requirements
 - A Linux server with Docker + Docker Compose installed
@@ -96,7 +130,7 @@ Update nginx config to proxy to port 8080.
 
 ---
 
-## Option D — Fly.io
+## Option E — Fly.io
 
 ```bash
 # Install flyctl
