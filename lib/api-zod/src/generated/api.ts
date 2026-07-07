@@ -45,8 +45,9 @@ export const ListLeadsResponse = zod.object({
   "campaignId": zod.number().nullish(),
   "campaignName": zod.string().nullish(),
   "formId": zod.number().nullish(),
+  "pipelineStageId": zod.number().nullish(),
   "tags": zod.array(zod.string()).optional(),
-  "customFields": zod.record(zod.string(), zod.string()).optional(),
+  "customFields": zod.record(zod.string(), zod.unknown()).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })),
@@ -93,8 +94,9 @@ export const CreateLeadResponse = zod.object({
   "campaignId": zod.number().nullish(),
   "campaignName": zod.string().nullish(),
   "formId": zod.number().nullish(),
+  "pipelineStageId": zod.number().nullish(),
   "tags": zod.array(zod.string()).optional(),
-  "customFields": zod.record(zod.string(), zod.string()).optional(),
+  "customFields": zod.record(zod.string(), zod.unknown()).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -155,8 +157,9 @@ export const GetLeadResponse = zod.object({
   "campaignId": zod.number().nullish(),
   "campaignName": zod.string().nullish(),
   "formId": zod.number().nullish(),
+  "pipelineStageId": zod.number().nullish(),
   "tags": zod.array(zod.string()).optional(),
-  "customFields": zod.record(zod.string(), zod.string()).optional(),
+  "customFields": zod.record(zod.string(), zod.unknown()).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -180,8 +183,9 @@ export const UpdateLeadBody = zod.object({
   "status": zod.string().optional(),
   "score": zod.number().optional(),
   "campaignId": zod.number().optional(),
+  "pipelineStageId": zod.number().optional(),
   "tags": zod.array(zod.string()).optional(),
-  "customFields": zod.record(zod.string(), zod.string()).optional()
+  "customFields": zod.record(zod.string(), zod.unknown()).optional()
 })
 
 export const UpdateLeadResponse = zod.object({
@@ -198,8 +202,9 @@ export const UpdateLeadResponse = zod.object({
   "campaignId": zod.number().nullish(),
   "campaignName": zod.string().nullish(),
   "formId": zod.number().nullish(),
+  "pipelineStageId": zod.number().nullish(),
   "tags": zod.array(zod.string()).optional(),
-  "customFields": zod.record(zod.string(), zod.string()).optional(),
+  "customFields": zod.record(zod.string(), zod.unknown()).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -245,8 +250,9 @@ export const UpdateLeadScoreResponse = zod.object({
   "campaignId": zod.number().nullish(),
   "campaignName": zod.string().nullish(),
   "formId": zod.number().nullish(),
+  "pipelineStageId": zod.number().nullish(),
   "tags": zod.array(zod.string()).optional(),
-  "customFields": zod.record(zod.string(), zod.string()).optional(),
+  "customFields": zod.record(zod.string(), zod.unknown()).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -374,8 +380,9 @@ export const GetCampaignLeadsResponse = zod.object({
   "campaignId": zod.number().nullish(),
   "campaignName": zod.string().nullish(),
   "formId": zod.number().nullish(),
+  "pipelineStageId": zod.number().nullish(),
   "tags": zod.array(zod.string()).optional(),
-  "customFields": zod.record(zod.string(), zod.string()).optional(),
+  "customFields": zod.record(zod.string(), zod.unknown()).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })),
@@ -576,8 +583,9 @@ export const SubmitFormResponse = zod.object({
   "campaignId": zod.number().nullish(),
   "campaignName": zod.string().nullish(),
   "formId": zod.number().nullish(),
+  "pipelineStageId": zod.number().nullish(),
   "tags": zod.array(zod.string()).optional(),
-  "customFields": zod.record(zod.string(), zod.string()).optional(),
+  "customFields": zod.record(zod.string(), zod.unknown()).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -748,8 +756,9 @@ export const GetTopLeadsResponseItem = zod.object({
   "campaignId": zod.number().nullish(),
   "campaignName": zod.string().nullish(),
   "formId": zod.number().nullish(),
+  "pipelineStageId": zod.number().nullish(),
   "tags": zod.array(zod.string()).optional(),
-  "customFields": zod.record(zod.string(), zod.string()).optional(),
+  "customFields": zod.record(zod.string(), zod.unknown()).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })

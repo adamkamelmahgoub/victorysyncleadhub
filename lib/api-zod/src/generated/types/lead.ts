@@ -28,6 +28,8 @@ export interface Lead {
   campaignName?: string | null;
   /** @nullable */
   formId?: number | null;
+  /** @nullable */
+  pipelineStageId?: number | null;
   tags?: string[];
   customFields?: LeadCustomFields;
   createdAt: string;

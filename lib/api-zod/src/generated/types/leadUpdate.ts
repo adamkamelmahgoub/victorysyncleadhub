@@ -18,6 +18,7 @@ export interface LeadUpdate {
   status?: string;
   score?: number;
   campaignId?: number;
+  pipelineStageId?: number;
   tags?: string[];
   customFields?: LeadUpdateCustomFields;
 }

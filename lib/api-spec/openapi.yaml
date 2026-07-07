@@ -682,14 +682,15 @@ components:
           type: ["string", "null"]
         formId:
           type: ["integer", "null"]
+        pipelineStageId:
+          type: ["integer", "null"]
         tags:
           type: array
           items:
             type: string
         customFields:
           type: object
-          additionalProperties:
-            type: string
+          additionalProperties: {}
         createdAt:
           type: string
         updatedAt:
@@ -754,14 +755,15 @@ components:
           type: integer
         campaignId:
           type: integer
+        pipelineStageId:
+          type: integer
         tags:
           type: array
           items:
             type: string
         customFields:
           type: object
-          additionalProperties:
-            type: string
+          additionalProperties: {}
 
     LeadScoreUpdate:
       type: object

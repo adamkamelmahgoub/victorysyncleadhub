@@ -6,4 +6,4 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type LeadUpdateCustomFields = {[key: string]: string};
+export type LeadUpdateCustomFields = {[key: string]: unknown};

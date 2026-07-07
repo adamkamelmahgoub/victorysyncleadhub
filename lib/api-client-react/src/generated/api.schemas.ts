@@ -9,7 +9,7 @@ export interface HealthStatus {
   status: string;
 }
 
-export type LeadCustomFields = {[key: string]: string};
+export type LeadCustomFields = {[key: string]: unknown};
 
 export interface Lead {
   id: number;
@@ -32,6 +32,8 @@ export interface Lead {
   campaignName?: string | null;
   /** @nullable */
   formId?: number | null;
+  /** @nullable */
+  pipelineStageId?: number | null;
   tags?: string[];
   customFields?: LeadCustomFields;
   createdAt: string;
@@ -58,7 +60,7 @@ export interface LeadInput {
   customFields?: LeadInputCustomFields;
 }
 
-export type LeadUpdateCustomFields = {[key: string]: string};
+export type LeadUpdateCustomFields = {[key: string]: unknown};
 
 export interface LeadUpdate {
   firstName?: string;
@@ -71,6 +73,7 @@ export interface LeadUpdate {
   status?: string;
   score?: number;
   campaignId?: number;
+  pipelineStageId?: number;
   tags?: string[];
   customFields?: LeadUpdateCustomFields;
 }

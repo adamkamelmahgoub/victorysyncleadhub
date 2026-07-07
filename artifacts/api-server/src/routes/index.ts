@@ -18,6 +18,7 @@ import segmentsRouter from "./segments";
 import reviewsRouter from "./reviews";
 import webhooksRouter from "./webhooks";
 import emailTemplatesRouter from "./email-templates";
+import contactTasksRouter from "./contact-tasks";
 
 const router: IRouter = Router();
 
@@ -40,5 +41,6 @@ router.use(segmentsRouter);
 router.use(reviewsRouter);
 router.use(webhooksRouter);
 router.use(emailTemplatesRouter);
+router.use(contactTasksRouter);
 
 export default router;

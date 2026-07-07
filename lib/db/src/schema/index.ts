@@ -14,3 +14,4 @@ export * from "./segments";
 export * from "./reviews";
 export * from "./webhooks";
 export * from "./email-templates";
+export * from "./contact-tasks";
