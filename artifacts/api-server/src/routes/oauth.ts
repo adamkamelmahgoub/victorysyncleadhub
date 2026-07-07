@@ -132,7 +132,7 @@ router.get("/oauth/:provider/start", (req, res): void => {
 
   const clientId = process.env[cfg.clientIdEnv];
   if (!clientId) {
-    const base = req.headers.referer?.split("/api")[0] ?? "";
+    const base = getBaseUrl(req as Parameters<typeof getBaseUrl>[0]);
     res.redirect(`${base}/integrations?error=not_configured&provider=${provider}`);
     return;
   }
