@@ -55,8 +55,8 @@ export default function Dashboard() {
 
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-1">Your lead generation overview</p>
+          <h1 className="text-2xl font-bold text-foreground">Lead Generation Hub</h1>
+          <p className="text-sm text-muted-foreground mt-1">Your VictorySync lead generation overview</p>
         </div>
 
         {/* Stats row */}

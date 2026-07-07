@@ -81,7 +81,7 @@ function Router() {
       <Route path="/leadgen/revenue-attribution" component={RevenueAttribution} />
       <Route path="/leadgen/getting-started" component={Onboarding} />
 
-      <Route path="/dashboard" component={Dashboard} />
+      <Route path="/dashboard" component={VictorySyncHome} />
       <Route path="/leads" component={Leads} />
       <Route path="/leads/:id" component={LeadDetail} />
       <Route path="/conversations" component={Conversations} />

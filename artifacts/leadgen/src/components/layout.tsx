@@ -9,14 +9,18 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
-const NAV: Array<{ href: string; label: string; icon: React.ElementType; badge?: string } | null> = [
+type NavItem = { href: string; label: string; icon: React.ElementType; badge?: string };
+type NavEntry = NavItem | { section: string } | null;
+
+const NAV: NavEntry[] = [
+  { section: "VictorySync" },
   { href: "/", label: "Home", icon: LayoutDashboard },
-  null,
   { href: "/sub-accounts", label: "Client Accounts", icon: Building2 },
   { href: "/team", label: "Team & Invites", icon: UserPlus },
   { href: "/billing-integration", label: "API & SSO", icon: Key },
   { href: "/settings", label: "Settings", icon: Settings },
   null,
+  { section: "Lead Generation Hub" },
   { href: "/leadgen", label: "Lead Gen Hub", icon: Rocket },
   { href: "/leadgen/leads", label: "Contacts", icon: Users },
   { href: "/leadgen/segments", label: "Segments", icon: Filter },
@@ -43,6 +47,7 @@ const NAV: Array<{ href: string; label: string; icon: React.ElementType; badge?:
   { href: "/leadgen/lead-import", label: "Import Leads", icon: Upload },
   { href: "/leadgen/scraper", label: "Lead Finder", icon: Search },
   null,
+  { section: "Growth" },
   { href: "/affiliates", label: "Affiliates", icon: Gift },
 ];
 
@@ -68,8 +73,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
     .join("") || "VS";
 
   function isActive(href: string) {
-    if (href === "/") return location === "/";
-    if (href === "/leadgen") return location === "/leadgen" || location === "/dashboard";
+    if (href === "/") return location === "/" || location === "/dashboard";
+    if (href === "/leadgen") return location === "/leadgen";
     return location.startsWith(href);
   }
 
@@ -105,6 +110,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {NAV.map((item, i) => {
             if (!item) {
               return <div key={`d-${i}`} className="my-1 mx-1" style={{ borderTop: "1px solid hsl(var(--sidebar-border))" }} />;
+            }
+            if ("section" in item) {
+              return (
+                <div
+                  key={`s-${item.section}`}
+                  className="px-2.5 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider"
+                  style={{ color: "hsl(215 20% 45%)" }}
+                >
+                  {item.section}
+                </div>
+              );
             }
             const active = isActive(item.href);
             return (
