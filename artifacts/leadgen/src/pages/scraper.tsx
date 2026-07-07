@@ -1,17 +1,28 @@
 import { useState } from "react";
 import { Layout } from "@/components/layout";
-import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCreateLead, getListLeadsQueryKey } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
-import { Globe, Search, Download, Zap, AlertTriangle, CheckCircle2, Info } from "lucide-react";
+import {
+  Globe,
+  Search,
+  Download,
+  Zap,
+  AlertTriangle,
+  Info,
+  Building2,
+  Mail,
+  Phone,
+  User,
+  ChevronRight,
+  Copy,
+  CheckCheck,
+} from "lucide-react";
 
 interface ScrapedLead {
   firstName: string;
@@ -26,70 +37,137 @@ interface ScrapedLead {
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
-const CONF_STYLES: Record<string, { label: string; color: string }> = {
-  high: { label: "High", color: "hsl(140 70% 50%)" },
-  medium: { label: "Medium", color: "hsl(40 90% 60%)" },
-  low: { label: "Low", color: "hsl(215 20% 65%)" },
+const CONF_COLOR: Record<string, string> = {
+  high: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30",
+  medium: "text-amber-400 bg-amber-400/10 border-amber-400/30",
+  low: "text-slate-400 bg-slate-400/10 border-slate-400/30",
 };
 
-function LeadCard({
-  lead,
-  selected,
-  onToggle,
-}: {
-  lead: ScrapedLead;
-  selected: boolean;
-  onToggle: () => void;
-}) {
-  const conf = CONF_STYLES[lead.confidence];
+type Tab = "url" | "domain" | "search";
+
+function LeadRow({ lead, selected, onToggle }: { lead: ScrapedLead; selected: boolean; onToggle: () => void }) {
   return (
-    <div
-      className={`flex items-start gap-3 p-3 rounded-lg border transition-colors cursor-pointer ${
-        selected ? "border-primary/60 bg-primary/5" : "border-border bg-muted/20 hover:bg-muted/30"
+    <label
+      className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+        selected ? "border-primary/50 bg-primary/8" : "border-border bg-card hover:border-border/80 hover:bg-muted/30"
       }`}
-      onClick={onToggle}
     >
       <Checkbox checked={selected} onCheckedChange={onToggle} className="mt-0.5 flex-shrink-0" />
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 space-y-1">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-medium text-foreground">
+          <span className="text-sm font-semibold text-foreground">
             {lead.firstName} {lead.lastName}
           </span>
           {lead.title && (
-            <span className="text-xs text-muted-foreground truncate max-w-xs">{lead.title}</span>
+            <span className="text-xs text-muted-foreground">· {lead.title}</span>
           )}
-          <Badge
-            variant="outline"
-            className="text-xs ml-auto flex-shrink-0"
-            style={{ borderColor: conf.color + "60", color: conf.color }}
-          >
-            {conf.label}
+          <Badge className={`text-[10px] px-1.5 py-0 ml-auto border ${CONF_COLOR[lead.confidence]}`}>
+            {lead.confidence}
           </Badge>
         </div>
-        <div className="flex items-center gap-3 mt-1 flex-wrap">
-          <span className="text-xs text-primary">{lead.email}</span>
-          {lead.phone && <span className="text-xs text-muted-foreground">{lead.phone}</span>}
-          {lead.company && <span className="text-xs text-muted-foreground">{lead.company}</span>}
+        <div className="flex items-center gap-4 flex-wrap text-xs">
+          <span className="flex items-center gap-1 text-primary font-mono">
+            <Mail className="w-3 h-3" /> {lead.email}
+          </span>
+          {lead.company && (
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <Building2 className="w-3 h-3" /> {lead.company}
+            </span>
+          )}
+          {lead.phone && (
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <Phone className="w-3 h-3" /> {lead.phone}
+            </span>
+          )}
         </div>
       </div>
+    </label>
+  );
+}
+
+function ResultsPanel({
+  leads,
+  selected,
+  onToggle,
+  onSelectAll,
+  onClearAll,
+  onImport,
+  importing,
+  subtitle,
+}: {
+  leads: ScrapedLead[];
+  selected: Set<string>;
+  onToggle: (email: string) => void;
+  onSelectAll: () => void;
+  onClearAll: () => void;
+  onImport: () => void;
+  importing: boolean;
+  subtitle?: string;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-foreground">
+            {leads.length} contact{leads.length !== 1 ? "s" : ""} found
+          </p>
+          {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
+        </div>
+        <div className="flex gap-1.5">
+          <Button variant="ghost" size="sm" className="text-xs h-7 text-muted-foreground" onClick={onSelectAll}>
+            Select all
+          </Button>
+          <Button variant="ghost" size="sm" className="text-xs h-7 text-muted-foreground" onClick={onClearAll}>
+            Clear
+          </Button>
+        </div>
+      </div>
+      <div className="space-y-1.5 max-h-[420px] overflow-y-auto pr-1">
+        {leads.map((lead) => (
+          <LeadRow key={lead.email} lead={lead} selected={selected.has(lead.email)} onToggle={() => onToggle(lead.email)} />
+        ))}
+      </div>
+      <Button
+        className="w-full gap-2 bg-primary hover:bg-primary/90 text-white"
+        disabled={selected.size === 0 || importing}
+        onClick={onImport}
+      >
+        {importing ? (
+          <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Importing…</>
+        ) : (
+          <><Download className="w-4 h-4" /> Import {selected.size > 0 ? `${selected.size} contact${selected.size !== 1 ? "s" : ""}` : "selected"}</>
+        )}
+      </Button>
     </div>
   );
 }
 
-export default function Scraper() {
+export default function ScraperPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const createLead = useCreateLead();
+  const [tab, setTab] = useState<Tab>("domain");
+  const [importing, setImporting] = useState(false);
 
-  // URL scraper state
+  // URL tab
   const [urlInput, setUrlInput] = useState("");
   const [urlResults, setUrlResults] = useState<ScrapedLead[]>([]);
-  const [urlPageTitle, setUrlPageTitle] = useState("");
+  const [urlTitle, setUrlTitle] = useState("");
   const [urlLoading, setUrlLoading] = useState(false);
   const [urlError, setUrlError] = useState("");
   const [urlSelected, setUrlSelected] = useState<Set<string>>(new Set());
 
-  // Search state
+  // Domain tab
+  const [domainInput, setDomainInput] = useState("");
+  const [domainResults, setDomainResults] = useState<ScrapedLead[]>([]);
+  const [domainPatterns, setDomainPatterns] = useState<string[]>([]);
+  const [domainLoading, setDomainLoading] = useState(false);
+  const [domainError, setDomainError] = useState("");
+  const [domainSelected, setDomainSelected] = useState<Set<string>>(new Set());
+  const [domainChecked, setDomainChecked] = useState(0);
+  const [copiedPattern, setCopiedPattern] = useState("");
+
+  // Search tab
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<ScrapedLead[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -97,410 +175,314 @@ export default function Scraper() {
   const [searchSelected, setSearchSelected] = useState<Set<string>>(new Set());
   const [pagesScraped, setPagesScraped] = useState(0);
 
-  // Import state
-  const [importing, setImporting] = useState(false);
-
   async function scrapeUrl() {
     if (!urlInput.trim()) return;
-    setUrlLoading(true);
-    setUrlError("");
-    setUrlResults([]);
-    setUrlSelected(new Set());
+    setUrlLoading(true); setUrlError(""); setUrlResults([]); setUrlSelected(new Set());
     try {
-      const res = await fetch(`${BASE}/api/scraper/url`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: urlInput.trim() }),
-      });
+      const res = await fetch(`${BASE}/api/scraper/url`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: urlInput.trim() }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Scraping failed");
-      setUrlResults(data.leads ?? []);
-      setUrlPageTitle(data.pageTitle ?? urlInput);
-      if ((data.leads ?? []).length === 0) {
-        setUrlError("No leads found on this page. Try a team page, contact page, or directory.");
-      }
-    } catch (err) {
-      setUrlError(String(err instanceof Error ? err.message : err));
-    } finally {
-      setUrlLoading(false);
-    }
+      setUrlResults(data.leads ?? []); setUrlTitle(data.pageTitle ?? urlInput);
+      if (!data.leads?.length) setUrlError("No contacts found. Try a /team, /about, or /people page with email addresses visible.");
+    } catch (err) { setUrlError(String(err instanceof Error ? err.message : err)); }
+    finally { setUrlLoading(false); }
+  }
+
+  async function searchDomain() {
+    if (!domainInput.trim()) return;
+    setDomainLoading(true); setDomainError(""); setDomainResults([]); setDomainSelected(new Set()); setDomainPatterns([]);
+    try {
+      const res = await fetch(`${BASE}/api/scraper/domain`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain: domainInput.trim() }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Domain search failed");
+      setDomainResults(data.leads ?? []);
+      setDomainPatterns(data.emailPatterns ?? []);
+      setDomainChecked(data.pagesChecked ?? 0);
+      if (!data.leads?.length) setDomainError("No contacts found on this domain's team/about pages. They may use a JS-rendered site. Try pasting a specific URL instead.");
+    } catch (err) { setDomainError(String(err instanceof Error ? err.message : err)); }
+    finally { setDomainLoading(false); }
   }
 
   async function searchWeb() {
     if (!searchQuery.trim()) return;
-    setSearchLoading(true);
-    setSearchError("");
-    setSearchResults([]);
-    setSearchSelected(new Set());
-    setPagesScraped(0);
+    setSearchLoading(true); setSearchError(""); setSearchResults([]); setSearchSelected(new Set()); setPagesScraped(0);
     try {
-      const res = await fetch(`${BASE}/api/scraper/search`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: searchQuery.trim() }),
-      });
+      const res = await fetch(`${BASE}/api/scraper/search`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: searchQuery.trim() }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Search failed");
-      setSearchResults(data.leads ?? []);
-      setPagesScraped(data.pagesScraped ?? 0);
-      if ((data.leads ?? []).length === 0) {
-        setSearchError("No leads found. Try a more specific query like 'Acme Inc San Francisco CEO'.");
-      }
-    } catch (err) {
-      setSearchError(String(err instanceof Error ? err.message : err));
-    } finally {
-      setSearchLoading(false);
-    }
+      setSearchResults(data.leads ?? []); setPagesScraped(data.pagesScraped ?? 0);
+      if (!data.leads?.length) setSearchError(data.message ?? "No contacts found. Try using Company Domain for specific companies, or paste a direct URL.");
+    } catch (err) { setSearchError(String(err instanceof Error ? err.message : err)); }
+    finally { setSearchLoading(false); }
   }
 
   async function importLeads(leads: ScrapedLead[], selected: Set<string>) {
     const toImport = leads.filter((l) => selected.has(l.email));
-    if (toImport.length === 0) {
-      toast({ title: "Select at least one lead to import", variant: "destructive" });
-      return;
-    }
+    if (!toImport.length) return toast({ title: "Select at least one contact", variant: "destructive" });
     setImporting(true);
-    let success = 0;
-    let failed = 0;
+    let ok = 0, fail = 0;
     for (const l of toImport) {
       await new Promise<void>((resolve) => {
-        createLead.mutate(
-          {
-            data: {
-              firstName: l.firstName,
-              lastName: l.lastName,
-              email: l.email,
-              phone: l.phone ?? undefined,
-              company: l.company ?? undefined,
-              title: l.title ?? undefined,
-              source: "web_scrape",
-            },
-          },
-          {
-            onSuccess: () => { success++; resolve(); },
-            onError: () => { failed++; resolve(); },
-          }
-        );
+        createLead.mutate({ data: { firstName: l.firstName, lastName: l.lastName, email: l.email, phone: l.phone ?? undefined, company: l.company ?? undefined, title: l.title ?? undefined, source: "web_scrape" } }, { onSuccess: () => { ok++; resolve(); }, onError: () => { fail++; resolve(); } });
       });
     }
     queryClient.invalidateQueries({ queryKey: getListLeadsQueryKey() });
     setImporting(false);
-    toast({
-      title: `Imported ${success} lead${success !== 1 ? "s" : ""}${failed ? ` (${failed} failed)` : ""}`,
-    });
+    toast({ title: `Imported ${ok} contact${ok !== 1 ? "s" : ""}${fail ? ` (${fail} skipped)` : ""}` });
   }
 
-  function toggleUrl(email: string) {
-    setUrlSelected((prev) => {
-      const next = new Set(prev);
-      next.has(email) ? next.delete(email) : next.add(email);
-      return next;
-    });
+  function toggle(set: Set<string>, setter: (s: Set<string>) => void, email: string) {
+    const next = new Set(set); next.has(email) ? next.delete(email) : next.add(email); setter(next);
   }
 
-  function toggleSearch(email: string) {
-    setSearchSelected((prev) => {
-      const next = new Set(prev);
-      next.has(email) ? next.delete(email) : next.add(email);
-      return next;
-    });
+  function copyPattern(p: string) {
+    navigator.clipboard.writeText(p);
+    setCopiedPattern(p);
+    setTimeout(() => setCopiedPattern(""), 2000);
   }
 
-  function selectAll(leads: ScrapedLead[], setter: (s: Set<string>) => void) {
-    setter(new Set(leads.map((l) => l.email)));
-  }
-
-  function clearAll(setter: (s: Set<string>) => void) {
-    setter(new Set());
-  }
+  const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: "domain", label: "Company Domain", icon: <Building2 className="w-3.5 h-3.5" /> },
+    { id: "url", label: "Scrape URL", icon: <Globe className="w-3.5 h-3.5" /> },
+    { id: "search", label: "Web Search", icon: <Search className="w-3.5 h-3.5" /> },
+  ];
 
   return (
     <Layout>
-      <div className="space-y-5 max-w-3xl">
+      <div className="max-w-2xl space-y-5">
+        {/* Header */}
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Find Leads</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Scrape contact info from any webpage or search the web for leads
-          </p>
+          <h1 className="text-xl font-bold text-foreground">Lead Finder</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Find and import contacts from the web</p>
         </div>
 
-        {/* Tips banner */}
-        <Card className="p-4 border border-border bg-card flex gap-3">
-          <Info className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
-          <div className="text-xs text-muted-foreground space-y-1">
-            <p>
-              <span className="text-foreground font-medium">Best sources:</span> Company team
-              pages, contact directories, speaker lists, GitHub organization pages, and industry
-              listings. Email addresses and names are extracted automatically.
-            </p>
-            <p className="text-muted-foreground/70">
-              Note: JavaScript-heavy pages (LinkedIn, most social networks) won't return results
-              — use their CSV export features instead and import via the Leads page.
-            </p>
-          </div>
-        </Card>
+        {/* Tab bar */}
+        <div className="flex gap-1 bg-muted/50 border border-border rounded-xl p-1">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                tab === t.id
+                  ? "bg-card border border-border text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {t.icon} {t.label}
+            </button>
+          ))}
+        </div>
 
-        <Tabs defaultValue="url">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="url" className="gap-1.5">
-              <Globe className="w-4 h-4" /> Scrape URL
-            </TabsTrigger>
-            <TabsTrigger value="search" className="gap-1.5">
-              <Search className="w-4 h-4" /> Web Search
-            </TabsTrigger>
-          </TabsList>
-
-          {/* ─── URL Scraper ─── */}
-          <TabsContent value="url" className="space-y-4 mt-4">
-            <Card className="p-5 border border-border bg-card">
-              <Label className="text-xs text-muted-foreground mb-2 block">
-                Paste a URL (contact page, team page, directory, about page…)
-              </Label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="https://company.com/team"
-                  value={urlInput}
-                  onChange={(e) => setUrlInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && scrapeUrl()}
-                  className="font-mono text-sm"
-                />
-                <Button
-                  onClick={scrapeUrl}
-                  disabled={urlLoading || !urlInput.trim()}
-                  className="flex-shrink-0 gap-1.5"
-                >
-                  {urlLoading ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                      Scraping...
-                    </>
-                  ) : (
-                    <>
-                      <Zap className="w-4 h-4" /> Scrape
-                    </>
-                  )}
-                </Button>
+        {/* ─── Company Domain tab ─── */}
+        {tab === "domain" && (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground block mb-1.5">Company domain</label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="stripe.com"
+                    value={domainInput}
+                    onChange={(e) => setDomainInput(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && searchDomain()}
+                    className="bg-background border-border font-mono text-sm"
+                  />
+                  <Button onClick={searchDomain} disabled={domainLoading || !domainInput.trim()} className="bg-primary text-white gap-1.5 flex-shrink-0">
+                    {domainLoading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Zap className="w-4 h-4" />}
+                    {domainLoading ? "Scanning…" : "Find Contacts"}
+                  </Button>
+                </div>
               </div>
-            </Card>
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <Info className="w-3.5 h-3.5 flex-shrink-0" />
+                Automatically checks /team, /about, /people, /contact and extracts email addresses
+              </p>
+            </div>
 
-            {urlLoading && (
+            {domainLoading && (
               <div className="space-y-2">
-                {[...Array(4)].map((_, i) => (
-                  <Skeleton key={i} className="h-16 w-full" />
-                ))}
+                <p className="text-xs text-muted-foreground animate-pulse">Scanning {domainChecked} pages…</p>
+                {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
               </div>
             )}
 
+            {domainError && !domainLoading && (
+              <div className="rounded-xl border border-destructive/25 bg-destructive/5 p-4 flex gap-3">
+                <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-muted-foreground">{domainError}</p>
+              </div>
+            )}
+
+            {/* Email patterns */}
+            {domainPatterns.length > 0 && !domainLoading && (
+              <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <Mail className="w-4 h-4 text-primary" />
+                  Detected email patterns
+                </div>
+                <div className="space-y-1.5">
+                  {domainPatterns.map((p) => (
+                    <div key={p} className="flex items-center justify-between bg-muted/50 rounded-lg px-3 py-2">
+                      <code className="text-xs text-primary font-mono">{p}</code>
+                      <button onClick={() => copyPattern(p)} className="text-muted-foreground hover:text-foreground transition-colors">
+                        {copiedPattern === p ? <CheckCheck className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {domainResults.length > 0 && !domainLoading && (
+              <ResultsPanel
+                leads={domainResults}
+                selected={domainSelected}
+                onToggle={(e) => toggle(domainSelected, setDomainSelected, e)}
+                onSelectAll={() => setDomainSelected(new Set(domainResults.map((l) => l.email)))}
+                onClearAll={() => setDomainSelected(new Set())}
+                onImport={() => importLeads(domainResults, domainSelected)}
+                importing={importing}
+                subtitle={`Checked ${domainChecked} pages on ${domainInput}`}
+              />
+            )}
+
+            {/* Examples */}
+            {!domainResults.length && !domainLoading && !domainError && (
+              <div className="rounded-xl border border-border bg-card p-4">
+                <p className="text-xs text-muted-foreground font-medium mb-3">Try these examples:</p>
+                <div className="flex flex-wrap gap-2">
+                  {["stripe.com","notion.so","linear.app","vercel.com","github.com"].map((d) => (
+                    <button key={d} onClick={() => setDomainInput(d)} className="text-xs bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-border px-3 py-1.5 rounded-lg transition-colors font-mono">
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── URL Scraper tab ─── */}
+        {tab === "url" && (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground block mb-1.5">Page URL to scrape</label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="https://company.com/team"
+                    value={urlInput}
+                    onChange={(e) => setUrlInput(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && scrapeUrl()}
+                    className="bg-background border-border font-mono text-sm"
+                  />
+                  <Button onClick={scrapeUrl} disabled={urlLoading || !urlInput.trim()} className="bg-primary text-white gap-1.5 flex-shrink-0">
+                    {urlLoading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Globe className="w-4 h-4" />}
+                    {urlLoading ? "Scraping…" : "Scrape"}
+                  </Button>
+                </div>
+              </div>
+              <div className="text-xs text-muted-foreground flex items-start gap-1.5">
+                <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                <span>Best for: team pages, directories, speaker lists, GitHub org pages. Works on any static page with visible email addresses.</span>
+              </div>
+            </div>
+
+            {urlLoading && <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}</div>}
+
             {urlError && !urlLoading && (
-              <Card className="p-4 border border-destructive/30 bg-card flex gap-3">
+              <div className="rounded-xl border border-destructive/25 bg-destructive/5 p-4 flex gap-3">
                 <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
                 <p className="text-sm text-muted-foreground">{urlError}</p>
-              </Card>
+              </div>
             )}
 
             {urlResults.length > 0 && !urlLoading && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">
-                      {urlResults.length} lead{urlResults.length !== 1 ? "s" : ""} found
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate max-w-xs">{urlPageTitle}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-xs h-7"
-                      onClick={() => selectAll(urlResults, setUrlSelected)}
-                    >
-                      Select all
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-xs h-7"
-                      onClick={() => clearAll(setUrlSelected)}
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {urlResults.map((lead) => (
-                    <LeadCard
-                      key={lead.email}
-                      lead={lead}
-                      selected={urlSelected.has(lead.email)}
-                      onToggle={() => toggleUrl(lead.email)}
-                    />
-                  ))}
-                </div>
-
-                <Button
-                  className="w-full gap-1.5"
-                  disabled={urlSelected.size === 0 || importing}
-                  onClick={() => importLeads(urlResults, urlSelected)}
-                >
-                  {importing ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                      Importing...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-4 h-4" />
-                      Import {urlSelected.size > 0 ? `${urlSelected.size} selected` : "selected"}
-                    </>
-                  )}
-                </Button>
-              </div>
+              <ResultsPanel
+                leads={urlResults}
+                selected={urlSelected}
+                onToggle={(e) => toggle(urlSelected, setUrlSelected, e)}
+                onSelectAll={() => setUrlSelected(new Set(urlResults.map((l) => l.email)))}
+                onClearAll={() => setUrlSelected(new Set())}
+                onImport={() => importLeads(urlResults, urlSelected)}
+                importing={importing}
+                subtitle={urlTitle}
+              />
             )}
-          </TabsContent>
+          </div>
+        )}
 
-          {/* ─── Web Search ─── */}
-          <TabsContent value="search" className="space-y-4 mt-4">
-            <Card className="p-5 border border-border bg-card">
-              <Label className="text-xs text-muted-foreground mb-2 block">
-                Describe the leads you want (company, role, location, industry…)
-              </Label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="e.g. fintech startup founders London"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && searchWeb()}
-                />
-                <Button
-                  onClick={searchWeb}
-                  disabled={searchLoading || !searchQuery.trim()}
-                  className="flex-shrink-0 gap-1.5"
-                >
-                  {searchLoading ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                      Searching...
-                    </>
-                  ) : (
-                    <>
-                      <Search className="w-4 h-4" /> Search
-                    </>
-                  )}
-                </Button>
+        {/* ─── Web Search tab ─── */}
+        {tab === "search" && (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground block mb-1.5">Describe the leads you want</label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="fintech startup founders London"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && searchWeb()}
+                    className="bg-background border-border text-sm"
+                  />
+                  <Button onClick={searchWeb} disabled={searchLoading || !searchQuery.trim()} className="bg-primary text-white gap-1.5 flex-shrink-0">
+                    {searchLoading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Search className="w-4 h-4" />}
+                    {searchLoading ? "Searching…" : "Search"}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Searches Bing, finds contact pages, and extracts leads. Takes 15–25 seconds.
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                Searches the web, finds contact pages, and extracts leads automatically.
-              </p>
-            </Card>
+            </div>
 
             {searchLoading && (
               <div className="space-y-2">
-                <p className="text-xs text-muted-foreground animate-pulse px-1">
-                  Searching and scraping pages — this takes 10–20 seconds...
-                </p>
-                {[...Array(5)].map((_, i) => (
-                  <Skeleton key={i} className="h-16 w-full" />
-                ))}
+                <p className="text-xs text-muted-foreground animate-pulse">Searching the web and scanning pages…</p>
+                {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
               </div>
             )}
 
             {searchError && !searchLoading && (
-              <Card className="p-4 border border-destructive/30 bg-card flex gap-3">
-                <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-muted-foreground">{searchError}</p>
-              </Card>
-            )}
-
-            {searchResults.length > 0 && !searchLoading && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">
-                      {searchResults.length} lead{searchResults.length !== 1 ? "s" : ""} found
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Scraped from {pagesScraped} page{pagesScraped !== 1 ? "s" : ""}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-xs h-7"
-                      onClick={() => selectAll(searchResults, setSearchSelected)}
-                    >
-                      Select all
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-xs h-7"
-                      onClick={() => clearAll(setSearchSelected)}
-                    >
-                      Clear
-                    </Button>
-                  </div>
+              <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 flex gap-3">
+                <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm text-muted-foreground">{searchError}</p>
+                  <p className="text-xs text-muted-foreground/70 mt-1.5">
+                    <strong className="text-foreground">Tip:</strong> Use <button onClick={() => setTab("domain")} className="text-primary hover:underline">Company Domain</button> to target specific companies, or <button onClick={() => setTab("url")} className="text-primary hover:underline">Scrape URL</button> to extract from a specific page.
+                  </p>
                 </div>
-
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {searchResults.map((lead) => (
-                    <LeadCard
-                      key={lead.email}
-                      lead={lead}
-                      selected={searchSelected.has(lead.email)}
-                      onToggle={() => toggleSearch(lead.email)}
-                    />
-                  ))}
-                </div>
-
-                <Button
-                  className="w-full gap-1.5"
-                  disabled={searchSelected.size === 0 || importing}
-                  onClick={() => importLeads(searchResults, searchSelected)}
-                >
-                  {importing ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                      Importing...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-4 h-4" />
-                      Import {searchSelected.size > 0 ? `${searchSelected.size} selected` : "selected"}
-                    </>
-                  )}
-                </Button>
               </div>
             )}
 
-            {/* Examples */}
-            {searchResults.length === 0 && !searchLoading && !searchError && (
-              <Card className="p-4 border border-border bg-card">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                  Example queries
-                </p>
-                <div className="space-y-2">
-                  {[
-                    "SaaS startup CTOs New York",
-                    "open source project maintainers Python",
-                    "venture capital partners San Francisco",
-                    "e-commerce founders Australia",
-                    "AI startup founders Europe 2024",
-                  ].map((ex) => (
-                    <button
-                      key={ex}
-                      className="block text-xs text-primary hover:underline text-left"
-                      onClick={() => setSearchQuery(ex)}
-                    >
-                      {ex}
+            {searchResults.length > 0 && !searchLoading && (
+              <ResultsPanel
+                leads={searchResults}
+                selected={searchSelected}
+                onToggle={(e) => toggle(searchSelected, setSearchSelected, e)}
+                onSelectAll={() => setSearchSelected(new Set(searchResults.map((l) => l.email)))}
+                onClearAll={() => setSearchSelected(new Set())}
+                onImport={() => importLeads(searchResults, searchSelected)}
+                importing={importing}
+                subtitle={`Scraped from ${pagesScraped} pages`}
+              />
+            )}
+
+            {!searchResults.length && !searchLoading && !searchError && (
+              <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+                <p className="text-xs text-muted-foreground font-medium">Example queries:</p>
+                <div className="space-y-1.5">
+                  {["SaaS startup CTOs New York","venture capital partners San Francisco","AI startup founders Europe","e-commerce founders Australia","open source Python maintainers"].map((ex) => (
+                    <button key={ex} onClick={() => setSearchQuery(ex)} className="flex items-center gap-2 w-full text-xs text-muted-foreground hover:text-foreground py-1 transition-colors group">
+                      <ChevronRight className="w-3 h-3 group-hover:text-primary" /> {ex}
                     </button>
                   ))}
                 </div>
-              </Card>
+              </div>
             )}
-          </TabsContent>
-        </Tabs>
+          </div>
+        )}
       </div>
     </Layout>
   );

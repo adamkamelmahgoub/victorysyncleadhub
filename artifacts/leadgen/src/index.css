@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
@@ -67,107 +66,106 @@
 }
 
 :root {
-  /* High contrast, dark electric theme */
-  --background: 224 50% 8%; /* Very dark blue-slate */
-  --foreground: 210 40% 98%;
+  /* VictorySync — Deep Navy + Electric Indigo */
+  --background: 229 45% 5%;
+  --foreground: 216 30% 94%;
 
-  --card: 224 45% 12%;
-  --card-foreground: 210 40% 98%;
-  --card-border: 224 40% 18%;
+  --card: 229 40% 8%;
+  --card-foreground: 216 30% 94%;
+  --card-border: 229 34% 15%;
 
-  --popover: 224 45% 12%;
-  --popover-foreground: 210 40% 98%;
-  --popover-border: 224 40% 18%;
+  --popover: 229 42% 9%;
+  --popover-foreground: 216 30% 94%;
+  --popover-border: 229 34% 15%;
 
-  /* Neon Teal/Cyan Primary */
-  --primary: 185 100% 50%; 
-  --primary-foreground: 224 50% 8%;
+  /* Electric Indigo — the VictorySync brand color */
+  --primary: 252 88% 66%;
+  --primary-foreground: 0 0% 100%;
 
-  --secondary: 224 40% 20%;
-  --secondary-foreground: 210 40% 98%;
+  --secondary: 229 34% 16%;
+  --secondary-foreground: 216 30% 94%;
 
-  --muted: 224 35% 16%;
-  --muted-foreground: 215 20% 65%;
+  --muted: 229 36% 12%;
+  --muted-foreground: 224 16% 54%;
 
-  --accent: 185 100% 20%;
-  --accent-foreground: 185 100% 50%;
+  --accent: 252 70% 20%;
+  --accent-foreground: 252 88% 80%;
 
-  --destructive: 350 85% 60%;
-  --destructive-foreground: 210 40% 98%;
+  --destructive: 350 84% 60%;
+  --destructive-foreground: 0 0% 100%;
 
-  --border: 224 40% 18%;
-  --input: 224 40% 18%;
-  --ring: 185 100% 50%;
+  --border: 229 32% 16%;
+  --input: 229 36% 13%;
+  --ring: 252 88% 66%;
 
-  --chart-1: 185 100% 50%;
-  --chart-2: 280 85% 60%; /* Purple */
-  --chart-3: 140 70% 50%; /* Green */
-  --chart-4: 40 90% 60%; /* Orange */
-  --chart-5: 350 85% 60%; /* Red */
+  --chart-1: 252 88% 66%;
+  --chart-2: 185 90% 52%;
+  --chart-3: 142 71% 45%;
+  --chart-4: 38 92% 58%;
+  --chart-5: 350 84% 60%;
 
-  --sidebar: 224 50% 10%;
-  --sidebar-foreground: 210 40% 98%;
-  --sidebar-border: 224 40% 18%;
-  --sidebar-primary: 185 100% 50%;
-  --sidebar-primary-foreground: 224 50% 8%;
-  --sidebar-accent: 224 40% 18%;
-  --sidebar-accent-foreground: 210 40% 98%;
-  --sidebar-ring: 185 100% 50%;
+  /* Sidebar — slightly darker than bg */
+  --sidebar: 229 50% 4%;
+  --sidebar-foreground: 216 30% 94%;
+  --sidebar-border: 229 34% 13%;
+  --sidebar-primary: 252 88% 66%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 229 36% 12%;
+  --sidebar-accent-foreground: 216 30% 94%;
+  --sidebar-ring: 252 88% 66%;
 
-  --app-font-sans: 'Plus Jakarta Sans', sans-serif;
+  --app-font-sans: 'Inter', sans-serif;
   --app-font-mono: 'JetBrains Mono', monospace;
-  
-  --radius: 0.5rem;
 
+  --radius: 0.5rem;
   --opaque-button-border-intensity: 10;
 }
 
 .dark {
-  /* Using same for dark mode since the default is dark */
-  --background: 224 50% 8%;
-  --foreground: 210 40% 98%;
+  --background: 229 45% 5%;
+  --foreground: 216 30% 94%;
 
-  --card: 224 45% 12%;
-  --card-foreground: 210 40% 98%;
-  --card-border: 224 40% 18%;
+  --card: 229 40% 8%;
+  --card-foreground: 216 30% 94%;
+  --card-border: 229 34% 15%;
 
-  --popover: 224 45% 12%;
-  --popover-foreground: 210 40% 98%;
-  --popover-border: 224 40% 18%;
+  --popover: 229 42% 9%;
+  --popover-foreground: 216 30% 94%;
+  --popover-border: 229 34% 15%;
 
-  --primary: 185 100% 50%; 
-  --primary-foreground: 224 50% 8%;
+  --primary: 252 88% 66%;
+  --primary-foreground: 0 0% 100%;
 
-  --secondary: 224 40% 20%;
-  --secondary-foreground: 210 40% 98%;
+  --secondary: 229 34% 16%;
+  --secondary-foreground: 216 30% 94%;
 
-  --muted: 224 35% 16%;
-  --muted-foreground: 215 20% 65%;
+  --muted: 229 36% 12%;
+  --muted-foreground: 224 16% 54%;
 
-  --accent: 185 100% 20%;
-  --accent-foreground: 185 100% 50%;
+  --accent: 252 70% 20%;
+  --accent-foreground: 252 88% 80%;
 
-  --destructive: 350 85% 60%;
-  --destructive-foreground: 210 40% 98%;
+  --destructive: 350 84% 60%;
+  --destructive-foreground: 0 0% 100%;
 
-  --border: 224 40% 18%;
-  --input: 224 40% 18%;
-  --ring: 185 100% 50%;
+  --border: 229 32% 16%;
+  --input: 229 36% 13%;
+  --ring: 252 88% 66%;
 
-  --chart-1: 185 100% 50%;
-  --chart-2: 280 85% 60%;
-  --chart-3: 140 70% 50%;
-  --chart-4: 40 90% 60%;
-  --chart-5: 350 85% 60%;
+  --chart-1: 252 88% 66%;
+  --chart-2: 185 90% 52%;
+  --chart-3: 142 71% 45%;
+  --chart-4: 38 92% 58%;
+  --chart-5: 350 84% 60%;
 
-  --sidebar: 224 50% 10%;
-  --sidebar-foreground: 210 40% 98%;
-  --sidebar-border: 224 40% 18%;
-  --sidebar-primary: 185 100% 50%;
-  --sidebar-primary-foreground: 224 50% 8%;
-  --sidebar-accent: 224 40% 18%;
-  --sidebar-accent-foreground: 210 40% 98%;
-  --sidebar-ring: 185 100% 50%;
+  --sidebar: 229 50% 4%;
+  --sidebar-foreground: 216 30% 94%;
+  --sidebar-border: 229 34% 13%;
+  --sidebar-primary: 252 88% 66%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 229 36% 12%;
+  --sidebar-accent-foreground: 216 30% 94%;
+  --sidebar-ring: 252 88% 66%;
 }
 
 @layer base {
@@ -176,20 +174,20 @@
   }
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
-  /* Custom scrollbar for data dense feel */
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 5px;
+    height: 5px;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
     background: hsl(var(--border));
-    border-radius: 4px;
+    border-radius: 99px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground));
+    background: hsl(var(--muted-foreground) / 0.5);
   }
 }
