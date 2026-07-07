@@ -5,6 +5,7 @@ import {
   Plug, Copy, Info, RefreshCw,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { asArray } from "@/lib/data-shape";
 
 interface Integration {
   id: number;
@@ -281,10 +282,11 @@ export default function Integrations() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  const { data: connected = [] } = useQuery<Integration[]>({
+  const { data: connectedResponse = [] } = useQuery<Integration[]>({
     queryKey: ["integrations"],
     queryFn: () => apiFetch("/api/integrations"),
   });
+  const connected = asArray<Integration>(connectedResponse);
 
   const { data: callbackUrls = {} } = useQuery<Record<string, string>>({
     queryKey: ["oauth-callbacks"],

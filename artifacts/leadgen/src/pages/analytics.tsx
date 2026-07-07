@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { format, parseISO } from "date-fns";
 import { TrendingUp, Users, CheckCircle2, Zap, Target } from "lucide-react";
+import { asArray, type ArrayElement } from "@/lib/data-shape";
 
 const STATUS_COLORS: Record<string, string> = {
   new: "hsl(185 100% 50%)",
@@ -39,24 +40,28 @@ export default function Analytics() {
   const { data: bySource } = useGetAnalyticsBySource();
   const { data: byCampaign } = useGetAnalyticsByCampaign();
   const { data: timeline } = useGetAnalyticsTimeline();
+  const statusRows = asArray<ArrayElement<NonNullable<typeof byStatus>>>(byStatus);
+  const sourceRows = asArray<ArrayElement<NonNullable<typeof bySource>>>(bySource);
+  const campaignRows = asArray<ArrayElement<NonNullable<typeof byCampaign>>>(byCampaign);
+  const timelineRows = asArray<ArrayElement<NonNullable<typeof timeline>>>(timeline);
 
-  const chartData = timeline?.map((t) => ({
+  const chartData = timelineRows.map((t) => ({
     date: format(parseISO(t.date), "MMM d"),
     leads: t.count,
-  })) ?? [];
+  }));
 
-  const statusData = (byStatus ?? []).map((s) => ({
+  const statusData = statusRows.map((s) => ({
     name: s.status.charAt(0).toUpperCase() + s.status.slice(1),
     value: s.count,
     color: STATUS_COLORS[s.status] ?? "hsl(215 20% 65%)",
   }));
 
-  const sourceData = (bySource ?? []).map((s) => ({
+  const sourceData = sourceRows.map((s) => ({
     name: s.source.replace("_", " "),
     leads: s.count,
   }));
 
-  const campaignData = (byCampaign ?? [])
+  const campaignData = campaignRows
     .filter((c) => c.count > 0)
     .map((c) => ({
       name: c.campaignName.length > 14 ? c.campaignName.slice(0, 14) + "…" : c.campaignName,

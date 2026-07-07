@@ -17,7 +17,6 @@ const NAV: NavEntry[] = [
   { href: "/", label: "Home", icon: LayoutDashboard },
   { href: "/sub-accounts", label: "Client Accounts", icon: Building2 },
   { href: "/team", label: "Team & Invites", icon: UserPlus },
-  { href: "/billing-integration", label: "API & SSO", icon: Key },
   { href: "/settings", label: "Settings", icon: Settings },
   null,
   { section: "CRM & Pipeline" },
@@ -167,6 +166,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
             >
               <Settings className="w-3.5 h-3.5 flex-shrink-0" />
               Settings
+            </div>
+          </Link>
+          <Link href="/billing-integration">
+            <div
+              className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer mb-1"
+              style={isActive("/billing-integration") ? { background: "hsl(25 95% 53% / 0.18)", color: "#FB923C" } : { color: "hsl(var(--sidebar-foreground))" }}
+            >
+              <Key className="w-3.5 h-3.5 flex-shrink-0" />
+              API & SSO
             </div>
           </Link>
           <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg mt-1">

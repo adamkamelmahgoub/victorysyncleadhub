@@ -6,6 +6,7 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, 
 import { TrendingUp, Users, Zap, CheckCircle2, ArrowRight, Target } from "lucide-react";
 import { Link } from "wouter";
 import { format, parseISO } from "date-fns";
+import { asArray, type ArrayElement } from "@/lib/data-shape";
 
 const STATUS_COLORS: Record<string, string> = {
   new: "hsl(185 100% 50%)",
@@ -45,11 +46,15 @@ export default function Dashboard() {
   const { data: timeline } = useGetAnalyticsTimeline();
   const { data: topLeads, isLoading: topLoading } = useGetTopLeads();
   const { data: campaigns } = useListCampaigns();
+  const statusRows = asArray<ArrayElement<NonNullable<typeof byStatus>>>(byStatus);
+  const timelineRows = asArray<ArrayElement<NonNullable<typeof timeline>>>(timeline);
+  const topLeadRows = asArray<ArrayElement<NonNullable<typeof topLeads>>>(topLeads);
+  const campaignRows = asArray<ArrayElement<NonNullable<typeof campaigns>>>(campaigns);
 
-  const chartData = timeline?.map((t) => ({
+  const chartData = timelineRows.map((t) => ({
     date: format(parseISO(t.date), "MMM d"),
     leads: t.count,
-  })) ?? [];
+  }));
 
   return (
 
@@ -102,10 +107,10 @@ export default function Dashboard() {
           {/* Status breakdown */}
           <Card className="p-5 border border-border bg-card">
             <p className="text-sm font-semibold text-foreground mb-4">By Status</p>
-            {byStatus && byStatus.length > 0 ? (
+            {statusRows.length > 0 ? (
               <div className="space-y-3">
-                {byStatus.map((s) => {
-                  const total = byStatus.reduce((acc, x) => acc + x.count, 0);
+                {statusRows.map((s) => {
+                  const total = statusRows.reduce((acc, x) => acc + x.count, 0);
                   const pct = total > 0 ? Math.round((s.count / total) * 100) : 0;
                   return (
                     <div key={s.status}>
@@ -144,7 +149,7 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="space-y-2">
-                {(topLeads ?? []).slice(0, 6).map((lead) => (
+                {topLeadRows.slice(0, 6).map((lead) => (
                   <Link key={lead.id} href={`/leads/${lead.id}`}>
                     <div className="flex items-center justify-between py-2 px-2 rounded-md hover:bg-muted/40 transition-colors cursor-pointer">
                       <div className="flex items-center gap-3 min-w-0">
@@ -178,7 +183,7 @@ export default function Dashboard() {
               </Link>
             </div>
             <div className="space-y-2">
-              {(campaigns ?? []).filter((c) => c.status === "active").slice(0, 5).map((c) => {
+              {campaignRows.filter((c) => c.status === "active").slice(0, 5).map((c) => {
                 const rate = c.leadCount > 0 ? Math.round(((c.convertedCount ?? 0) / c.leadCount) * 100) : 0;
                 return (
                   <Link key={c.id} href={`/campaigns/${c.id}`}>
@@ -195,7 +200,7 @@ export default function Dashboard() {
                   </Link>
                 );
               })}
-              {!campaigns?.length && (
+              {campaignRows.length === 0 && (
                 <div className="text-center py-8 text-muted-foreground text-xs">No campaigns yet</div>
               )}
             </div>

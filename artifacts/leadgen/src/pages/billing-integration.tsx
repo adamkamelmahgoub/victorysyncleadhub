@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
+import { asArray } from "@/lib/data-shape";
 
 interface ApiKey { id: number; name: string; keyPrefix: string; scopes: string[]; isActive: boolean; lastUsedAt?: string; requestCount: number; expiresAt?: string; createdAt: string; }
 
@@ -68,7 +69,8 @@ export default function BillingIntegration() {
   const [activeExample, setActiveExample] = useState("provision");
   const [expandedDocs, setExpandedDocs] = useState(true);
 
-  const { data: keys = [] } = useQuery<ApiKey[]>({ queryKey: ["api-keys"], queryFn: () => apiFetch("/api-keys") });
+  const { data: keysResponse = [] } = useQuery<ApiKey[]>({ queryKey: ["api-keys"], queryFn: () => apiFetch("/api-keys") });
+  const keys = asArray<ApiKey>(keysResponse);
 
   const createKey = useMutation({
     mutationFn: () => apiFetch("/api-keys", { method: "POST", body: JSON.stringify({ name: newKeyName, scopes: newKeyScopes }) }),
@@ -134,7 +136,7 @@ export default function BillingIntegration() {
                 <tr key={k.id} className="border-b last:border-0 hover:bg-muted/10">
                   <td className="px-4 py-3 font-medium">{k.name}</td>
                   <td className="px-4 py-3"><code className="text-xs bg-muted px-2 py-0.5 rounded">{k.keyPrefix}…</code></td>
-                  <td className="px-4 py-3"><div className="flex flex-wrap gap-1">{k.scopes.map(s => <Badge key={s} variant="outline" className="text-[10px] h-4 px-1.5">{s}</Badge>)}</div></td>
+                  <td className="px-4 py-3"><div className="flex flex-wrap gap-1">{asArray<string>(k.scopes).map(s => <Badge key={s} variant="outline" className="text-[10px] h-4 px-1.5">{s}</Badge>)}</div></td>
                   <td className="px-4 py-3 text-muted-foreground">{k.requestCount.toLocaleString()}</td>
                   <td className="px-4 py-3 text-muted-foreground text-xs">{k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString() : "Never"}</td>
                   <td className="px-4 py-3"><Switch checked={k.isActive} onCheckedChange={v => toggleKey.mutate({ id: k.id, isActive: v })} /></td>
