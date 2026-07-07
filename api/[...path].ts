@@ -38,7 +38,7 @@ type FetchInit = {
 };
 
 type LeadRow = {
-  id: number;
+  id: number | string;
   first_name: string;
   last_name: string;
   email: string;
@@ -201,8 +201,8 @@ async function supabaseRest(path: string, init: FetchInit, req?: VercelRequest) 
 }
 
 function getLeadId(path: string) {
-  const match = path.match(/^\/api\/leads\/(\d+)$/);
-  return match ? Number(match[1]) : null;
+  const match = path.match(/^\/api\/leads\/([^/]+)$/);
+  return match ? decodeURIComponent(match[1]) : null;
 }
 
 async function listLeads(req: VercelRequest, res: VercelResponse) {
@@ -240,8 +240,8 @@ async function listLeads(req: VercelRequest, res: VercelResponse) {
   });
 }
 
-async function getLead(id: number, req: VercelRequest, res: VercelResponse) {
-  const rows = (await supabaseRest(`leads?id=eq.${id}&select=*&limit=1`, {
+async function getLead(id: string, req: VercelRequest, res: VercelResponse) {
+  const rows = (await supabaseRest(`leads?id=eq.${encodeURIComponent(id)}&select=*&limit=1`, {
     method: "GET",
   }, req)) as LeadRow[];
   if (!rows[0]) {
@@ -251,9 +251,9 @@ async function getLead(id: number, req: VercelRequest, res: VercelResponse) {
   sendJson(res, 200, leadFromRow(rows[0]));
 }
 
-async function insertActivities(leads: Array<{ id?: number }>, req: VercelRequest) {
+async function insertActivities(leads: Array<{ id?: number | string }>, req: VercelRequest) {
   const activities = leads
-    .filter((lead) => typeof lead.id === "number")
+    .filter((lead) => typeof lead.id === "number" || typeof lead.id === "string")
     .map((lead) => ({
       lead_id: lead.id,
       type: "imported",
@@ -290,7 +290,7 @@ async function createLead(req: VercelRequest, res: VercelResponse) {
   sendJson(res, 201, inserted[0] ? leadFromRow(inserted[0]) : null);
 }
 
-async function updateLead(id: number, req: VercelRequest, res: VercelResponse) {
+async function updateLead(id: string, req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as LeadInput;
   const update = normalizeLead(body);
 
@@ -300,7 +300,7 @@ async function updateLead(id: number, req: VercelRequest, res: VercelResponse) {
     }
   }
 
-  const rows = (await supabaseRest(`leads?id=eq.${id}`, {
+  const rows = (await supabaseRest(`leads?id=eq.${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify(leadInsertPayload(update)),
   }, req)) as LeadRow[];
@@ -313,13 +313,13 @@ async function updateLead(id: number, req: VercelRequest, res: VercelResponse) {
   sendJson(res, 200, leadFromRow(rows[0]));
 }
 
-async function deleteLead(id: number, req: VercelRequest, res: VercelResponse) {
+async function deleteLead(id: string, req: VercelRequest, res: VercelResponse) {
   try {
-    await supabaseRest(`activities?lead_id=eq.${id}`, { method: "DELETE" }, req);
+    await supabaseRest(`activities?lead_id=eq.${encodeURIComponent(id)}`, { method: "DELETE" }, req);
   } catch (error) {
     console.warn("Activity cleanup skipped", error);
   }
-  await supabaseRest(`leads?id=eq.${id}`, { method: "DELETE" }, req);
+  await supabaseRest(`leads?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" }, req);
   res.statusCode = 204;
   res.end();
 }
