@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { useToast } from "@/hooks/use-toast";
+import { asArray } from "@/lib/data-shape";
 
 interface Prospect { id: number; firstName: string; lastName: string; email?: string; title?: string; seniority?: string; department?: string; company?: string; companySize?: string; industry?: string; city?: string; state?: string; country?: string; technologies?: string[]; intentScore: number; emailVerified: boolean; savedToLeads: boolean; }
 
@@ -43,7 +44,9 @@ export default function ProspectSearch() {
     onSuccess: (data) => { toast({ title: `${data.saved} prospects saved as leads` }); setSelected(new Set()); },
   });
 
-  const prospects: Prospect[] = result?.prospects || [];
+  const prospects = asArray<Prospect>(result?.prospects);
+  const industries = asArray<string>(filterOptions?.industries);
+  const companySizes = asArray<string>(filterOptions?.companySizes);
   const toggleSelect = (id: number) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleAll = () => setSelected(selected.size === prospects.length ? new Set() : new Set(prospects.map(p => p.id)));
   const selectedProspects = prospects.filter(p => selected.has(p.id));
@@ -83,7 +86,7 @@ export default function ProspectSearch() {
                   <SelectTrigger className="mt-1"><SelectValue placeholder="Any industry" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Any</SelectItem>
-                    {filterOptions?.industries?.map((i: string) => <SelectItem key={i} value={i}>{i}</SelectItem>)}
+                    {industries.map((i) => <SelectItem key={i} value={i}>{i}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -93,7 +96,7 @@ export default function ProspectSearch() {
                   <SelectTrigger className="mt-1"><SelectValue placeholder="Any size" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Any</SelectItem>
-                    {filterOptions?.companySizes?.map((s: string) => <SelectItem key={s} value={s}>{s} employees</SelectItem>)}
+                    {companySizes.map((s) => <SelectItem key={s} value={s}>{s} employees</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

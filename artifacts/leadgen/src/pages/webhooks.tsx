@@ -41,7 +41,10 @@ export default function Webhooks() {
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(null), 3000); }
 
   const { data: webhooksResponse = [] } = useQuery<Webhook[]>({ queryKey: ["webhooks"], queryFn: () => apiFetch("/api/webhooks") });
-  const webhooks = asArray<Webhook>(webhooksResponse);
+  const webhooks = asArray<Webhook>(webhooksResponse).map((webhook) => ({
+    ...webhook,
+    events: asArray<string>(webhook.events),
+  }));
 
   const create = useMutation({
     mutationFn: (body: object) => apiFetch("/api/webhooks", { method: "POST", body: JSON.stringify(body) }),
@@ -145,10 +148,10 @@ export default function Webhooks() {
                         </button>
                       </div>
                       <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                        {wh.events.slice(0, 4).map((e) => (
+                        {asArray<string>(wh.events).slice(0, 4).map((e) => (
                           <span key={e} className="text-[10px] bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground">{e}</span>
                         ))}
-                        {wh.events.length > 4 && <span className="text-[10px] text-muted-foreground">+{wh.events.length - 4} more</span>}
+                        {asArray<string>(wh.events).length > 4 && <span className="text-[10px] text-muted-foreground">+{asArray<string>(wh.events).length - 4} more</span>}
                       </div>
                       <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
                         <span className="flex items-center gap-1 text-green-600"><CheckCircle className="w-3 h-3" />{wh.successCount} ok</span>

@@ -183,7 +183,8 @@ export default function SequenceEditorPage() {
   const [savingStep, setSavingStep] = useState<number | null>(null);
 
   const loadSeq = useCallback(async () => {
-    setSeq(await apiFetch(`/api/sequences/${id}`) as Sequence);
+    const result = await apiFetch(`/api/sequences/${id}`) as Sequence;
+    setSeq({ ...result, steps: asArray<Step>(result.steps) });
   }, [id]);
 
   useEffect(() => {
@@ -197,7 +198,7 @@ export default function SequenceEditorPage() {
 
   async function addStep() {
     if (!seq) return;
-    const nextNum = (seq.steps.length ?? 0) + 1;
+    const nextNum = asArray<Step>(seq.steps).length + 1;
     await apiFetch(`/api/sequences/${id}/steps`, {
       method: "POST",
       body: JSON.stringify({
@@ -266,6 +267,7 @@ export default function SequenceEditorPage() {
 
     );
   }
+  const steps = asArray<Step>(seq.steps);
 
   return (
 
@@ -300,14 +302,14 @@ export default function SequenceEditorPage() {
                 {seq.status}
               </Badge>
               <span className="text-sm text-muted-foreground">
-                {seq.steps.length} step{seq.steps.length !== 1 ? "s" : ""} · {seq.totalEnrolled} enrolled
+                {steps.length} step{steps.length !== 1 ? "s" : ""} · {seq.totalEnrolled} enrolled
               </span>
             </div>
           </div>
           <Button
             onClick={() => setEnrollOpen(true)}
             className="bg-primary text-primary-foreground hover:bg-primary/90 flex-shrink-0"
-            disabled={seq.steps.length === 0}
+            disabled={steps.length === 0}
           >
             <Users className="w-4 h-4 mr-2" /> Enroll Leads
           </Button>
@@ -351,7 +353,7 @@ export default function SequenceEditorPage() {
             {savingStep && <span className="text-xs text-muted-foreground">Saving…</span>}
           </div>
 
-          {seq.steps.length === 0 && (
+          {steps.length === 0 && (
             <div className="rounded-xl border border-dashed border-border p-8 text-center">
               <Mail className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
               <div className="text-sm text-muted-foreground">
@@ -360,7 +362,7 @@ export default function SequenceEditorPage() {
             </div>
           )}
 
-          {seq.steps.map((step, i) => (
+          {steps.map((step, i) => (
             <div key={step.id} className="relative">
               {i > 0 && (
                 <div className="flex items-center gap-2 py-1 pl-6 text-xs text-muted-foreground">

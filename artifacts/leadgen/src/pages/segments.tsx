@@ -4,7 +4,7 @@ import { useListLeads } from "@workspace/api-client-react";
 import { Users, Plus, Filter, Trash2, ChevronRight, Search, SlidersHorizontal, ExternalLink } from "lucide-react";
 import { Link } from "wouter";
 import { apiFetch } from "@/lib/api";
-import { asArray } from "@/lib/data-shape";
+import { asArray, type ArrayElement } from "@/lib/data-shape";
 
 interface Segment {
   id: number;
@@ -35,7 +35,7 @@ const SEGMENT_COLORS = [
 export default function Segments() {
   const qc = useQueryClient();
   const { data: leadsData } = useListLeads();
-  const allLeads = leadsData?.leads ?? [];
+  const allLeads = asArray<ArrayElement<NonNullable<typeof leadsData>["leads"]>>(leadsData?.leads);
 
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: "", description: "", filters: {} as Filters });
@@ -63,7 +63,7 @@ export default function Segments() {
       if (f.source && lead.source !== f.source) return false;
       if (f.scoreMin !== undefined && (lead.score ?? 0) < f.scoreMin) return false;
       if (f.scoreMax !== undefined && (lead.score ?? 0) > f.scoreMax) return false;
-      if (f.tag && !(lead.tags ?? []).includes(f.tag)) return false;
+      if (f.tag && !asArray<string>(lead.tags).includes(f.tag)) return false;
       if (f.search) {
         const q = f.search.toLowerCase();
         if (!(`${lead.firstName} ${lead.lastName} ${lead.email} ${lead.company}`.toLowerCase().includes(q))) return false;

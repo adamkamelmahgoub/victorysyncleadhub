@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 import { apiFetch } from "@/lib/api";
-import { asArray } from "@/lib/data-shape";
+import { asArray, type ArrayElement } from "@/lib/data-shape";
 
 type Channel = "all" | "email" | "sms" | "facebook" | "instagram" | "whatsapp";
 type EmailLog = { id: number; leadId: number; subject?: string; body?: string; sentAt?: string; status?: string };
@@ -34,7 +34,7 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function Conversations() {
   const { data: leadsData } = useListLeads();
-  const leads = leadsData?.leads ?? [];
+  const leads = asArray<ArrayElement<NonNullable<typeof leadsData>["leads"]>>(leadsData?.leads);
 
   const [channel, setChannel] = useState<Channel>("all");
   const [selectedId, setSelectedId] = useState<number | null>(null);

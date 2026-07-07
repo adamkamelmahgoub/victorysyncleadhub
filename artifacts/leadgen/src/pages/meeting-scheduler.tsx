@@ -91,7 +91,7 @@ export default function MeetingScheduler() {
                   {et.requiresConfirmation && <span className="flex items-center gap-1 text-xs text-amber-600 bg-amber-50 rounded px-1.5"><Check className="w-3 h-3" />Requires confirm</span>}
                 </div>
                 <div className="flex flex-wrap gap-1">
-                  {et.availableDays.map(d => <span key={d} className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-medium">{DAY_LABELS[d]}</span>)}
+                  {asArray<string>(et.availableDays).map(d => <span key={d} className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-medium">{DAY_LABELS[d]}</span>)}
                 </div>
                 <div className="flex gap-2 pt-1 border-t">
                   <button

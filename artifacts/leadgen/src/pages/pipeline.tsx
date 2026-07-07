@@ -74,6 +74,7 @@ function StageColumn({
   onDragStart: (id: number) => void;
 }) {
   const [over, setOver] = useState(false);
+  const stageLeads = asArray<Lead>(stage.leads);
 
   return (
     <div
@@ -88,7 +89,7 @@ function StageColumn({
           <span className="font-semibold text-foreground text-sm">{stage.name}</span>
         </div>
         <Badge variant="secondary" className="text-xs bg-muted text-muted-foreground">
-          {stage.leads.length}
+          {stageLeads.length}
         </Badge>
       </div>
       <div
@@ -96,10 +97,10 @@ function StageColumn({
           over ? "border-primary/60 bg-primary/5" : "border-border/50 bg-card/30"
         }`}
       >
-        {stage.leads.map((lead) => (
+        {stageLeads.map((lead) => (
           <LeadCard key={lead.id} lead={lead} onDragStart={onDragStart} />
         ))}
-        {stage.leads.length === 0 && (
+        {stageLeads.length === 0 && (
           <div className="h-20 flex items-center justify-center text-xs text-muted-foreground/50">
             Drop leads here
           </div>
@@ -117,7 +118,10 @@ export default function PipelinePage() {
   const load = useCallback(async () => {
     const result = await apiFetch("/api/pipeline/leads") as Partial<PipelineData>;
     setData({
-      stages: asArray<Stage>(result.stages),
+      stages: asArray<Stage>(result.stages).map((stage) => ({
+        ...stage,
+        leads: asArray<Lead>(stage.leads),
+      })),
       unassigned: asArray<Lead>(result.unassigned),
     });
   }, []);

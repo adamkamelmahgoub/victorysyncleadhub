@@ -17,6 +17,14 @@ import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { asArray, type ArrayElement } from "@/lib/data-shape";
 
+function formatRelativeDate(value: string | null | undefined) {
+  if (!value) return "Date unavailable";
+  const date = parseISO(value);
+  return Number.isNaN(date.getTime())
+    ? "Date unavailable"
+    : formatDistanceToNow(date, { addSuffix: true });
+}
+
 export default function Forms() {
   const [showCreate, setShowCreate] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
@@ -119,7 +127,7 @@ export default function Forms() {
                     <p className="text-xs text-muted-foreground">Submissions</p>
                   </div>
                   <div>
-                    <p className="text-lg font-bold text-foreground">{(f.fields as unknown[])?.length ?? 0}</p>
+                    <p className="text-lg font-bold text-foreground">{asArray(f.fields).length}</p>
                     <p className="text-xs text-muted-foreground">Fields</p>
                   </div>
                 </div>
@@ -134,7 +142,7 @@ export default function Forms() {
                     {copiedId === f.id ? "Copied!" : "Copy Embed Code"}
                   </Button>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">{formatDistanceToNow(parseISO(f.createdAt), { addSuffix: true })}</span>
+                    <span className="text-xs text-muted-foreground">{formatRelativeDate(f.createdAt)}</span>
                       <Link href={`/forms/${f.id}`}>
                       <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-primary">
                         Edit form <ArrowRight className="w-3 h-3" />

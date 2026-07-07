@@ -62,7 +62,7 @@ export default function Campaigns() {
   const campaigns = asArray<ArrayElement<NonNullable<typeof campaignsResponse>>>(campaignsResponse);
 
   const filteredLeads = useMemo(() => {
-    const all = leadsData?.leads ?? [];
+    const all = asArray<ArrayElement<NonNullable<typeof leadsData>["leads"]>>(leadsData?.leads);
     if (!leadSearch.trim()) return all;
     const q = leadSearch.toLowerCase();
     return all.filter(

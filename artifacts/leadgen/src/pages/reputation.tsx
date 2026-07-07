@@ -178,6 +178,8 @@ export default function Reputation() {
   const sources = asArray<ReviewSource>(sourcesResponse);
   const reviews = asArray<Review>(reviewsResponse);
   const requests = asArray<ReviewRequest>(requestsResponse);
+  const ratingStats = asArray<ReviewStats["byRating"][number]>(stats?.byRating);
+  const platformStats = asArray<ReviewStats["byPlatform"][number]>(stats?.byPlatform);
 
   const addSource = useMutation({
     mutationFn: (body: object) => apiFetch("/api/review-sources", { method: "POST", body: JSON.stringify(body) }),
@@ -290,7 +292,7 @@ export default function Reputation() {
                 <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-muted-foreground" /> Rating Distribution</h3>
                 <div className="space-y-3">
                   {[5, 4, 3, 2, 1].map((r) => {
-                    const count = stats?.byRating?.find((b) => b.rating === r)?.count ?? 0;
+                    const count = ratingStats.find((b) => b.rating === r)?.count ?? 0;
                     const pct = stats?.total ? Math.round((count / stats.total) * 100) : 0;
                     return (
                       <div key={r} className="flex items-center gap-3">
@@ -310,9 +312,9 @@ export default function Reputation() {
 
               <div className="bg-white rounded-xl border border-border shadow-sm p-5">
                 <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><Globe className="w-4 h-4 text-muted-foreground" /> By Platform</h3>
-                {stats?.byPlatform?.length ? (
+                {platformStats.length ? (
                   <div className="space-y-3">
-                    {stats.byPlatform.map((p) => {
+                    {platformStats.map((p) => {
                       const cfg = PLATFORM_CONFIG[p.platform.toLowerCase()] ?? PLATFORM_CONFIG.google!;
                       return (
                         <div key={p.platform} className="flex items-center gap-3">

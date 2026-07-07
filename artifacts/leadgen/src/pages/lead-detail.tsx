@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
-import { asArray } from "@/lib/data-shape";
+import { asArray, type ArrayElement } from "@/lib/data-shape";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const STATUS_OPTIONS = ["new", "contacted", "qualified", "proposal", "converted", "lost"] as const;
@@ -213,9 +213,9 @@ export default function LeadDetail() {
   const tagInputRef = useRef<HTMLInputElement>(null);
 
   const { data: lead, isLoading } = useGetLead(id, { query: { enabled: !!id, queryKey: getGetLeadQueryKey(id) } });
-  const { data: activities = [] } = useListLeadActivities(id, { query: { enabled: !!id, queryKey: getListLeadActivitiesQueryKey(id) } });
-  const { data: notes = [] } = useListLeadNotes(id, { query: { enabled: !!id, queryKey: getListLeadNotesQueryKey(id) } });
-  const { data: campaigns = [] } = useListCampaigns();
+  const { data: activitiesResponse = [] } = useListLeadActivities(id, { query: { enabled: !!id, queryKey: getListLeadActivitiesQueryKey(id) } });
+  const { data: notesResponse = [] } = useListLeadNotes(id, { query: { enabled: !!id, queryKey: getListLeadNotesQueryKey(id) } });
+  const { data: campaignsResponse = [] } = useListCampaigns();
   const { data: stagesResponse = [] } = useQuery<PipelineStage[]>({ queryKey: ["pipeline-stages"], queryFn: () => apiFetch("/api/pipeline/stages") });
   const { data: tasksResponse = [], refetch: refetchTasks } = useQuery<ContactTask[]>({
     queryKey: ["contact-tasks", id],
@@ -224,6 +224,9 @@ export default function LeadDetail() {
   });
   const stages = asArray<PipelineStage>(stagesResponse);
   const tasks = asArray<ContactTask>(tasksResponse);
+  const activities = asArray<ArrayElement<NonNullable<typeof activitiesResponse>>>(activitiesResponse);
+  const notes = asArray<ArrayElement<NonNullable<typeof notesResponse>>>(notesResponse);
+  const campaigns = asArray<ArrayElement<NonNullable<typeof campaignsResponse>>>(campaignsResponse);
 
   const updateLead = useUpdateLead();
   const updateScore = useUpdateLeadScore();
@@ -277,7 +280,7 @@ export default function LeadDetail() {
   function addTag() {
     const tag = newTag.trim().toLowerCase();
     if (!tag || !lead) return;
-    const tags = [...(lead.tags ?? []), tag];
+    const tags = [...asArray<string>(lead.tags), tag];
     updateLead.mutate({ id, data: { tags } as Parameters<typeof updateLead.mutate>[0]["data"] }, {
       onSuccess: () => { qc.invalidateQueries({ queryKey: getGetLeadQueryKey(id) }); setNewTag(""); setAddingTag(false); },
     });
@@ -285,7 +288,7 @@ export default function LeadDetail() {
 
   function removeTag(tag: string) {
     if (!lead) return;
-    const tags = (lead.tags ?? []).filter((t) => t !== tag);
+    const tags = asArray<string>(lead.tags).filter((t) => t !== tag);
     updateLead.mutate({ id, data: { tags } as Parameters<typeof updateLead.mutate>[0]["data"] }, {
       onSuccess: () => qc.invalidateQueries({ queryKey: getGetLeadQueryKey(id) }),
     });
@@ -488,7 +491,7 @@ export default function LeadDetail() {
             {/* Tags */}
             <SideSection title="Tags" icon={Tag}>
               <div className="flex flex-wrap gap-1.5">
-                {(lead.tags ?? []).map((tag) => (
+                {asArray<string>(lead.tags).map((tag) => (
                   <span key={tag} className="flex items-center gap-1 text-xs bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full">
                     {tag}
                     <button onClick={() => removeTag(tag)} className="hover:text-red-500"><X className="w-2.5 h-2.5" /></button>

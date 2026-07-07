@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Users, CheckCircle2, TrendingUp, ExternalLink } from "lucide-react";
+import { asArray, type ArrayElement } from "@/lib/data-shape";
 
 const STATUS_COLORS: Record<string, string> = {
   new: "hsl(185 100% 50%)",
@@ -22,7 +23,7 @@ export default function CampaignDetail() {
   const { data: campaign, isLoading } = useGetCampaign(id, { query: { enabled: !!id, queryKey: getGetCampaignQueryKey(id) } });
   const { data: leadsData, isLoading: leadsLoading } = useGetCampaignLeads(id, { query: { enabled: !!id, queryKey: getGetCampaignLeadsQueryKey(id) } });
 
-  const leads = leadsData?.leads ?? [];
+  const leads = asArray<ArrayElement<NonNullable<typeof leadsData>["leads"]>>(leadsData?.leads);
   const convRate = campaign && campaign.leadCount > 0 ? Math.round(((campaign.convertedCount ?? 0) / campaign.leadCount) * 100) : 0;
 
   if (isLoading) {

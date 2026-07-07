@@ -5,6 +5,7 @@ import { Check, ChevronRight, Plug, Users, Megaphone, GitBranch, UserPlus, Zap, 
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
+import { asArray } from "@/lib/data-shape";
 
 const STEP_ICONS: Record<string, React.ElementType> = { connect_integrations: Plug, import_contacts: Users, create_campaign: Megaphone, setup_pipeline: GitBranch, invite_team: UserPlus, configure_automation: Zap, launch: Rocket };
 const STEP_LINKS: Record<string, string> = { connect_integrations: "/integrations", import_contacts: "/lead-import", create_campaign: "/campaigns", setup_pipeline: "/pipeline", invite_team: "/team", configure_automation: "/automation", launch: "/" };
@@ -30,6 +31,7 @@ export default function Onboarding() {
 
   if (isLoading) return <div className="p-8 text-center text-muted-foreground">Loading…</div>;
   if (!progress) return null;
+  const steps = asArray<Step>(progress.steps);
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
@@ -55,7 +57,7 @@ export default function Onboarding() {
       </div>
 
       <div className="space-y-3">
-        {progress.steps.map((step, i) => {
+        {steps.map((step, i) => {
           const Icon = STEP_ICONS[step.id] || Zap;
           const link = STEP_LINKS[step.id] || "/";
           return (

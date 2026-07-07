@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Plus, Trash2, GripVertical, Copy, Check, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { asArray } from "@/lib/data-shape";
 
 interface FormField {
   id: string;
@@ -54,7 +55,7 @@ export default function FormEditor() {
 
   useEffect(() => {
     if (form) {
-      setFields((form.fields as unknown as FormField[]) ?? []);
+      setFields(asArray<FormField>(form.fields));
       setFormName(form.name);
       setSuccessMsg(form.successMessage ?? "");
     }

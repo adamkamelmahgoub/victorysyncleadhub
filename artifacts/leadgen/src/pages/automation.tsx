@@ -268,7 +268,10 @@ export default function Automation() {
     queryKey: ["automations"],
     queryFn: () => apiFetch("/api/automations"),
   });
-  const automations = asArray<Automation>(automationsResponse);
+  const automations = asArray<Automation>(automationsResponse).map((automation) => ({
+    ...automation,
+    actions: asArray<WorkflowAction>(automation.actions),
+  }));
 
   const create = useMutation({
     mutationFn: (body: object) => apiFetch("/api/automations", { method: "POST", body: JSON.stringify(body) }),
@@ -299,8 +302,9 @@ export default function Automation() {
   });
 
   function openEditor(a: Automation) {
+    const actions = asArray<WorkflowAction>(a.actions);
     setSelected(a);
-    setEditActions(JSON.parse(JSON.stringify(a.actions)));
+    setEditActions(JSON.parse(JSON.stringify(actions)));
     setEditTrigger(a.triggerType);
     setEditTriggerConfig((a.triggerConfig as Record<string, string>) ?? {});
     setEditName(a.name);
@@ -347,7 +351,7 @@ export default function Automation() {
   }
 
   const status = (a: Automation): "active" | "paused" | "draft" =>
-    a.actions.length === 0 ? "draft" : a.isActive ? "active" : "paused";
+    asArray<WorkflowAction>(a.actions).length === 0 ? "draft" : a.isActive ? "active" : "paused";
 
   const filtered = automations.filter((w) => w.name.toLowerCase().includes(search.toLowerCase()));
   const triggerFields = TRIGGER_CONFIG[editTrigger]?.fields ?? [];
@@ -570,7 +574,7 @@ export default function Automation() {
                             <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0"><Zap className="w-4 h-4 text-primary" /></div>
                             <div>
                               <div className="text-sm font-semibold text-foreground group-hover:text-primary">{w.name}</div>
-                              <div className="text-xs text-muted-foreground">{w.actions.length} step{w.actions.length !== 1 ? "s" : ""}</div>
+                              <div className="text-xs text-muted-foreground">{asArray<WorkflowAction>(w.actions).length} step{asArray<WorkflowAction>(w.actions).length !== 1 ? "s" : ""}</div>
                             </div>
                           </button>
                         </td>

@@ -14,6 +14,7 @@ import { Search, Plus, Trash2, ExternalLink, Upload } from "lucide-react";
 import { Link } from "wouter";
 import { useCreateLead } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
+import { asArray, type ArrayElement } from "@/lib/data-shape";
 
 const STATUS_COLORS: Record<string, string> = {
   new: "hsl(185 100% 50%)",
@@ -87,7 +88,8 @@ export default function Leads() {
     });
   }
 
-  const leads = data?.leads ?? [];
+  const leads = asArray<ArrayElement<NonNullable<typeof data>["leads"]>>(data?.leads);
+  const campaignRows = asArray<ArrayElement<NonNullable<typeof campaigns>>>(campaigns);
 
   return (
     <>
@@ -248,7 +250,7 @@ export default function Leads() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="">No campaign</SelectItem>
-                  {(campaigns ?? []).map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
+                  {campaignRows.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

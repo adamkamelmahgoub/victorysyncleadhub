@@ -7,6 +7,10 @@ import { asArray } from "@/lib/data-shape";
 
 interface Sequence { id: number; name: string; status: string; totalEnrolled: number; totalSent: number; totalOpened: number; totalReplied: number; }
 
+function num(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
 function pct(a: number, b: number) { if (!b) return 0; return Math.round((a / b) * 100); }
 
 function FunnelStep({ label, value, total, iconColor, barColor, icon: Icon }: { label: string; value: number; total: number; iconColor: string; barColor: string; icon: React.ElementType }) {
@@ -29,8 +33,12 @@ function FunnelStep({ label, value, total, iconColor, barColor, icon: Icon }: { 
 
 function SequenceCard({ seq }: { seq: Sequence }) {
   const [expanded, setExpanded] = useState(false);
-  const openRate = pct(seq.totalOpened, seq.totalSent);
-  const replyRate = pct(seq.totalReplied, seq.totalSent);
+  const totalEnrolled = num(seq.totalEnrolled);
+  const totalSent = num(seq.totalSent);
+  const totalOpened = num(seq.totalOpened);
+  const totalReplied = num(seq.totalReplied);
+  const openRate = pct(totalOpened, totalSent);
+  const replyRate = pct(totalReplied, totalSent);
 
   return (
     <div className="bg-card border rounded-xl overflow-hidden">
@@ -40,10 +48,10 @@ function SequenceCard({ seq }: { seq: Sequence }) {
             <span className="font-semibold truncate">{seq.name}</span>
             <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${seq.status === "active" ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"}`}>{seq.status}</span>
           </div>
-          <div className="text-xs text-muted-foreground mt-0.5">{seq.totalEnrolled.toLocaleString()} enrolled</div>
+          <div className="text-xs text-muted-foreground mt-0.5">{totalEnrolled.toLocaleString()} enrolled</div>
         </div>
         <div className="flex items-center gap-6 shrink-0">
-          <div className="text-center"><div className="text-lg font-bold">{seq.totalSent.toLocaleString()}</div><div className="text-xs text-muted-foreground">Sent</div></div>
+          <div className="text-center"><div className="text-lg font-bold">{totalSent.toLocaleString()}</div><div className="text-xs text-muted-foreground">Sent</div></div>
           <div className="text-center"><div className={`text-lg font-bold ${openRate >= 40 ? "text-green-600" : openRate >= 20 ? "text-amber-600" : "text-red-500"}`}>{openRate}%</div><div className="text-xs text-muted-foreground">Open Rate</div></div>
           <div className="text-center"><div className="text-lg font-bold text-primary">{replyRate}%</div><div className="text-xs text-muted-foreground">Reply Rate</div></div>
           {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
@@ -51,12 +59,12 @@ function SequenceCard({ seq }: { seq: Sequence }) {
       </div>
       {expanded && (
         <div className="px-4 pb-4 border-t pt-4 space-y-3">
-          <FunnelStep label="Enrolled" value={seq.totalEnrolled} total={seq.totalEnrolled} iconColor="bg-gray-100 text-gray-600" barColor="#6b7280" icon={Users} />
-          <FunnelStep label="Sent" value={seq.totalSent} total={seq.totalEnrolled} iconColor="bg-blue-100 text-blue-600" barColor="#3b82f6" icon={Mail} />
-          <FunnelStep label="Opened" value={seq.totalOpened} total={seq.totalSent} iconColor="bg-purple-100 text-purple-600" barColor="#8b5cf6" icon={Eye} />
-          <FunnelStep label="Replied" value={seq.totalReplied} total={seq.totalSent} iconColor="bg-green-100 text-green-600" barColor="#10b981" icon={MessageSquare} />
+          <FunnelStep label="Enrolled" value={totalEnrolled} total={totalEnrolled} iconColor="bg-gray-100 text-gray-600" barColor="#6b7280" icon={Users} />
+          <FunnelStep label="Sent" value={totalSent} total={totalEnrolled} iconColor="bg-blue-100 text-blue-600" barColor="#3b82f6" icon={Mail} />
+          <FunnelStep label="Opened" value={totalOpened} total={totalSent} iconColor="bg-purple-100 text-purple-600" barColor="#8b5cf6" icon={Eye} />
+          <FunnelStep label="Replied" value={totalReplied} total={totalSent} iconColor="bg-green-100 text-green-600" barColor="#10b981" icon={MessageSquare} />
           <div className="mt-4 grid grid-cols-3 gap-3 pt-3 border-t">
-            {[{ label: "Delivery Rate", value: `${pct(seq.totalSent, seq.totalEnrolled)}%` }, { label: "Open Rate", value: `${openRate}%` }, { label: "Reply Rate", value: `${replyRate}%` }].map(m => (
+            {[{ label: "Delivery Rate", value: `${pct(totalSent, totalEnrolled)}%` }, { label: "Open Rate", value: `${openRate}%` }, { label: "Reply Rate", value: `${replyRate}%` }].map(m => (
               <div key={m.label} className="text-center bg-muted/30 rounded-lg p-3">
                 <div className="font-bold text-lg">{m.value}</div>
                 <div className="text-xs text-muted-foreground">{m.label}</div>
@@ -74,15 +82,15 @@ export default function SequenceAnalytics() {
   const [sortBy, setSortBy] = useState("openRate");
   const sequences = asArray<Sequence>(sequencesResponse);
 
-  const totalEnrolled = sequences.reduce((s, q) => s + q.totalEnrolled, 0);
-  const totalSent = sequences.reduce((s, q) => s + q.totalSent, 0);
-  const totalOpened = sequences.reduce((s, q) => s + q.totalOpened, 0);
-  const totalReplied = sequences.reduce((s, q) => s + q.totalReplied, 0);
+  const totalEnrolled = sequences.reduce((s, q) => s + num(q.totalEnrolled), 0);
+  const totalSent = sequences.reduce((s, q) => s + num(q.totalSent), 0);
+  const totalOpened = sequences.reduce((s, q) => s + num(q.totalOpened), 0);
+  const totalReplied = sequences.reduce((s, q) => s + num(q.totalReplied), 0);
 
   const sorted = [...sequences].sort((a, b) => {
-    if (sortBy === "openRate") return pct(b.totalOpened, b.totalSent) - pct(a.totalOpened, a.totalSent);
-    if (sortBy === "replyRate") return pct(b.totalReplied, b.totalSent) - pct(a.totalReplied, a.totalSent);
-    return b.totalEnrolled - a.totalEnrolled;
+    if (sortBy === "openRate") return pct(num(b.totalOpened), num(b.totalSent)) - pct(num(a.totalOpened), num(a.totalSent));
+    if (sortBy === "replyRate") return pct(num(b.totalReplied), num(b.totalSent)) - pct(num(a.totalReplied), num(a.totalSent));
+    return num(b.totalEnrolled) - num(a.totalEnrolled);
   });
 
   return (
