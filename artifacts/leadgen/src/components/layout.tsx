@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, MessageSquare, Users, GitBranch, Calendar,
   Megaphone, Zap, Layers, Globe, BarChart3, Star, Settings,
-  Search, Mail, Share2, UserPlus, Plug, Upload, Image,
+  Search, Mail, Share2, UserPlus, Plug, Upload, Filter,
   ChevronDown, Bell,
 } from "lucide-react";
 
@@ -11,6 +11,7 @@ const NAV: Array<{ href: string; label: string; icon: React.ElementType; badge?:
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/conversations", label: "Conversations", icon: MessageSquare, badge: "3" },
   { href: "/leads", label: "Contacts", icon: Users },
+  { href: "/segments", label: "Segments", icon: Filter },
   { href: "/pipeline", label: "Opportunities", icon: GitBranch },
   { href: "/calendars", label: "Calendars", icon: Calendar },
   null,

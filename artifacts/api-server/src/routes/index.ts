@@ -13,6 +13,8 @@ import sequencesRouter from "./sequences";
 import teamRouter from "./team";
 import integrationsRouter from "./integrations";
 import automationsRouter from "./automations";
+import oauthRouter from "./oauth";
+import segmentsRouter from "./segments";
 
 const router: IRouter = Router();
 
@@ -30,5 +32,7 @@ router.use(sequencesRouter);
 router.use(teamRouter);
 router.use(integrationsRouter);
 router.use(automationsRouter);
+router.use(oauthRouter);
+router.use(segmentsRouter);
 
 export default router;

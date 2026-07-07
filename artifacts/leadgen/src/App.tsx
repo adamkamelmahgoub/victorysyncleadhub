@@ -25,6 +25,7 @@ import Team from "@/pages/team";
 import Integrations from "@/pages/integrations";
 import LeadImport from "@/pages/lead-import";
 import SocialPlanner from "@/pages/social-planner";
+import Segments from "@/pages/segments";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -57,6 +58,7 @@ function Router() {
       <Route path="/integrations" component={Integrations} />
       <Route path="/lead-import" component={LeadImport} />
       <Route path="/social-planner" component={SocialPlanner} />
+      <Route path="/segments" component={Segments} />
       <Route component={NotFound} />
     </Switch>
   );
