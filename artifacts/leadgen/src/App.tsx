@@ -17,6 +17,10 @@ import Forms from "@/pages/forms";
 import FormEditor from "@/pages/form-editor";
 import Analytics from "@/pages/analytics";
 import Settings from "@/pages/settings";
+import Conversations from "@/pages/conversations";
+import CalendarPage from "@/pages/calendar";
+import Automation from "@/pages/automation";
+import Reputation from "@/pages/reputation";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -33,15 +37,19 @@ function Router() {
       <Route path="/" component={Dashboard} />
       <Route path="/leads" component={Leads} />
       <Route path="/leads/:id" component={LeadDetail} />
+      <Route path="/conversations" component={Conversations} />
+      <Route path="/calendars" component={CalendarPage} />
+      <Route path="/automation" component={Automation} />
+      <Route path="/reputation" component={Reputation} />
+      <Route path="/pipeline" component={Pipeline} />
+      <Route path="/sequences" component={Sequences} />
+      <Route path="/sequences/:id" component={SequenceEditor} />
       <Route path="/campaigns" component={Campaigns} />
       <Route path="/campaigns/:id" component={CampaignDetail} />
       <Route path="/forms" component={Forms} />
       <Route path="/forms/:id" component={FormEditor} />
       <Route path="/analytics" component={Analytics} />
       <Route path="/scraper" component={Scraper} />
-      <Route path="/pipeline" component={Pipeline} />
-      <Route path="/sequences" component={Sequences} />
-      <Route path="/sequences/:id" component={SequenceEditor} />
       <Route path="/email-accounts" component={EmailAccounts} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />

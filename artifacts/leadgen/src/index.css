@@ -66,107 +66,61 @@
 }
 
 :root {
-  /* VictorySync — Deep Navy + Electric Indigo */
-  --background: 229 45% 5%;
-  --foreground: 216 30% 94%;
+  /* ── GHL Light Mode ── */
+  --background: 220 18% 97%;
+  --foreground: 222 47% 11%;
 
-  --card: 229 40% 8%;
-  --card-foreground: 216 30% 94%;
-  --card-border: 229 34% 15%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --card-border: 214 32% 90%;
 
-  --popover: 229 42% 9%;
-  --popover-foreground: 216 30% 94%;
-  --popover-border: 229 34% 15%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --popover-border: 214 32% 90%;
 
-  /* Electric Indigo — the VictorySync brand color */
-  --primary: 252 88% 66%;
+  /* GHL Orange primary */
+  --primary: 25 95% 53%;
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 229 34% 16%;
-  --secondary-foreground: 216 30% 94%;
+  --secondary: 220 16% 93%;
+  --secondary-foreground: 222 47% 11%;
 
-  --muted: 229 36% 12%;
-  --muted-foreground: 224 16% 54%;
+  --muted: 220 14% 94%;
+  --muted-foreground: 215 16% 47%;
 
-  --accent: 252 70% 20%;
-  --accent-foreground: 252 88% 80%;
+  --accent: 25 95% 95%;
+  --accent-foreground: 25 95% 40%;
 
-  --destructive: 350 84% 60%;
+  --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
 
-  --border: 229 32% 16%;
-  --input: 229 36% 13%;
-  --ring: 252 88% 66%;
+  --border: 214 32% 90%;
+  --input: 214 32% 90%;
+  --ring: 25 95% 53%;
 
-  --chart-1: 252 88% 66%;
-  --chart-2: 185 90% 52%;
+  --chart-1: 25 95% 53%;
+  --chart-2: 221 83% 53%;
   --chart-3: 142 71% 45%;
-  --chart-4: 38 92% 58%;
+  --chart-4: 38 92% 50%;
   --chart-5: 350 84% 60%;
 
-  /* Sidebar — slightly darker than bg */
-  --sidebar: 229 50% 4%;
-  --sidebar-foreground: 216 30% 94%;
-  --sidebar-border: 229 34% 13%;
-  --sidebar-primary: 252 88% 66%;
+  /* ── GHL Dark Sidebar ── */
+  --sidebar: 220 40% 13%;
+  --sidebar-foreground: 215 20% 85%;
+  --sidebar-border: 220 35% 20%;
+  --sidebar-primary: 25 95% 53%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 229 36% 12%;
-  --sidebar-accent-foreground: 216 30% 94%;
-  --sidebar-ring: 252 88% 66%;
+  --sidebar-accent: 220 35% 20%;
+  --sidebar-accent-foreground: 0 0% 100%;
+  --sidebar-ring: 25 95% 53%;
 
   --app-font-sans: 'Inter', sans-serif;
   --app-font-mono: 'JetBrains Mono', monospace;
-
   --radius: 0.5rem;
   --opaque-button-border-intensity: 10;
 }
 
-.dark {
-  --background: 229 45% 5%;
-  --foreground: 216 30% 94%;
-
-  --card: 229 40% 8%;
-  --card-foreground: 216 30% 94%;
-  --card-border: 229 34% 15%;
-
-  --popover: 229 42% 9%;
-  --popover-foreground: 216 30% 94%;
-  --popover-border: 229 34% 15%;
-
-  --primary: 252 88% 66%;
-  --primary-foreground: 0 0% 100%;
-
-  --secondary: 229 34% 16%;
-  --secondary-foreground: 216 30% 94%;
-
-  --muted: 229 36% 12%;
-  --muted-foreground: 224 16% 54%;
-
-  --accent: 252 70% 20%;
-  --accent-foreground: 252 88% 80%;
-
-  --destructive: 350 84% 60%;
-  --destructive-foreground: 0 0% 100%;
-
-  --border: 229 32% 16%;
-  --input: 229 36% 13%;
-  --ring: 252 88% 66%;
-
-  --chart-1: 252 88% 66%;
-  --chart-2: 185 90% 52%;
-  --chart-3: 142 71% 45%;
-  --chart-4: 38 92% 58%;
-  --chart-5: 350 84% 60%;
-
-  --sidebar: 229 50% 4%;
-  --sidebar-foreground: 216 30% 94%;
-  --sidebar-border: 229 34% 13%;
-  --sidebar-primary: 252 88% 66%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 229 36% 12%;
-  --sidebar-accent-foreground: 216 30% 94%;
-  --sidebar-ring: 252 88% 66%;
-}
+/* No separate dark class — this app is always light-mode with dark sidebar */
 
 @layer base {
   * {
@@ -174,20 +128,10 @@
   }
   body {
     @apply font-sans antialiased bg-background text-foreground;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    font-feature-settings: "cv02","cv03","cv04","cv11";
   }
-  ::-webkit-scrollbar {
-    width: 5px;
-    height: 5px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: hsl(var(--border));
-    border-radius: 99px;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground) / 0.5);
-  }
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.4); }
 }
