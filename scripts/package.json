@@ -4,11 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "db:seed": "tsx ./src/db-seed.ts",
+    "db:verify": "tsx ./src/db-verify.ts",
     "hello": "tsx ./src/hello.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "pg": "^8.22.0"
+  },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@types/pg": "^8.20.0",
     "tsx": "catalog:"
   }
 }

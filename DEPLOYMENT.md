@@ -35,9 +35,11 @@ This repo includes `vercel.json` for Vercel:
    ```
    Add OAuth variables from `.env.example` only for providers you plan to use.
 5. Deploy.
-6. Run database migrations once from your machine or another trusted shell:
+6. Run database migrations and baseline data setup once from your machine or another trusted shell:
    ```bash
    DATABASE_URL=<your_supabase_pooler_connection_string> pnpm --filter @workspace/db run push
+   DATABASE_URL=<your_supabase_pooler_connection_string> pnpm run db:seed
+   DATABASE_URL=<your_supabase_pooler_connection_string> pnpm run db:verify
    ```
 
 For Supabase Postgres, copy the **Connection Pooler** URI from the Supabase Connect panel and use it as `DATABASE_URL`; replace the password placeholder with your database password. In Supabase Auth settings, add your Vercel URL to allowed redirect/site URLs. Update OAuth callback URLs to `https://yourdomain.com/api/oauth/<provider>/callback`.
@@ -76,9 +78,11 @@ Railway handles PostgreSQL, builds, and deploys automatically from GitHub.
    ```
    Add any OAuth credentials from `.env.example` as needed.
 
-5. **Run DB migrations** (one-time, from Railway shell or locally):
+5. **Run DB migrations and baseline data setup** (one-time, from Railway shell or locally):
    ```bash
    DATABASE_URL=<your_railway_db_url> pnpm --filter @workspace/db run push
+   DATABASE_URL=<your_railway_db_url> pnpm run db:seed
+   DATABASE_URL=<your_railway_db_url> pnpm run db:verify
    ```
 
 6. Railway auto-detects the `Dockerfile` and deploys. Done!
@@ -198,3 +202,5 @@ Then update OAuth redirect URIs in each provider's developer portal to point to 
 - [ ] SSL/HTTPS is configured on your domain
 - [ ] OAuth redirect URIs updated in each provider's developer portal
 - [ ] DB migrations have been run: `pnpm --filter @workspace/db run push`
+- [ ] Baseline rows have been seeded: `pnpm run db:seed`
+- [ ] Supabase rows have been verified: `pnpm run db:verify`
