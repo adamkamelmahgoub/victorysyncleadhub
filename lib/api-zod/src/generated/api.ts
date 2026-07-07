@@ -285,7 +285,16 @@ export const CreateCampaignBody = zod.object({
   "name": zod.string().min(1),
   "description": zod.string().optional(),
   "status": zod.string().optional(),
-  "sourceType": zod.string().optional()
+  "sourceType": zod.string().optional(),
+  "subject": zod.string().optional(),
+  "fromName": zod.string().optional(),
+  "fromEmail": zod.string().optional(),
+  "body": zod.string().optional(),
+  "sendRatePerHour": zod.number().optional(),
+  "dailyLimit": zod.number().optional(),
+  "sendWindowStart": zod.string().optional(),
+  "sendWindowEnd": zod.string().optional(),
+  "scheduledAt": zod.coerce.date().optional()
 })
 
 export const CreateCampaignResponse = zod.object({
@@ -332,7 +341,15 @@ export const UpdateCampaignBody = zod.object({
   "name": zod.string().optional(),
   "description": zod.string().optional(),
   "status": zod.string().optional(),
-  "sourceType": zod.string().optional()
+  "sourceType": zod.string().optional(),
+  "subject": zod.string().optional(),
+  "fromName": zod.string().optional(),
+  "fromEmail": zod.string().optional(),
+  "body": zod.string().optional(),
+  "sendRatePerHour": zod.number().optional(),
+  "dailyLimit": zod.number().optional(),
+  "sendWindowStart": zod.string().optional(),
+  "sendWindowEnd": zod.string().optional()
 })
 
 export const UpdateCampaignResponse = zod.object({

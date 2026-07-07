@@ -11,4 +11,12 @@ export interface CampaignUpdate {
   description?: string;
   status?: string;
   sourceType?: string;
+  subject?: string;
+  fromName?: string;
+  fromEmail?: string;
+  body?: string;
+  sendRatePerHour?: number;
+  dailyLimit?: number;
+  sendWindowStart?: string;
+  sendWindowEnd?: string;
 }

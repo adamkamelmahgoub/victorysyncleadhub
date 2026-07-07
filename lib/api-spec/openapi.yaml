@@ -852,6 +852,25 @@ components:
           type: string
         sourceType:
           type: string
+        subject:
+          type: string
+        fromName:
+          type: string
+        fromEmail:
+          type: string
+        body:
+          type: string
+        sendRatePerHour:
+          type: integer
+        dailyLimit:
+          type: integer
+        sendWindowStart:
+          type: string
+        sendWindowEnd:
+          type: string
+        scheduledAt:
+          type: string
+          format: date-time
 
     CampaignUpdate:
       type: object
@@ -863,6 +882,22 @@ components:
         status:
           type: string
         sourceType:
+          type: string
+        subject:
+          type: string
+        fromName:
+          type: string
+        fromEmail:
+          type: string
+        body:
+          type: string
+        sendRatePerHour:
+          type: integer
+        dailyLimit:
+          type: integer
+        sendWindowStart:
+          type: string
+        sendWindowEnd:
           type: string
 
     # ── Form schemas ────────────────────────────────────────────────────────────
