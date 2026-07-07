@@ -21,20 +21,26 @@ This repo includes `vercel.json` for Vercel:
 3. Keep the root directory as the repository root.
 4. Add environment variables in Vercel Project Settings:
    ```
-   DATABASE_URL=<your_postgres_connection_string>
+   DATABASE_URL=<your_supabase_pooler_connection_string>
    SESSION_SECRET=<random 64 chars>
    NODE_ENV=production
    BASE_PATH=/
    APP_URL=https://your-vercel-domain.vercel.app
+   SUPABASE_URL=https://your-project-ref.supabase.co
+   SUPABASE_ANON_KEY=<your_supabase_anon_key>
+   SUPABASE_SERVICE_ROLE_KEY=<your_supabase_service_role_key>
+   SUPABASE_AUTH_REQUIRED=true
+   VITE_SUPABASE_URL=https://your-project-ref.supabase.co
+   VITE_SUPABASE_ANON_KEY=<your_supabase_anon_key>
    ```
    Add OAuth variables from `.env.example` only for providers you plan to use.
 5. Deploy.
 6. Run database migrations once from your machine or another trusted shell:
    ```bash
-   DATABASE_URL=<your_postgres_connection_string> pnpm --filter @workspace/db run push
+   DATABASE_URL=<your_supabase_pooler_connection_string> pnpm --filter @workspace/db run push
    ```
 
-For production, use a persistent PostgreSQL provider such as Vercel Postgres/Neon, Supabase, Railway Postgres, or another managed Postgres database. Update OAuth callback URLs to `https://yourdomain.com/api/oauth/<provider>/callback`.
+For Supabase Postgres, copy the **Connection Pooler** URI from the Supabase Connect panel and use it as `DATABASE_URL`; replace the password placeholder with your database password. In Supabase Auth settings, add your Vercel URL to allowed redirect/site URLs. Update OAuth callback URLs to `https://yourdomain.com/api/oauth/<provider>/callback`.
 
 ---
 

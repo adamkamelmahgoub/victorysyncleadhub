@@ -37,6 +37,8 @@ import Onboarding from "@/pages/onboarding";
 import Affiliates from "@/pages/affiliates";
 import BillingIntegration from "@/pages/billing-integration";
 import { Layout } from "@/components/layout";
+import Login from "@/pages/login";
+import { AuthProvider, useAuth } from "@/lib/auth";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -88,15 +90,37 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Layout>
-            <Router />
-          </Layout>
-        </WouterRouter>
-        <Toaster />
-      </TooltipProvider>
+      <AuthProvider>
+        <TooltipProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <AuthenticatedApp />
+          </WouterRouter>
+          <Toaster />
+        </TooltipProvider>
+      </AuthProvider>
     </QueryClientProvider>
+  );
+}
+
+function AuthenticatedApp() {
+  const { loading, session } = useAuth();
+
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-background flex items-center justify-center text-sm text-muted-foreground">
+        Loading...
+      </main>
+    );
+  }
+
+  if (!session) {
+    return <Login />;
+  }
+
+  return (
+    <Layout>
+      <Router />
+    </Layout>
   );
 }
 

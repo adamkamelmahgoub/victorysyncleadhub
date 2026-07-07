@@ -7,6 +7,7 @@ import {
   ChevronDown, Bell, Webhook, FileText, Building2, Target,
   CalendarClock, TrendingUp, Gift, Rocket, Key,
 } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 
 const NAV: Array<{ href: string; label: string; icon: React.ElementType; badge?: string } | null> = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -54,6 +55,15 @@ function GHLLogo() {
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
+  const { user, signOut } = useAuth();
+  const userEmail = user?.email ?? "Signed in user";
+  const initials = userEmail
+    .split("@")[0]
+    .split(/[._-]/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "VS";
 
   function isActive(href: string) {
     if (href === "/") return location === "/";
@@ -140,13 +150,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
               Settings
             </div>
           </Link>
-          <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer mt-1">
+          <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg mt-1">
             <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ background: "#F97316" }}>
-              VS
+              {initials}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-medium text-white truncate">Admin User</div>
-              <div className="text-[10px] truncate" style={{ color: "hsl(215 20% 45%)" }}>admin@victorysync.io</div>
+              <div className="text-xs font-medium text-white truncate">{userEmail}</div>
+              <button
+                type="button"
+                className="text-[10px] truncate text-left hover:text-white"
+                style={{ color: "hsl(215 20% 45%)" }}
+                onClick={() => void signOut()}
+              >
+                Sign out
+              </button>
             </div>
           </div>
         </div>
