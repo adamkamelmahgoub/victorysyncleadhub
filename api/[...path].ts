@@ -114,6 +114,14 @@ function validateLead(lead: ReturnType<typeof normalizeLead>) {
   return null;
 }
 
+function leadInsertPayload(lead: ReturnType<typeof normalizeLead>) {
+  return {
+    first_name: lead.first_name,
+    last_name: lead.last_name,
+    email: lead.email,
+  };
+}
+
 function leadFromRow(row: LeadRow) {
   return {
     id: row.id,
@@ -231,10 +239,14 @@ async function insertActivities(leads: Array<{ id?: number }>) {
     }));
 
   if (activities.length > 0) {
-    await supabaseRest("activities", {
-      method: "POST",
-      body: JSON.stringify(activities),
-    });
+    try {
+      await supabaseRest("activities", {
+        method: "POST",
+        body: JSON.stringify(activities),
+      });
+    } catch (error) {
+      console.warn("Activity logging skipped", error);
+    }
   }
 }
 
@@ -249,7 +261,7 @@ async function createLead(req: VercelRequest, res: VercelResponse) {
 
   const inserted = (await supabaseRest("leads", {
     method: "POST",
-    body: JSON.stringify(lead),
+    body: JSON.stringify(leadInsertPayload(lead)),
   })) as LeadRow[];
 
   await insertActivities(inserted);
@@ -268,7 +280,7 @@ async function updateLead(id: number, req: VercelRequest, res: VercelResponse) {
 
   const rows = (await supabaseRest(`leads?id=eq.${id}`, {
     method: "PATCH",
-    body: JSON.stringify(update),
+    body: JSON.stringify(leadInsertPayload(update)),
   })) as LeadRow[];
 
   if (!rows[0]) {
@@ -309,7 +321,7 @@ async function importLeads(req: VercelRequest, res: VercelResponse) {
 
   const inserted = (await supabaseRest("leads", {
     method: "POST",
-    body: JSON.stringify(valid),
+    body: JSON.stringify(valid.map(leadInsertPayload)),
   })) as Array<{ id?: number }>;
 
   await insertActivities(inserted);
