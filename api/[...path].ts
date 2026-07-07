@@ -58,9 +58,15 @@ type LeadRow = {
 };
 
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_ANON_KEY;
-const hasServiceRole = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+const supabaseServiceRoleKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ??
+  process.env.SUPABASE_SERVICE_KEY ??
+  process.env.SUPABASE_SECRET_KEY ??
+  process.env.SUPABASE_SERVICE_ROLE;
+const supabaseAnonKey =
+  process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
+const supabaseKey = supabaseServiceRoleKey ?? supabaseAnonKey;
+const hasServiceRole = Boolean(supabaseServiceRoleKey);
 
 function sendJson(res: VercelResponse, statusCode: number, data: unknown) {
   res.statusCode = statusCode;
@@ -361,6 +367,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       sendJson(res, 200, {
         status: "ok",
         supabaseConfigured: Boolean(supabaseUrl && supabaseKey),
+        supabaseServiceRoleConfigured: hasServiceRole,
       });
       return;
     }
@@ -399,6 +406,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     sendJson(res, 404, { error: `API route not implemented: ${method} ${path}` });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("row-level security policy")) {
+      sendJson(res, 403, {
+        error:
+          "Supabase RLS blocked this write. Configure SUPABASE_SERVICE_ROLE_KEY for server writes or add an insert policy for authenticated users.",
+        supabaseServiceRoleConfigured: hasServiceRole,
+      });
+      return;
+    }
     sendJson(res, 500, { error: message });
   }
 }
