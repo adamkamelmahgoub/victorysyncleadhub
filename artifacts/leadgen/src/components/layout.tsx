@@ -10,6 +10,7 @@ import {
   Bell,
   Search,
   Menu,
+  Globe,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -17,6 +18,7 @@ import { Input } from "./ui/input";
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/leads", label: "Leads", icon: Users },
+  { href: "/scraper", label: "Find Leads", icon: Globe },
   { href: "/campaigns", label: "Campaigns", icon: Megaphone },
   { href: "/forms", label: "Forms", icon: FormInput },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },

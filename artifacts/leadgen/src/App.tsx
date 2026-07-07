@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
+import Scraper from "@/pages/scraper";
 import Leads from "@/pages/leads";
 import LeadDetail from "@/pages/lead-detail";
 import Campaigns from "@/pages/campaigns";
@@ -33,6 +34,7 @@ function Router() {
       <Route path="/forms" component={Forms} />
       <Route path="/forms/:id" component={FormEditor} />
       <Route path="/analytics" component={Analytics} />
+      <Route path="/scraper" component={Scraper} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>
