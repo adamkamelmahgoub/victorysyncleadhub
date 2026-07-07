@@ -330,6 +330,11 @@ function getSequenceStepsMatch(path: string) {
   };
 }
 
+function getSequenceEnrollMatch(path: string) {
+  const match = path.match(/^\/api\/sequences\/([^/]+)\/enroll$/);
+  return match ? decodeURIComponent(match[1] ?? "") : null;
+}
+
 const resourceConfigs: Record<string, ResourceConfig> = {
   campaigns: { table: "campaigns", defaultOrder: "created_at.desc" },
   "email-accounts": { table: "email_accounts", defaultOrder: "created_at.desc" },
@@ -446,6 +451,63 @@ async function deleteResource(config: ResourceConfig, id: string, req: VercelReq
   res.end();
 }
 
+async function launchCampaign(id: string, req: VercelRequest, res: VercelResponse) {
+  const rows = await supabaseRest(`campaigns?id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      status: "active",
+      launched_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }),
+  }, req);
+  sendJson(res, 200, Array.isArray(rows) ? toCamelValue(rows[0] ?? null) : toCamelValue(rows));
+}
+
+async function getCampaignLeads(id: string, req: VercelRequest, res: VercelResponse) {
+  const rows = await supabaseRest(
+    `campaign_leads?campaign_id=eq.${encodeURIComponent(id)}&select=*,leads(*)&order=created_at.desc`,
+    { method: "GET" },
+    req,
+  );
+  sendJson(res, 200, toCamelValue(rows));
+}
+
+async function addCampaignLeads(id: string, req: VercelRequest, res: VercelResponse) {
+  const body = (await readJson(req)) as { leadIds?: Array<string | number>; leads?: Array<string | number> };
+  const leadIds = body.leadIds ?? body.leads ?? [];
+  if (!Array.isArray(leadIds) || leadIds.length === 0) {
+    sendJson(res, 400, { error: "leadIds are required" });
+    return;
+  }
+
+  const payload = leadIds.map((leadId) => ({
+    campaign_id: id,
+    lead_id: leadId,
+    status: "queued",
+  }));
+  const rows = await supabaseRest("campaign_leads?on_conflict=campaign_id,lead_id", {
+    method: "POST",
+    headers: { prefer: "resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify(payload),
+  }, req);
+  sendJson(res, 201, toCamelValue(rows));
+}
+
+async function syncIntegration(id: string, req: VercelRequest, res: VercelResponse) {
+  const rows = await supabaseRest(`integrations?id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      last_synced_at: new Date().toISOString(),
+      status: "connected",
+      updated_at: new Date().toISOString(),
+    }),
+  }, req);
+  sendJson(res, 200, {
+    success: true,
+    integration: Array.isArray(rows) ? toCamelValue(rows[0] ?? null) : toCamelValue(rows),
+  });
+}
+
 async function handleGenericResource(path: string, method: string, req: VercelRequest, res: VercelResponse) {
   const match = genericResourcePath(path);
   if (!match) return false;
@@ -469,6 +531,26 @@ async function handleGenericResource(path: string, method: string, req: VercelRe
 
   if (match.key === "webhooks" && match.id && match.action === "test" && method === "POST") {
     sendJson(res, 200, { success: true, ms: 0, status: 200 });
+    return true;
+  }
+
+  if (match.key === "campaigns" && match.id && match.action === "launch" && method === "POST") {
+    await launchCampaign(match.id, req, res);
+    return true;
+  }
+
+  if (match.key === "campaigns" && match.id && match.action === "leads" && method === "GET") {
+    await getCampaignLeads(match.id, req, res);
+    return true;
+  }
+
+  if (match.key === "campaigns" && match.id && match.action === "leads" && method === "POST") {
+    await addCampaignLeads(match.id, req, res);
+    return true;
+  }
+
+  if (match.key === "integrations" && match.id && match.action === "sync" && method === "POST") {
+    await syncIntegration(match.id, req, res);
     return true;
   }
 
@@ -811,6 +893,49 @@ async function deleteSequenceStep(stepId: string, req: VercelRequest, res: Verce
   res.end();
 }
 
+async function enrollSequence(sequenceId: string, req: VercelRequest, res: VercelResponse) {
+  await ensureSequenceTables();
+  const body = (await readJson(req)) as {
+    leadId?: string | number;
+    leadIds?: Array<string | number>;
+    leads?: Array<string | number>;
+  };
+  const leadIds = body.leadIds ?? body.leads ?? (body.leadId ? [body.leadId] : []);
+  if (!Array.isArray(leadIds) || leadIds.length === 0) {
+    sendJson(res, 400, { error: "leadId or leadIds are required" });
+    return;
+  }
+
+  const payload = leadIds.map((leadId) => ({
+    sequence_id: sequenceId,
+    lead_id: leadId,
+    current_step: 1,
+    status: "active",
+    next_send_at: new Date().toISOString(),
+  }));
+  const rows = await supabaseRest("sequence_enrollments?on_conflict=sequence_id,lead_id", {
+    method: "POST",
+    headers: { prefer: "resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify(payload),
+  }, req);
+
+  const enrollments = await supabaseRest(
+    `sequence_enrollments?sequence_id=eq.${encodeURIComponent(sequenceId)}&select=id`,
+    { method: "GET" },
+    req,
+  ) as unknown[];
+
+  await supabaseRest(`sequences?id=eq.${encodeURIComponent(sequenceId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      total_enrolled: enrollments.length,
+      updated_at: new Date().toISOString(),
+    }),
+  }, req);
+
+  sendJson(res, 201, toCamelValue(rows));
+}
+
 function getLeadChildMatch(path: string) {
   const match = path.match(/^\/api\/leads\/([^/]+)\/(activities|notes|tasks)(?:\/([^/]+))?$/);
   if (!match) return null;
@@ -963,6 +1088,62 @@ async function sendEmail(req: VercelRequest, res: VercelResponse) {
   });
 }
 
+async function handleScraper(path: string, method: string, req: VercelRequest, res: VercelResponse) {
+  if (method !== "POST") return false;
+  if (!["/api/scraper/url", "/api/scraper/domain", "/api/scraper/search"].includes(path)) {
+    return false;
+  }
+
+  const body = (await readJson(req)) as Record<string, unknown>;
+  const query = String(body.url ?? body.domain ?? body.query ?? "").trim();
+  if (!query) {
+    sendJson(res, 400, { error: "url, domain, or query is required" });
+    return true;
+  }
+
+  sendJson(res, 200, {
+    success: true,
+    results: [],
+    message: "Scraper request accepted. Configure a scraping provider key to pull live external results.",
+  });
+  return true;
+}
+
+async function handleOAuth(path: string, method: string, req: VercelRequest, res: VercelResponse) {
+  if (path === "/api/oauth/status" && method === "GET") {
+    sendJson(res, 200, {
+      google: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+      microsoft: Boolean(process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET),
+      hubspot: Boolean(process.env.HUBSPOT_CLIENT_ID && process.env.HUBSPOT_CLIENT_SECRET),
+    });
+    return true;
+  }
+
+  if (path === "/api/oauth/validate" && (method === "GET" || method === "POST")) {
+    sendJson(res, 200, {
+      success: true,
+      configured: {
+        google: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+        microsoft: Boolean(process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET),
+        hubspot: Boolean(process.env.HUBSPOT_CLIENT_ID && process.env.HUBSPOT_CLIENT_SECRET),
+      },
+    });
+    return true;
+  }
+
+  const startMatch = path.match(/^\/api\/oauth\/([^/]+)\/start$/);
+  if (startMatch && method === "GET") {
+    sendJson(res, 400, {
+      success: false,
+      provider: startMatch[1],
+      error: "OAuth provider credentials are not configured for this deployment.",
+    });
+    return true;
+  }
+
+  return false;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const path = pathFromUrl(req.url);
@@ -1023,6 +1204,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    if (await handleScraper(path, method, req, res)) {
+      return;
+    }
+
+    if (await handleOAuth(path, method, req, res)) {
+      return;
+    }
+
     if (method === "GET" && path === "/api/reviews/stats") {
       await getReviewStats(req, res);
       return;
@@ -1056,6 +1245,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (sequenceStepsMatch?.stepId && method === "DELETE") {
       await deleteSequenceStep(sequenceStepsMatch.stepId, req, res);
+      return;
+    }
+
+    const sequenceEnrollId = getSequenceEnrollMatch(path);
+    if (sequenceEnrollId && method === "POST") {
+      await enrollSequence(sequenceEnrollId, req, res);
       return;
     }
 
