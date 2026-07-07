@@ -57,6 +57,43 @@ type LeadRow = {
   updated_at: string;
 };
 
+type SequenceInput = {
+  name?: string;
+  status?: string;
+  emailAccountId?: number | null;
+};
+
+type SequenceRow = {
+  id: number | string;
+  name: string;
+  status?: string | null;
+  email_account_id?: number | null;
+  total_enrolled?: number | null;
+  total_sent?: number | null;
+  total_opened?: number | null;
+  total_replied?: number | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type SequenceStepInput = {
+  stepNumber?: number;
+  subject?: string;
+  body?: string;
+  delayDays?: number;
+};
+
+type SequenceStepRow = {
+  id: number | string;
+  sequence_id: number | string;
+  step_number: number;
+  subject: string;
+  body: string;
+  delay_days?: number | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceRoleKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ??
@@ -203,6 +240,20 @@ async function supabaseRest(path: string, init: FetchInit, req?: VercelRequest) 
 function getLeadId(path: string) {
   const match = path.match(/^\/api\/leads\/([^/]+)$/);
   return match ? decodeURIComponent(match[1]) : null;
+}
+
+function getSequenceId(path: string) {
+  const match = path.match(/^\/api\/sequences\/([^/]+)$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function getSequenceStepsMatch(path: string) {
+  const match = path.match(/^\/api\/sequences\/([^/]+)\/steps(?:\/([^/]+))?$/);
+  if (!match) return null;
+  return {
+    sequenceId: decodeURIComponent(match[1] ?? ""),
+    stepId: match[2] ? decodeURIComponent(match[2]) : null,
+  };
 }
 
 async function listLeads(req: VercelRequest, res: VercelResponse) {
@@ -359,6 +410,162 @@ async function importLeads(req: VercelRequest, res: VercelResponse) {
   });
 }
 
+function sequenceFromRow(row: SequenceRow) {
+  return {
+    id: row.id,
+    name: row.name,
+    status: row.status ?? "draft",
+    emailAccountId: row.email_account_id ?? null,
+    totalEnrolled: row.total_enrolled ?? 0,
+    totalSent: row.total_sent ?? 0,
+    totalOpened: row.total_opened ?? 0,
+    totalReplied: row.total_replied ?? 0,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function sequencePayload(input: SequenceInput) {
+  const payload: Record<string, unknown> = {};
+  if (typeof input.name === "string") payload.name = input.name.trim();
+  if (typeof input.status === "string") payload.status = input.status;
+  if (input.emailAccountId !== undefined) payload.email_account_id = input.emailAccountId;
+  return payload;
+}
+
+async function listSequences(req: VercelRequest, res: VercelResponse) {
+  const rows = (await supabaseRest("sequences?select=*&order=created_at.desc", {
+    method: "GET",
+  }, req)) as SequenceRow[];
+  sendJson(res, 200, rows.map(sequenceFromRow));
+}
+
+async function createSequence(req: VercelRequest, res: VercelResponse) {
+  const body = (await readJson(req)) as SequenceInput;
+  const payload = sequencePayload(body);
+  if (!payload.name) {
+    sendJson(res, 400, { error: "Sequence name is required" });
+    return;
+  }
+
+  const rows = (await supabaseRest("sequences", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }, req)) as SequenceRow[];
+  sendJson(res, 201, rows[0] ? sequenceFromRow(rows[0]) : null);
+}
+
+async function getSequence(id: string, req: VercelRequest, res: VercelResponse) {
+  const [rows, stepRows] = await Promise.all([
+    supabaseRest(`sequences?id=eq.${encodeURIComponent(id)}&select=*&limit=1`, {
+      method: "GET",
+    }, req) as Promise<SequenceRow[]>,
+    supabaseRest(`sequence_steps?sequence_id=eq.${encodeURIComponent(id)}&select=*&order=step_number.asc`, {
+      method: "GET",
+    }, req) as Promise<SequenceStepRow[]>,
+  ]);
+
+  if (!rows[0]) {
+    sendJson(res, 404, { error: "Sequence not found" });
+    return;
+  }
+
+  sendJson(res, 200, {
+    ...sequenceFromRow(rows[0]),
+    steps: stepRows.map(sequenceStepFromRow),
+  });
+}
+
+async function updateSequence(id: string, req: VercelRequest, res: VercelResponse) {
+  const body = (await readJson(req)) as SequenceInput;
+  const payload = sequencePayload(body);
+  const rows = (await supabaseRest(`sequences?id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  }, req)) as SequenceRow[];
+  if (!rows[0]) {
+    sendJson(res, 404, { error: "Sequence not found" });
+    return;
+  }
+  sendJson(res, 200, sequenceFromRow(rows[0]));
+}
+
+async function deleteSequence(id: string, req: VercelRequest, res: VercelResponse) {
+  await supabaseRest(`sequence_steps?sequence_id=eq.${encodeURIComponent(id)}`, { method: "DELETE" }, req);
+  await supabaseRest(`sequence_enrollments?sequence_id=eq.${encodeURIComponent(id)}`, { method: "DELETE" }, req);
+  await supabaseRest(`sequences?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" }, req);
+  res.statusCode = 204;
+  res.end();
+}
+
+function sequenceStepFromRow(row: SequenceStepRow) {
+  return {
+    id: row.id,
+    sequenceId: row.sequence_id,
+    stepNumber: row.step_number,
+    subject: row.subject,
+    body: row.body,
+    delayDays: row.delay_days ?? 0,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function sequenceStepPayload(input: SequenceStepInput, sequenceId: string) {
+  return {
+    sequence_id: sequenceId,
+    step_number: input.stepNumber ?? 1,
+    subject: input.subject?.trim() ?? "",
+    body: input.body?.trim() ?? "",
+    delay_days: input.delayDays ?? 0,
+  };
+}
+
+async function listSequenceSteps(sequenceId: string, req: VercelRequest, res: VercelResponse) {
+  const rows = (await supabaseRest(`sequence_steps?sequence_id=eq.${encodeURIComponent(sequenceId)}&select=*&order=step_number.asc`, {
+    method: "GET",
+  }, req)) as SequenceStepRow[];
+  sendJson(res, 200, rows.map(sequenceStepFromRow));
+}
+
+async function createSequenceStep(sequenceId: string, req: VercelRequest, res: VercelResponse) {
+  const body = (await readJson(req)) as SequenceStepInput;
+  const payload = sequenceStepPayload(body, sequenceId);
+  if (!payload.subject || !payload.body) {
+    sendJson(res, 400, { error: "Step subject and body are required" });
+    return;
+  }
+  const rows = (await supabaseRest("sequence_steps", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }, req)) as SequenceStepRow[];
+  sendJson(res, 201, rows[0] ? sequenceStepFromRow(rows[0]) : null);
+}
+
+async function updateSequenceStep(stepId: string, req: VercelRequest, res: VercelResponse) {
+  const body = (await readJson(req)) as SequenceStepInput;
+  const payload: Record<string, unknown> = {};
+  if (body.stepNumber !== undefined) payload.step_number = body.stepNumber;
+  if (body.subject !== undefined) payload.subject = body.subject.trim();
+  if (body.body !== undefined) payload.body = body.body.trim();
+  if (body.delayDays !== undefined) payload.delay_days = body.delayDays;
+  const rows = (await supabaseRest(`sequence_steps?id=eq.${encodeURIComponent(stepId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  }, req)) as SequenceStepRow[];
+  if (!rows[0]) {
+    sendJson(res, 404, { error: "Sequence step not found" });
+    return;
+  }
+  sendJson(res, 200, sequenceStepFromRow(rows[0]));
+}
+
+async function deleteSequenceStep(stepId: string, req: VercelRequest, res: VercelResponse) {
+  await supabaseRest(`sequence_steps?id=eq.${encodeURIComponent(stepId)}`, { method: "DELETE" }, req);
+  res.statusCode = 204;
+  res.end();
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const path = pathFromUrl(req.url);
@@ -401,6 +608,53 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (method === "POST" && path === "/api/leads/import") {
       await importLeads(req, res);
+      return;
+    }
+
+    if (method === "GET" && path === "/api/sequences") {
+      await listSequences(req, res);
+      return;
+    }
+
+    if (method === "POST" && path === "/api/sequences") {
+      await createSequence(req, res);
+      return;
+    }
+
+    const sequenceStepsMatch = getSequenceStepsMatch(path);
+    if (sequenceStepsMatch && !sequenceStepsMatch.stepId && method === "GET") {
+      await listSequenceSteps(sequenceStepsMatch.sequenceId, req, res);
+      return;
+    }
+
+    if (sequenceStepsMatch && !sequenceStepsMatch.stepId && method === "POST") {
+      await createSequenceStep(sequenceStepsMatch.sequenceId, req, res);
+      return;
+    }
+
+    if (sequenceStepsMatch?.stepId && method === "PUT") {
+      await updateSequenceStep(sequenceStepsMatch.stepId, req, res);
+      return;
+    }
+
+    if (sequenceStepsMatch?.stepId && method === "DELETE") {
+      await deleteSequenceStep(sequenceStepsMatch.stepId, req, res);
+      return;
+    }
+
+    const sequenceId = getSequenceId(path);
+    if (sequenceId && method === "GET") {
+      await getSequence(sequenceId, req, res);
+      return;
+    }
+
+    if (sequenceId && method === "PUT") {
+      await updateSequence(sequenceId, req, res);
+      return;
+    }
+
+    if (sequenceId && method === "DELETE") {
+      await deleteSequence(sequenceId, req, res);
       return;
     }
 
