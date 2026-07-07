@@ -350,6 +350,11 @@ const resourceConfigs: Record<string, ResourceConfig> = {
   prospects: { table: "prospects", defaultOrder: "created_at.desc" },
   affiliates: { table: "affiliates", defaultOrder: "created_at.desc" },
   referrals: { table: "referrals", defaultOrder: "created_at.desc" },
+  "api-keys": { table: "api_keys", defaultOrder: "created_at.desc" },
+  "sub-accounts": { table: "sub_accounts", defaultOrder: "created_at.desc" },
+  team: { table: "team_members", defaultOrder: "created_at.desc" },
+  "meeting/event-types": { table: "meeting_event_types", defaultOrder: "created_at.desc" },
+  "meeting/appointments": { table: "meeting_appointments", defaultOrder: "start_at.asc" },
   "pipeline/stages": { table: "pipeline_stages", defaultOrder: "position.asc" },
 };
 
@@ -508,12 +513,81 @@ async function syncIntegration(id: string, req: VercelRequest, res: VercelRespon
   });
 }
 
+async function createApiKey(req: VercelRequest, res: VercelResponse) {
+  const body = (await readJson(req)) as { name?: string; scopes?: string[] };
+  if (!body.name?.trim()) {
+    sendJson(res, 400, { error: "API key name is required" });
+    return;
+  }
+  const rawKey = `vsy_${crypto.randomUUID().replace(/-/g, "")}${crypto.randomUUID().replace(/-/g, "")}`;
+  const keyPrefix = rawKey.slice(0, 12);
+  const rows = await supabaseRest("api_keys", {
+    method: "POST",
+    body: JSON.stringify({
+      name: body.name.trim(),
+      key_hash: rawKey,
+      key_prefix: keyPrefix,
+      scopes: Array.isArray(body.scopes) ? body.scopes : ["read"],
+    }),
+  }, req);
+  const record = Array.isArray(rows) ? toCamelValue(rows[0] ?? null) : toCamelValue(rows);
+  sendJson(res, 201, { ...(record as Record<string, unknown>), rawKey });
+}
+
+async function getAffiliateStats(req: VercelRequest, res: VercelResponse) {
+  const affiliates = (await supabaseRest("affiliates?select=total_referrals,total_converted,total_earned,total_paid", {
+    method: "GET",
+  }, req)) as Array<Record<string, number | string | null>>;
+  const referrals = (await supabaseRest("referrals?select=status,commission,commission_paid", {
+    method: "GET",
+  }, req)) as Array<Record<string, number | string | boolean | null>>;
+  sendJson(res, 200, {
+    affiliates: affiliates.length,
+    referrals: referrals.length,
+    converted: referrals.filter((r) => r.status === "converted").length,
+    earned: affiliates.reduce((sum, a) => sum + Number(a.total_earned ?? 0), 0),
+    paid: affiliates.reduce((sum, a) => sum + Number(a.total_paid ?? 0), 0),
+  });
+}
+
+async function handleAffiliateReferrals(affiliateId: string, method: string, req: VercelRequest, res: VercelResponse) {
+  if (method === "GET") {
+    const rows = await supabaseRest(`referrals?affiliate_id=eq.${encodeURIComponent(affiliateId)}&select=*&order=created_at.desc`, {
+      method: "GET",
+    }, req);
+    sendJson(res, 200, toCamelValue(rows));
+    return true;
+  }
+  if (method === "POST") {
+    const body = (await readJson(req)) as Record<string, unknown>;
+    const rows = await supabaseRest("referrals", {
+      method: "POST",
+      body: JSON.stringify({
+        ...(toSnakeValue(body) as Record<string, unknown>),
+        affiliate_id: affiliateId,
+      }),
+    }, req);
+    sendJson(res, 201, Array.isArray(rows) ? toCamelValue(rows[0] ?? null) : toCamelValue(rows));
+    return true;
+  }
+  return false;
+}
+
 async function handleGenericResource(path: string, method: string, req: VercelRequest, res: VercelResponse) {
   const match = genericResourcePath(path);
   if (!match) return false;
 
   const config = resourceConfigs[match.key];
   if (!config) return false;
+
+  if (match.key === "api-keys" && !match.id && method === "POST") {
+    await createApiKey(req, res);
+    return true;
+  }
+
+  if (match.key === "affiliates" && match.id && match.action === "referrals") {
+    return handleAffiliateReferrals(match.id, method, req, res);
+  }
 
   if (match.key === "email-accounts" && match.id && match.action === "set-default" && method === "POST") {
     await supabaseRest("email_accounts", {
@@ -551,6 +625,15 @@ async function handleGenericResource(path: string, method: string, req: VercelRe
 
   if (match.key === "integrations" && match.id && match.action === "sync" && method === "POST") {
     await syncIntegration(match.id, req, res);
+    return true;
+  }
+
+  if (match.key === "reviews" && match.id && match.action === "reply" && method === "PATCH") {
+    const body = (await readJson(req)) as { reply?: string };
+    await updateResource(config, match.id, {
+      ...req,
+      body: { reply: body.reply ?? "", repliedAt: new Date().toISOString() },
+    }, res);
     return true;
   }
 
@@ -1041,6 +1124,100 @@ async function getReviewStats(req: VercelRequest, res: VercelResponse) {
   });
 }
 
+async function getPipelineLeads(req: VercelRequest, res: VercelResponse) {
+  const [stages, leads] = await Promise.all([
+    supabaseRest("pipeline_stages?select=*&order=position.asc", { method: "GET" }, req) as Promise<Array<Record<string, unknown>>>,
+    supabaseRest("leads?select=*&order=created_at.desc&limit=1000", { method: "GET" }, req) as Promise<LeadRow[]>,
+  ]);
+  const stageRows = stages.map((stage) => ({
+    ...(toCamelValue(stage) as Record<string, unknown>),
+    leads: leads.filter((lead) => String(lead.pipeline_stage_id ?? "") === String(stage.id)).map(leadFromRow),
+  }));
+  sendJson(res, 200, {
+    stages: stageRows,
+    unassigned: leads.filter((lead) => !lead.pipeline_stage_id).map(leadFromRow),
+  });
+}
+
+async function updateLeadStage(path: string, method: string, req: VercelRequest, res: VercelResponse) {
+  const match = path.match(/^\/api\/pipeline\/leads\/([^/]+)\/stage$/);
+  if (!match || (method !== "PATCH" && method !== "PUT")) return false;
+  const leadId = decodeURIComponent(match[1] ?? "");
+  const body = (await readJson(req)) as { stageId?: string | number | null; pipelineStageId?: string | number | null };
+  const rows = await supabaseRest(`leads?id=eq.${encodeURIComponent(leadId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ pipeline_stage_id: body.stageId ?? body.pipelineStageId ?? null }),
+  }, req) as LeadRow[];
+  sendJson(res, 200, rows[0] ? leadFromRow(rows[0]) : null);
+  return true;
+}
+
+async function getProspectFilters(res: VercelResponse) {
+  sendJson(res, 200, {
+    industries: ["Legal Services", "Healthcare", "Real Estate", "Home Services", "Professional Services"],
+    companySizes: ["1-10", "11-50", "51-200", "201-500", "501-1000", "1001-5000"],
+    seniorities: ["owner", "founder", "partner", "executive", "director", "manager"],
+  });
+}
+
+async function saveProspectsToLeads(req: VercelRequest, res: VercelResponse) {
+  const body = (await readJson(req)) as { prospects?: Array<Record<string, unknown>> };
+  const prospects = Array.isArray(body.prospects) ? body.prospects : [];
+  if (prospects.length === 0) {
+    sendJson(res, 400, { error: "prospects are required" });
+    return;
+  }
+  const payload = prospects.map((prospect) => ({
+    first_name: String(prospect.firstName ?? prospect.first_name ?? ""),
+    last_name: String(prospect.lastName ?? prospect.last_name ?? ""),
+    email: prospect.email ?? null,
+    phone: prospect.phone ?? null,
+    company: prospect.company ?? null,
+    title: prospect.title ?? null,
+    source: "prospect_search",
+    status: "new",
+    score: Number(prospect.score ?? 0),
+    custom_fields: prospect,
+  }));
+  const rows = await supabaseRest("leads", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }, req) as LeadRow[];
+  sendJson(res, 201, { imported: rows.length, leads: rows.map(leadFromRow) });
+}
+
+async function getOnboarding(req: VercelRequest, res: VercelResponse) {
+  const url = new URL(req.url ?? "/api/onboarding", "https://local.invalid");
+  const subAccountId = url.searchParams.get("subAccountId");
+  const defaultProgress = {
+    completedSteps: [],
+    currentStep: "connect_integrations",
+    isCompleted: false,
+  };
+  if (subAccountId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(subAccountId)) {
+    sendJson(res, 200, defaultProgress);
+    return;
+  }
+  const query = subAccountId
+    ? `onboarding_progress?sub_account_id=eq.${encodeURIComponent(subAccountId)}&select=*&limit=1`
+    : "onboarding_progress?select=*&limit=1";
+  const rows = await supabaseRest(query, { method: "GET" }, req) as Array<Record<string, unknown>>;
+  sendJson(res, 200, rows[0] ? toCamelValue(rows[0]) : defaultProgress);
+}
+
+async function updateOnboarding(path: string, req: VercelRequest, res: VercelResponse) {
+  const body = (await readJson(req)) as { stepId?: string; subAccountId?: string | number };
+  if (path.endsWith("/reset")) {
+    sendJson(res, 200, { completedSteps: [], currentStep: "connect_integrations", isCompleted: false });
+    return;
+  }
+  sendJson(res, 200, {
+    completedSteps: body.stepId ? [body.stepId] : [],
+    currentStep: body.stepId ?? "connect_integrations",
+    isCompleted: false,
+  });
+}
+
 async function listEmailLogs(req: VercelRequest, res: VercelResponse) {
   const rows = await supabaseRest("email_logs?select=*&order=sent_at.desc", {
     method: "GET",
@@ -1110,12 +1287,31 @@ async function handleScraper(path: string, method: string, req: VercelRequest, r
 }
 
 async function handleOAuth(path: string, method: string, req: VercelRequest, res: VercelResponse) {
+  const providers = {
+    google: { configured: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) },
+    microsoft: { configured: Boolean(process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET) },
+    hubspot: { configured: Boolean(process.env.HUBSPOT_CLIENT_ID && process.env.HUBSPOT_CLIENT_SECRET) },
+    twilio: { configured: Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) },
+    zapier: { configured: Boolean(process.env.ZAPIER_WEBHOOK_URL) },
+    stripe: { configured: Boolean(process.env.STRIPE_SECRET_KEY) },
+  };
+
   if (path === "/api/oauth/status" && method === "GET") {
-    sendJson(res, 200, {
-      google: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-      microsoft: Boolean(process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET),
-      hubspot: Boolean(process.env.HUBSPOT_CLIENT_ID && process.env.HUBSPOT_CLIENT_SECRET),
-    });
+    sendJson(res, 200, providers);
+    return true;
+  }
+
+  if (path === "/api/oauth/providers" && method === "GET") {
+    sendJson(res, 200, providers);
+    return true;
+  }
+
+  if (path === "/api/oauth/callback-url" && method === "GET") {
+    const host = getHeader(req, "host") ?? "victorysyncplatform.vercel.app";
+    const baseUrl = `https://${host}`;
+    sendJson(res, 200, Object.fromEntries(
+      Object.keys(providers).map((provider) => [provider, `${baseUrl}/api/oauth/${provider}/callback`]),
+    ));
     return true;
   }
 
@@ -1127,6 +1323,19 @@ async function handleOAuth(path: string, method: string, req: VercelRequest, res
         microsoft: Boolean(process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET),
         hubspot: Boolean(process.env.HUBSPOT_CLIENT_ID && process.env.HUBSPOT_CLIENT_SECRET),
       },
+    });
+    return true;
+  }
+
+  const validateMatch = path.match(/^\/api\/(?:oauth|integrations)\/([^/]+)\/validate$/);
+  if (validateMatch && (method === "GET" || method === "POST")) {
+    const provider = validateMatch[1] ?? "";
+    const configured = providers[provider as keyof typeof providers]?.configured ?? false;
+    sendJson(res, 200, {
+      success: configured,
+      configured,
+      provider,
+      message: configured ? "Provider credentials are configured." : "Provider credentials are not configured yet.",
     });
     return true;
   }
@@ -1214,6 +1423,67 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (method === "GET" && path === "/api/reviews/stats") {
       await getReviewStats(req, res);
+      return;
+    }
+
+    if (method === "GET" && path === "/api/affiliates-stats") {
+      await getAffiliateStats(req, res);
+      return;
+    }
+
+    if (method === "GET" && path === "/api/pipeline/leads") {
+      await getPipelineLeads(req, res);
+      return;
+    }
+
+    if (await updateLeadStage(path, method, req, res)) {
+      return;
+    }
+
+    if (method === "GET" && path === "/api/prospects/filters") {
+      await getProspectFilters(res);
+      return;
+    }
+
+    if (method === "POST" && path === "/api/prospects/save-to-leads") {
+      await saveProspectsToLeads(req, res);
+      return;
+    }
+
+    if (method === "GET" && path === "/api/onboarding") {
+      await getOnboarding(req, res);
+      return;
+    }
+
+    if (method === "POST" && (path === "/api/onboarding/complete-step" || path === "/api/onboarding/reset")) {
+      await updateOnboarding(path, req, res);
+      return;
+    }
+
+    if (method === "POST" && path === "/api/team/invite") {
+      const body = (await readJson(req)) as Record<string, unknown>;
+      const rows = await supabaseRest("team_members", {
+        method: "POST",
+        body: JSON.stringify({
+          ...(toSnakeValue(body) as Record<string, unknown>),
+          status: "invited",
+        }),
+      }, req);
+      const member = (Array.isArray(rows)
+        ? toCamelValue(rows[0] ?? {})
+        : toCamelValue(rows)) as Record<string, unknown>;
+      sendJson(res, 201, { ...member, inviteUrl: "/login" });
+      return;
+    }
+
+    if (method === "GET" && path === "/api/sub-accounts-stats") {
+      const rows = await supabaseRest("sub_accounts?select=status,plan,leads_count,campaigns_count", { method: "GET" }, req) as Array<Record<string, unknown>>;
+      sendJson(res, 200, {
+        total: rows.length,
+        active: rows.filter((row) => row.status === "active").length,
+        leads: rows.reduce((sum, row) => sum + Number(row.leads_count ?? 0), 0),
+        campaigns: rows.reduce((sum, row) => sum + Number(row.campaigns_count ?? 0), 0),
+      });
       return;
     }
 
