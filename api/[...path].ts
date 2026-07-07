@@ -104,6 +104,7 @@ const supabaseAnonKey =
   process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
 const supabaseKey = supabaseServiceRoleKey ?? supabaseAnonKey;
 const hasServiceRole = Boolean(supabaseServiceRoleKey);
+let sequenceSchemaReady = false;
 
 function sendJson(res: VercelResponse, statusCode: number, data: unknown) {
   res.statusCode = statusCode;
@@ -235,6 +236,71 @@ async function supabaseRest(path: string, init: FetchInit, req?: VercelRequest) 
   }
 
   return data;
+}
+
+async function ensureSequenceTables() {
+  if (sequenceSchemaReady) return;
+
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required to create missing sequence tables");
+  }
+
+  // @ts-ignore - pg is installed in the workspace for production, but this standalone check runs without linked package types.
+  const pgModule = await import("pg");
+  const Pool = pgModule.default?.Pool ?? pgModule.Pool;
+  const pool = new Pool({
+    connectionString: databaseUrl,
+    ssl: process.env.DATABASE_SSL === "false" ? false : { rejectUnauthorized: false },
+  });
+
+  try {
+    await pool.query(`create extension if not exists "pgcrypto"`);
+    await pool.query(`
+      create table if not exists public.sequences (
+        id uuid primary key default gen_random_uuid(),
+        name text not null,
+        status text not null default 'draft',
+        email_account_id uuid null,
+        total_enrolled integer not null default 0,
+        total_sent integer not null default 0,
+        total_opened integer not null default 0,
+        total_replied integer not null default 0,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      )
+    `);
+    await pool.query(`
+      create table if not exists public.sequence_steps (
+        id uuid primary key default gen_random_uuid(),
+        sequence_id uuid not null references public.sequences(id) on delete cascade,
+        step_number integer not null,
+        subject text not null,
+        body text not null,
+        delay_days integer not null default 0,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      )
+    `);
+    await pool.query(`
+      create table if not exists public.sequence_enrollments (
+        id uuid primary key default gen_random_uuid(),
+        sequence_id uuid not null references public.sequences(id) on delete cascade,
+        lead_id uuid not null,
+        current_step integer not null default 1,
+        status text not null default 'active',
+        next_send_at timestamptz null,
+        completed_at timestamptz null,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now(),
+        unique(sequence_id, lead_id)
+      )
+    `);
+    await pool.query(`notify pgrst, 'reload schema'`);
+    sequenceSchemaReady = true;
+  } finally {
+    await pool.end();
+  }
 }
 
 function getLeadId(path: string) {
@@ -434,6 +500,7 @@ function sequencePayload(input: SequenceInput) {
 }
 
 async function listSequences(req: VercelRequest, res: VercelResponse) {
+  await ensureSequenceTables();
   const rows = (await supabaseRest("sequences?select=*&order=created_at.desc", {
     method: "GET",
   }, req)) as SequenceRow[];
@@ -441,6 +508,7 @@ async function listSequences(req: VercelRequest, res: VercelResponse) {
 }
 
 async function createSequence(req: VercelRequest, res: VercelResponse) {
+  await ensureSequenceTables();
   const body = (await readJson(req)) as SequenceInput;
   const payload = sequencePayload(body);
   if (!payload.name) {
@@ -456,6 +524,7 @@ async function createSequence(req: VercelRequest, res: VercelResponse) {
 }
 
 async function getSequence(id: string, req: VercelRequest, res: VercelResponse) {
+  await ensureSequenceTables();
   const [rows, stepRows] = await Promise.all([
     supabaseRest(`sequences?id=eq.${encodeURIComponent(id)}&select=*&limit=1`, {
       method: "GET",
@@ -477,6 +546,7 @@ async function getSequence(id: string, req: VercelRequest, res: VercelResponse) 
 }
 
 async function updateSequence(id: string, req: VercelRequest, res: VercelResponse) {
+  await ensureSequenceTables();
   const body = (await readJson(req)) as SequenceInput;
   const payload = sequencePayload(body);
   const rows = (await supabaseRest(`sequences?id=eq.${encodeURIComponent(id)}`, {
@@ -491,6 +561,7 @@ async function updateSequence(id: string, req: VercelRequest, res: VercelRespons
 }
 
 async function deleteSequence(id: string, req: VercelRequest, res: VercelResponse) {
+  await ensureSequenceTables();
   await supabaseRest(`sequence_steps?sequence_id=eq.${encodeURIComponent(id)}`, { method: "DELETE" }, req);
   await supabaseRest(`sequence_enrollments?sequence_id=eq.${encodeURIComponent(id)}`, { method: "DELETE" }, req);
   await supabaseRest(`sequences?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" }, req);
@@ -522,6 +593,7 @@ function sequenceStepPayload(input: SequenceStepInput, sequenceId: string) {
 }
 
 async function listSequenceSteps(sequenceId: string, req: VercelRequest, res: VercelResponse) {
+  await ensureSequenceTables();
   const rows = (await supabaseRest(`sequence_steps?sequence_id=eq.${encodeURIComponent(sequenceId)}&select=*&order=step_number.asc`, {
     method: "GET",
   }, req)) as SequenceStepRow[];
@@ -529,6 +601,7 @@ async function listSequenceSteps(sequenceId: string, req: VercelRequest, res: Ve
 }
 
 async function createSequenceStep(sequenceId: string, req: VercelRequest, res: VercelResponse) {
+  await ensureSequenceTables();
   const body = (await readJson(req)) as SequenceStepInput;
   const payload = sequenceStepPayload(body, sequenceId);
   if (!payload.subject || !payload.body) {
@@ -543,6 +616,7 @@ async function createSequenceStep(sequenceId: string, req: VercelRequest, res: V
 }
 
 async function updateSequenceStep(stepId: string, req: VercelRequest, res: VercelResponse) {
+  await ensureSequenceTables();
   const body = (await readJson(req)) as SequenceStepInput;
   const payload: Record<string, unknown> = {};
   if (body.stepNumber !== undefined) payload.step_number = body.stepNumber;
@@ -561,6 +635,7 @@ async function updateSequenceStep(stepId: string, req: VercelRequest, res: Verce
 }
 
 async function deleteSequenceStep(stepId: string, req: VercelRequest, res: VercelResponse) {
+  await ensureSequenceTables();
   await supabaseRest(`sequence_steps?id=eq.${encodeURIComponent(stepId)}`, { method: "DELETE" }, req);
   res.statusCode = 204;
   res.end();
