@@ -104,6 +104,7 @@ const supabaseAnonKey =
   process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
 const supabaseKey = supabaseServiceRoleKey ?? supabaseAnonKey;
 const hasServiceRole = Boolean(supabaseServiceRoleKey);
+const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
 let sequenceSchemaReady = false;
 
 function sendJson(res: VercelResponse, statusCode: number, data: unknown) {
@@ -243,7 +244,9 @@ async function ensureSequenceTables() {
 
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
-    throw new Error("DATABASE_URL is required to create missing sequence tables");
+    throw new Error(
+      "Production database is missing the sequence tables and DATABASE_URL is not configured, so the API cannot create them automatically.",
+    );
   }
 
   // @ts-ignore - pg is installed in the workspace for production, but this standalone check runs without linked package types.
@@ -651,6 +654,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         status: "ok",
         supabaseConfigured: Boolean(supabaseUrl && supabaseKey),
         supabaseServiceRoleConfigured: hasServiceRole,
+        databaseUrlConfigured: hasDatabaseUrl,
       });
       return;
     }
@@ -741,6 +745,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         error:
           "Supabase RLS blocked this write. Configure SUPABASE_SERVICE_ROLE_KEY for server writes or add an insert policy for authenticated users.",
         supabaseServiceRoleConfigured: hasServiceRole,
+      });
+      return;
+    }
+    if (
+      message.includes("missing the sequence tables") ||
+      message.includes("Could not find the table 'public.sequences'")
+    ) {
+      sendJson(res, 503, {
+        error:
+          "Sequence tables are missing in Supabase. Configure DATABASE_URL in production and redeploy, or run the database schema push against the Supabase Postgres URL.",
+        databaseUrlConfigured: hasDatabaseUrl,
       });
       return;
     }
