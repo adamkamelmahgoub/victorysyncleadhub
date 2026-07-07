@@ -60,6 +60,7 @@ type LeadRow = {
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_ANON_KEY;
+const hasServiceRole = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 function sendJson(res: VercelResponse, statusCode: number, data: unknown) {
   res.statusCode = statusCode;
@@ -144,16 +145,30 @@ function leadFromRow(row: LeadRow) {
   };
 }
 
-async function supabaseRest(path: string, init: FetchInit) {
+function getHeader(req: VercelRequest, name: string) {
+  const value = req.headers[name] ?? req.headers[name.toLowerCase()];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+async function supabaseRest(path: string, init: FetchInit, req?: VercelRequest) {
   if (!supabaseUrl || !supabaseKey) {
     throw new Error("Supabase server environment is not configured");
+  }
+
+  const inboundAuth = req ? getHeader(req, "authorization") : undefined;
+  const authorization = hasServiceRole
+    ? `Bearer ${supabaseKey}`
+    : inboundAuth;
+
+  if (!authorization) {
+    throw new Error("Missing Supabase user token");
   }
 
   const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
     ...init,
     headers: {
       apikey: supabaseKey,
-      authorization: `Bearer ${supabaseKey}`,
+      authorization,
       "content-type": "application/json",
       prefer: "return=representation",
       ...(init.headers ?? {}),
@@ -208,7 +223,7 @@ async function listLeads(req: VercelRequest, res: VercelResponse) {
   const rows = (await supabaseRest(`leads?${query.toString()}`, {
     method: "GET",
     headers: { prefer: "count=exact" },
-  })) as LeadRow[];
+  }, req)) as LeadRow[];
 
   sendJson(res, 200, {
     leads: rows.map(leadFromRow),
@@ -218,10 +233,10 @@ async function listLeads(req: VercelRequest, res: VercelResponse) {
   });
 }
 
-async function getLead(id: number, res: VercelResponse) {
+async function getLead(id: number, req: VercelRequest, res: VercelResponse) {
   const rows = (await supabaseRest(`leads?id=eq.${id}&select=*&limit=1`, {
     method: "GET",
-  })) as LeadRow[];
+  }, req)) as LeadRow[];
   if (!rows[0]) {
     sendJson(res, 404, { error: "Lead not found" });
     return;
@@ -229,7 +244,7 @@ async function getLead(id: number, res: VercelResponse) {
   sendJson(res, 200, leadFromRow(rows[0]));
 }
 
-async function insertActivities(leads: Array<{ id?: number }>) {
+async function insertActivities(leads: Array<{ id?: number }>, req: VercelRequest) {
   const activities = leads
     .filter((lead) => typeof lead.id === "number")
     .map((lead) => ({
@@ -243,7 +258,7 @@ async function insertActivities(leads: Array<{ id?: number }>) {
       await supabaseRest("activities", {
         method: "POST",
         body: JSON.stringify(activities),
-      });
+      }, req);
     } catch (error) {
       console.warn("Activity logging skipped", error);
     }
@@ -262,9 +277,9 @@ async function createLead(req: VercelRequest, res: VercelResponse) {
   const inserted = (await supabaseRest("leads", {
     method: "POST",
     body: JSON.stringify(leadInsertPayload(lead)),
-  })) as LeadRow[];
+  }, req)) as LeadRow[];
 
-  await insertActivities(inserted);
+  await insertActivities(inserted, req);
   sendJson(res, 201, inserted[0] ? leadFromRow(inserted[0]) : null);
 }
 
@@ -281,7 +296,7 @@ async function updateLead(id: number, req: VercelRequest, res: VercelResponse) {
   const rows = (await supabaseRest(`leads?id=eq.${id}`, {
     method: "PATCH",
     body: JSON.stringify(leadInsertPayload(update)),
-  })) as LeadRow[];
+  }, req)) as LeadRow[];
 
   if (!rows[0]) {
     sendJson(res, 404, { error: "Lead not found" });
@@ -291,9 +306,13 @@ async function updateLead(id: number, req: VercelRequest, res: VercelResponse) {
   sendJson(res, 200, leadFromRow(rows[0]));
 }
 
-async function deleteLead(id: number, res: VercelResponse) {
-  await supabaseRest(`activities?lead_id=eq.${id}`, { method: "DELETE" });
-  await supabaseRest(`leads?id=eq.${id}`, { method: "DELETE" });
+async function deleteLead(id: number, req: VercelRequest, res: VercelResponse) {
+  try {
+    await supabaseRest(`activities?lead_id=eq.${id}`, { method: "DELETE" }, req);
+  } catch (error) {
+    console.warn("Activity cleanup skipped", error);
+  }
+  await supabaseRest(`leads?id=eq.${id}`, { method: "DELETE" }, req);
   res.statusCode = 204;
   res.end();
 }
@@ -322,9 +341,9 @@ async function importLeads(req: VercelRequest, res: VercelResponse) {
   const inserted = (await supabaseRest("leads", {
     method: "POST",
     body: JSON.stringify(valid.map(leadInsertPayload)),
-  })) as Array<{ id?: number }>;
+  }, req)) as Array<{ id?: number }>;
 
-  await insertActivities(inserted);
+  await insertActivities(inserted, req);
   sendJson(res, 200, {
     imported: inserted.length,
     failed: incoming.length - inserted.length,
@@ -358,7 +377,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const leadId = getLeadId(path);
     if (leadId && method === "GET") {
-      await getLead(leadId, res);
+      await getLead(leadId, req, res);
       return;
     }
 
@@ -368,7 +387,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (leadId && method === "DELETE") {
-      await deleteLead(leadId, res);
+      await deleteLead(leadId, req, res);
       return;
     }
 
