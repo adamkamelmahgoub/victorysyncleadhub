@@ -19,6 +19,13 @@ import reviewsRouter from "./reviews";
 import webhooksRouter from "./webhooks";
 import emailTemplatesRouter from "./email-templates";
 import contactTasksRouter from "./contact-tasks";
+import subAccountsRouter from "./sub-accounts";
+import apiKeysRouter from "./api-keys";
+import meetingSchedulerRouter from "./meeting-scheduler";
+import affiliatesRouter from "./affiliates";
+import prospectsRouter from "./prospects";
+import provisionRouter from "./provision";
+import onboardingRouter from "./onboarding";
 
 const router: IRouter = Router();
 
@@ -42,5 +49,12 @@ router.use(reviewsRouter);
 router.use(webhooksRouter);
 router.use(emailTemplatesRouter);
 router.use(contactTasksRouter);
+router.use(subAccountsRouter);
+router.use(apiKeysRouter);
+router.use(meetingSchedulerRouter);
+router.use(affiliatesRouter);
+router.use(prospectsRouter);
+router.use(provisionRouter);
+router.use(onboardingRouter);
 
 export default router;

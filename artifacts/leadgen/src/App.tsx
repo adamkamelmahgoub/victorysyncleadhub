@@ -28,6 +28,14 @@ import SocialPlanner from "@/pages/social-planner";
 import Segments from "@/pages/segments";
 import Webhooks from "@/pages/webhooks";
 import EmailTemplatesPage from "@/pages/email-templates";
+import SubAccounts from "@/pages/sub-accounts";
+import ProspectSearch from "@/pages/prospect-search";
+import MeetingScheduler from "@/pages/meeting-scheduler";
+import SequenceAnalytics from "@/pages/sequence-analytics";
+import RevenueAttribution from "@/pages/revenue-attribution";
+import Onboarding from "@/pages/onboarding";
+import Affiliates from "@/pages/affiliates";
+import BillingIntegration from "@/pages/billing-integration";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -63,6 +71,14 @@ function Router() {
       <Route path="/segments" component={Segments} />
       <Route path="/webhooks" component={Webhooks} />
       <Route path="/email-templates" component={EmailTemplatesPage} />
+      <Route path="/sub-accounts" component={SubAccounts} />
+      <Route path="/prospect-search" component={ProspectSearch} />
+      <Route path="/meeting-scheduler" component={MeetingScheduler} />
+      <Route path="/sequence-analytics" component={SequenceAnalytics} />
+      <Route path="/revenue-attribution" component={RevenueAttribution} />
+      <Route path="/getting-started" component={Onboarding} />
+      <Route path="/affiliates" component={Affiliates} />
+      <Route path="/billing-integration" component={BillingIntegration} />
       <Route component={NotFound} />
     </Switch>
   );
