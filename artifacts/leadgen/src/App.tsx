@@ -26,6 +26,8 @@ import Integrations from "@/pages/integrations";
 import LeadImport from "@/pages/lead-import";
 import SocialPlanner from "@/pages/social-planner";
 import Segments from "@/pages/segments";
+import Webhooks from "@/pages/webhooks";
+import EmailTemplatesPage from "@/pages/email-templates";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -59,6 +61,8 @@ function Router() {
       <Route path="/lead-import" component={LeadImport} />
       <Route path="/social-planner" component={SocialPlanner} />
       <Route path="/segments" component={Segments} />
+      <Route path="/webhooks" component={Webhooks} />
+      <Route path="/email-templates" component={EmailTemplatesPage} />
       <Route component={NotFound} />
     </Switch>
   );

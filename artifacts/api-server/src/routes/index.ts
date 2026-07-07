@@ -15,6 +15,9 @@ import integrationsRouter from "./integrations";
 import automationsRouter from "./automations";
 import oauthRouter from "./oauth";
 import segmentsRouter from "./segments";
+import reviewsRouter from "./reviews";
+import webhooksRouter from "./webhooks";
+import emailTemplatesRouter from "./email-templates";
 
 const router: IRouter = Router();
 
@@ -34,5 +37,8 @@ router.use(integrationsRouter);
 router.use(automationsRouter);
 router.use(oauthRouter);
 router.use(segmentsRouter);
+router.use(reviewsRouter);
+router.use(webhooksRouter);
+router.use(emailTemplatesRouter);
 
 export default router;

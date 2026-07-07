@@ -11,3 +11,6 @@ export * from "./team-members";
 export * from "./integrations";
 export * from "./automations";
 export * from "./segments";
+export * from "./reviews";
+export * from "./webhooks";
+export * from "./email-templates";

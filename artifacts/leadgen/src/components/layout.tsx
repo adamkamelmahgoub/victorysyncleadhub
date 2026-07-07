@@ -4,7 +4,7 @@ import {
   LayoutDashboard, MessageSquare, Users, GitBranch, Calendar,
   Megaphone, Zap, Layers, Globe, BarChart3, Star, Settings,
   Search, Mail, Share2, UserPlus, Plug, Upload, Filter,
-  ChevronDown, Bell,
+  ChevronDown, Bell, Webhook, FileText,
 } from "lucide-react";
 
 const NAV: Array<{ href: string; label: string; icon: React.ElementType; badge?: string } | null> = [
@@ -16,6 +16,7 @@ const NAV: Array<{ href: string; label: string; icon: React.ElementType; badge?:
   { href: "/calendars", label: "Calendars", icon: Calendar },
   null,
   { href: "/campaigns", label: "Email Marketing", icon: Megaphone },
+  { href: "/email-templates", label: "Email Templates", icon: FileText },
   { href: "/social-planner", label: "Social Planner", icon: Share2 },
   { href: "/automation", label: "Automation", icon: Zap },
   { href: "/sequences", label: "Sequences", icon: Layers },
@@ -26,6 +27,7 @@ const NAV: Array<{ href: string; label: string; icon: React.ElementType; badge?:
   null,
   { href: "/team", label: "Team", icon: UserPlus },
   { href: "/integrations", label: "Integrations", icon: Plug },
+  { href: "/webhooks", label: "Webhooks", icon: Webhook },
   { href: "/email-accounts", label: "Mailboxes", icon: Mail },
   { href: "/lead-import", label: "Import Leads", icon: Upload },
   { href: "/scraper", label: "Lead Finder", icon: Search },
