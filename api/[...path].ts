@@ -113,6 +113,8 @@ const hasServiceRole = Boolean(supabaseServiceRoleKey);
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
 let sequenceSchemaReady = false;
 
+const badLeadSources = new Set(["mcgrawno", "mcgraw no", "mcgraw", "unknown", "n/a", "na", "-"]);
+
 function sendJson(res: VercelResponse, statusCode: number, data: unknown) {
   res.statusCode = statusCode;
   res.setHeader("content-type", "application/json; charset=utf-8");
@@ -141,6 +143,7 @@ async function readJson(req: VercelRequest) {
 }
 
 function normalizeLead(lead: LeadInput) {
+  const source = lead.source?.trim();
   return {
     first_name: lead.firstName?.trim(),
     last_name: lead.lastName?.trim(),
@@ -148,7 +151,7 @@ function normalizeLead(lead: LeadInput) {
     phone: lead.phone?.trim() || null,
     company: lead.company?.trim() || null,
     title: lead.title?.trim() || null,
-    source: lead.source?.trim() || "import",
+    source: source && !badLeadSources.has(source.toLowerCase()) ? source : null,
     status: lead.status?.trim() || "new",
     score: Number.isFinite(lead.score) ? lead.score : 0,
     campaign_id: lead.campaignId ?? null,
@@ -171,11 +174,44 @@ function leadInsertPayload(lead: ReturnType<typeof normalizeLead>) {
     first_name: lead.first_name,
     last_name: lead.last_name,
     email: lead.email,
-    phone: lead.phone ?? "",
+    phone: lead.phone,
+    company: lead.company,
+    title: lead.title,
+    source: lead.source,
+    status: lead.status,
+    score: lead.score,
+    campaign_id: lead.campaign_id,
+    form_id: lead.form_id,
+    pipeline_stage_id: lead.pipeline_stage_id,
+    tags: lead.tags,
+    custom_fields: lead.custom_fields,
   };
 }
 
+function leadUpdatePayload(lead: LeadInput) {
+  const payload: Record<string, unknown> = {};
+  if (lead.firstName !== undefined) payload.first_name = lead.firstName.trim();
+  if (lead.lastName !== undefined) payload.last_name = lead.lastName.trim();
+  if (lead.email !== undefined) payload.email = lead.email.trim();
+  if (lead.phone !== undefined) payload.phone = lead.phone?.trim() || null;
+  if (lead.company !== undefined) payload.company = lead.company?.trim() || null;
+  if (lead.title !== undefined) payload.title = lead.title?.trim() || null;
+  if (lead.source !== undefined) {
+    const source = lead.source?.trim();
+    payload.source = source && !badLeadSources.has(source.toLowerCase()) ? source : null;
+  }
+  if (lead.status !== undefined) payload.status = lead.status.trim();
+  if (lead.score !== undefined) payload.score = lead.score;
+  if (lead.campaignId !== undefined) payload.campaign_id = lead.campaignId;
+  if (lead.formId !== undefined) payload.form_id = lead.formId;
+  if (lead.pipelineStageId !== undefined) payload.pipeline_stage_id = lead.pipelineStageId;
+  if (lead.tags !== undefined) payload.tags = Array.isArray(lead.tags) ? lead.tags : [];
+  if (lead.customFields !== undefined) payload.custom_fields = lead.customFields ?? {};
+  return payload;
+}
+
 function leadFromRow(row: LeadRow) {
+  const source = row.source?.trim();
   return {
     id: row.id,
     firstName: row.first_name,
@@ -184,7 +220,7 @@ function leadFromRow(row: LeadRow) {
     phone: row.phone,
     company: row.company,
     title: row.title,
-    source: row.source,
+    source: source && !badLeadSources.has(source.toLowerCase()) ? source : null,
     status: row.status,
     score: row.score,
     campaignId: row.campaign_id,
@@ -355,6 +391,7 @@ const resourceConfigs: Record<string, ResourceConfig> = {
   team: { table: "team_members", defaultOrder: "created_at.desc" },
   "meeting/event-types": { table: "meeting_event_types", defaultOrder: "created_at.desc" },
   "meeting/appointments": { table: "meeting_appointments", defaultOrder: "start_at.asc" },
+  pipelines: { table: "pipelines", defaultOrder: "is_default.desc,created_at.asc" },
   "pipeline/stages": { table: "pipeline_stages", defaultOrder: "position.asc" },
 };
 
@@ -436,6 +473,18 @@ async function createResource(config: ResourceConfig, req: VercelRequest, res: V
     body: JSON.stringify(payload),
   }, req);
   sendJson(res, 201, Array.isArray(rows) ? toCamelValue(rows[0] ?? null) : toCamelValue(rows));
+}
+
+async function getResource(config: ResourceConfig, id: string, req: VercelRequest, res: VercelResponse) {
+  const rows = await supabaseRest(`${config.table}?id=eq.${encodeURIComponent(id)}&select=*&limit=1`, {
+    method: "GET",
+  }, req);
+  const record = Array.isArray(rows) ? rows[0] : null;
+  if (!record) {
+    sendJson(res, 404, { error: "Record not found" });
+    return;
+  }
+  sendJson(res, 200, toCamelValue(record));
 }
 
 async function updateResource(config: ResourceConfig, id: string, req: VercelRequest, res: VercelResponse) {
@@ -645,6 +694,10 @@ async function handleGenericResource(path: string, method: string, req: VercelRe
     await createResource(config, req, res);
     return true;
   }
+  if (match.id && !match.action && method === "GET") {
+    await getResource(config, match.id, req, res);
+    return true;
+  }
   if (match.id && (method === "PATCH" || method === "PUT")) {
     await updateResource(config, match.id, req, res);
     return true;
@@ -671,22 +724,23 @@ async function listLeads(req: VercelRequest, res: VercelResponse) {
     limit: String(limit),
     offset: String(offset),
   });
+  const countQuery = new URLSearchParams({ select: "id" });
   if (status) query.set("status", `eq.${status}`);
+  if (status) countQuery.set("status", `eq.${status}`);
   if (search) {
-    query.set(
-      "or",
-      `(first_name.ilike.*${search}*,last_name.ilike.*${search}*,email.ilike.*${search}*)`,
-    );
+    const searchFilter = `(first_name.ilike.*${search}*,last_name.ilike.*${search}*,email.ilike.*${search}*,company.ilike.*${search}*)`;
+    query.set("or", searchFilter);
+    countQuery.set("or", searchFilter);
   }
 
-  const rows = (await supabaseRest(`leads?${query.toString()}`, {
-    method: "GET",
-    headers: { prefer: "count=exact" },
-  }, req)) as LeadRow[];
+  const [rows, countRows] = await Promise.all([
+    supabaseRest(`leads?${query.toString()}`, { method: "GET" }, req) as Promise<LeadRow[]>,
+    supabaseRest(`leads?${countQuery.toString()}`, { method: "GET" }, req) as Promise<Array<{ id: string | number }>>,
+  ]);
 
   sendJson(res, 200, {
     leads: rows.map(leadFromRow),
-    total: rows.length,
+    total: countRows.length,
     page,
     limit,
   });
@@ -744,17 +798,11 @@ async function createLead(req: VercelRequest, res: VercelResponse) {
 
 async function updateLead(id: string, req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as LeadInput;
-  const update = normalizeLead(body);
-
-  for (const key of Object.keys(update) as Array<keyof typeof update>) {
-    if (update[key] === null || update[key] === undefined) {
-      delete update[key];
-    }
-  }
+  const update = leadUpdatePayload(body);
 
   const rows = (await supabaseRest(`leads?id=eq.${encodeURIComponent(id)}`, {
     method: "PATCH",
-    body: JSON.stringify(leadInsertPayload(update)),
+    body: JSON.stringify(update),
   }, req)) as LeadRow[];
 
   if (!rows[0]) {
@@ -1125,8 +1173,13 @@ async function getReviewStats(req: VercelRequest, res: VercelResponse) {
 }
 
 async function getPipelineLeads(req: VercelRequest, res: VercelResponse) {
+  const url = new URL(req.url ?? "/api/pipeline/leads", "https://local.invalid");
+  const pipelineId = url.searchParams.get("pipelineId");
+  const stagePath = pipelineId
+    ? `pipeline_stages?pipeline_id=eq.${encodeURIComponent(pipelineId)}&select=*&order=position.asc`
+    : "pipeline_stages?select=*&order=position.asc";
   const [stages, leads] = await Promise.all([
-    supabaseRest("pipeline_stages?select=*&order=position.asc", { method: "GET" }, req) as Promise<Array<Record<string, unknown>>>,
+    supabaseRest(stagePath, { method: "GET" }, req) as Promise<Array<Record<string, unknown>>>,
     supabaseRest("leads?select=*&order=created_at.desc&limit=1000", { method: "GET" }, req) as Promise<LeadRow[]>,
   ]);
   const stageRows = stages.map((stage) => ({
@@ -1160,6 +1213,37 @@ async function getProspectFilters(res: VercelResponse) {
   });
 }
 
+async function listProspects(req: VercelRequest, res: VercelResponse) {
+  const url = new URL(req.url ?? "/api/prospects", "https://local.invalid");
+  const search = url.searchParams.get("search")?.trim().toLowerCase();
+  const title = url.searchParams.get("title")?.trim().toLowerCase();
+  const industry = url.searchParams.get("industry")?.trim();
+  const companySize = url.searchParams.get("companySize")?.trim();
+  const seniority = url.searchParams.get("seniority")?.trim();
+  const minIntent = Number(url.searchParams.get("minIntent") ?? 0);
+
+  const rows = await supabaseRest("prospects?select=*&order=intent_score.desc&limit=500", {
+    method: "GET",
+  }, req) as Array<Record<string, unknown>>;
+  const prospects = rows.map((row) => toCamelValue(row) as Record<string, unknown>).filter((prospect) => {
+    const haystack = [
+      prospect.firstName,
+      prospect.lastName,
+      prospect.email,
+      prospect.company,
+      prospect.title,
+    ].join(" ").toLowerCase();
+    if (search && !haystack.includes(search)) return false;
+    if (title && !String(prospect.title ?? "").toLowerCase().includes(title)) return false;
+    if (industry && prospect.industry !== industry) return false;
+    if (companySize && prospect.companySize !== companySize) return false;
+    if (seniority && prospect.seniority !== seniority) return false;
+    if (Number(prospect.intentScore ?? 0) < minIntent) return false;
+    return true;
+  });
+  sendJson(res, 200, { prospects, total: prospects.length });
+}
+
 async function saveProspectsToLeads(req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as { prospects?: Array<Record<string, unknown>> };
   const prospects = Array.isArray(body.prospects) ? body.prospects : [];
@@ -1183,7 +1267,7 @@ async function saveProspectsToLeads(req: VercelRequest, res: VercelResponse) {
     method: "POST",
     body: JSON.stringify(payload),
   }, req) as LeadRow[];
-  sendJson(res, 201, { imported: rows.length, leads: rows.map(leadFromRow) });
+  sendJson(res, 201, { saved: rows.length, imported: rows.length, leads: rows.map(leadFromRow) });
 }
 
 async function getOnboarding(req: VercelRequest, res: VercelResponse) {
@@ -1442,6 +1526,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (method === "GET" && path === "/api/prospects/filters") {
       await getProspectFilters(res);
+      return;
+    }
+
+    if (method === "GET" && path === "/api/prospects") {
+      await listProspects(req, res);
       return;
     }
 

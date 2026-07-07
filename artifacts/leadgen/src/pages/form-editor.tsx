@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useRoute, Link } from "wouter";
-import { useGetForm, getGetFormQueryKey, useUpdateForm } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Plus, Trash2, GripVertical, Copy, Check, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { asArray } from "@/lib/data-shape";
+import { apiFetch } from "@/lib/api";
 
 interface FormField {
   id: string;
@@ -22,6 +23,15 @@ interface FormField {
   placeholder: string | null;
   options: string[];
   mappedLeadField: string | null;
+}
+
+interface FormRecord {
+  id: string;
+  name: string;
+  fields?: FormField[];
+  successMessage?: string | null;
+  submissionCount?: number;
+  embedCode?: string | null;
 }
 
 const FIELD_TYPES = ["text", "email", "tel", "number", "textarea", "select", "checkbox"];
@@ -40,12 +50,19 @@ function generateId() {
 
 export default function FormEditor() {
   const [, params] = useRoute("/forms/:id");
-  const id = parseInt(params?.id ?? "0", 10);
+  const id = params?.id ?? "";
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: form, isLoading } = useGetForm(id, { query: { enabled: !!id, queryKey: getGetFormQueryKey(id) } });
-  const updateForm = useUpdateForm();
+  const formQueryKey = ["form", id];
+  const { data: form, isLoading } = useQuery({
+    queryKey: formQueryKey,
+    queryFn: () => apiFetch(`/api/forms/${id}`) as Promise<FormRecord>,
+    enabled: !!id,
+  });
+  const updateForm = useMutation({
+    mutationFn: (data: object) => apiFetch(`/api/forms/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  });
 
   const [fields, setFields] = useState<FormField[]>([]);
   const [formName, setFormName] = useState("");
@@ -88,10 +105,10 @@ export default function FormEditor() {
 
   function save() {
     updateForm.mutate(
-      { id, data: { name: formName, fields, successMessage: successMsg } },
+      { name: formName, fields, successMessage: successMsg },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getGetFormQueryKey(id) });
+          queryClient.invalidateQueries({ queryKey: formQueryKey });
           setDirty(false);
           toast({ title: "Form saved" });
         },

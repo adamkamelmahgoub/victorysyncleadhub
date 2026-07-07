@@ -29,7 +29,7 @@ import { apiFetch } from "@/lib/api";
 import { asArray } from "@/lib/data-shape";
 
 type Step = {
-  id: number;
+  id: string;
   stepNumber: number;
   subject: string;
   body: string;
@@ -37,16 +37,16 @@ type Step = {
 };
 
 type Sequence = {
-  id: number;
+  id: string;
   name: string;
   status: string;
-  emailAccountId?: number | null;
+  emailAccountId?: string | null;
   totalEnrolled: number;
   steps: Step[];
 };
 
 type Lead = {
-  id: number;
+  id: string;
   firstName: string;
   lastName: string;
   email: string;
@@ -54,7 +54,7 @@ type Lead = {
 };
 
 type EmailAccount = {
-  id: number;
+  id: string;
   fromName: string;
   fromEmail: string;
   isDefault: boolean;
@@ -70,8 +70,8 @@ function StepCard({
 }: {
   step: Step;
   index: number;
-  onUpdate: (id: number, data: Partial<Step>) => void;
-  onDelete: (id: number) => void;
+  onUpdate: (id: string, data: Partial<Step>) => void;
+  onDelete: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
 
@@ -171,20 +171,28 @@ function StepCard({
 
 export default function SequenceEditorPage() {
   const params = useParams<{ id: string }>();
-  const id = Number(params.id);
+  const id = params.id ?? "";
   const { toast } = useToast();
 
   const [seq, setSeq] = useState<Sequence | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
   const [enrollOpen, setEnrollOpen] = useState(false);
-  const [selectedLeads, setSelectedLeads] = useState<Set<number>>(new Set());
+  const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
   const [enrolling, setEnrolling] = useState(false);
-  const [savingStep, setSavingStep] = useState<number | null>(null);
+  const [savingStep, setSavingStep] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadSeq = useCallback(async () => {
-    const result = await apiFetch(`/api/sequences/${id}`) as Sequence;
-    setSeq({ ...result, steps: asArray<Step>(result.steps) });
+    if (!id) return;
+    try {
+      setLoadError(null);
+      const result = await apiFetch(`/api/sequences/${id}`) as Sequence;
+      setSeq({ ...result, steps: asArray<Step>(result.steps) });
+    } catch (error) {
+      setSeq(null);
+      setLoadError(error instanceof Error ? error.message : "Sequence could not be loaded");
+    }
   }, [id]);
 
   useEffect(() => {
@@ -202,17 +210,16 @@ export default function SequenceEditorPage() {
     await apiFetch(`/api/sequences/${id}/steps`, {
       method: "POST",
       body: JSON.stringify({
-        sequenceId: id,
         stepNumber: nextNum,
-        subject: "",
-        body: "",
+        subject: `Step ${nextNum}`,
+        body: "Hi {{firstName}},\n\n",
         delayDays: nextNum === 1 ? 0 : 3,
       }),
     });
     loadSeq();
   }
 
-  async function updateStep(stepId: number, data: Partial<Step>) {
+  async function updateStep(stepId: string, data: Partial<Step>) {
     setSavingStep(stepId);
     await apiFetch(`/api/sequences/${id}/steps/${stepId}`, {
       method: "PUT",
@@ -222,7 +229,7 @@ export default function SequenceEditorPage() {
     loadSeq();
   }
 
-  async function deleteStep(stepId: number) {
+  async function deleteStep(stepId: string) {
     await apiFetch(`/api/sequences/${id}/steps/${stepId}`, { method: "DELETE" });
     loadSeq();
   }
@@ -235,7 +242,7 @@ export default function SequenceEditorPage() {
     loadSeq();
   }
 
-  async function updateAccount(emailAccountId: number) {
+  async function updateAccount(emailAccountId: string) {
     await apiFetch(`/api/sequences/${id}`, {
       method: "PUT",
       body: JSON.stringify({ emailAccountId }),
@@ -250,8 +257,8 @@ export default function SequenceEditorPage() {
       const data = await apiFetch(`/api/sequences/${id}/enroll`, {
         method: "POST",
         body: JSON.stringify({ leadIds: Array.from(selectedLeads) }),
-      }) as { enrolled: number };
-      toast({ title: `${data.enrolled} lead${data.enrolled !== 1 ? "s" : ""} enrolled` });
+      }) as unknown[];
+      toast({ title: `${data.length} lead${data.length !== 1 ? "s" : ""} enrolled` });
       setEnrollOpen(false);
       setSelectedLeads(new Set());
       loadSeq();

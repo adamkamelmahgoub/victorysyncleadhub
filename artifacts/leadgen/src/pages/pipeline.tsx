@@ -1,13 +1,18 @@
-import React, { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, User, Building2, Star, GripVertical } from "lucide-react";
+import { Plus, Building2, Star, GripVertical, LayoutDashboard, Columns3 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { asArray } from "@/lib/data-shape";
+import { Link } from "wouter";
 
 type Lead = {
-  id: number;
+  id: string;
   firstName: string;
   lastName: string;
   email: string;
@@ -15,11 +20,18 @@ type Lead = {
   title?: string;
   score: number;
   status: string;
-  pipelineStageId?: number | null;
+  pipelineStageId?: string | null;
+};
+
+type Pipeline = {
+  id: string;
+  name: string;
+  description?: string | null;
+  isDefault?: boolean;
 };
 
 type Stage = {
-  id: number;
+  id: string;
   name: string;
   color: string;
   position: number;
@@ -31,36 +43,44 @@ type PipelineData = {
   unassigned: Lead[];
 };
 
-function LeadCard({ lead, onDragStart }: { lead: Lead; onDragStart: (id: number) => void }) {
+const STAGE_COLORS = ["#f97316", "#2563eb", "#16a34a", "#9333ea", "#dc2626", "#0891b2"];
+
+function LeadCard({ lead, onDragStart }: { lead: Lead; onDragStart: (id: string) => void }) {
   return (
-    <div
-      draggable
-      onDragStart={() => onDragStart(lead.id)}
-      className="bg-background border border-border rounded-lg p-3 cursor-grab active:cursor-grabbing hover:border-primary/50 transition-colors group"
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="font-medium text-foreground text-sm truncate">
-            {lead.firstName} {lead.lastName}
+    <Link href={`/leads/${lead.id}`}>
+      <div
+        draggable
+        onDragStart={(event) => {
+          event.stopPropagation();
+          onDragStart(lead.id);
+        }}
+        className="bg-background border border-border rounded-lg p-3 cursor-grab active:cursor-grabbing hover:border-primary/50 hover:shadow-sm transition-all group"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="font-medium text-foreground text-sm truncate">
+              {lead.firstName} {lead.lastName}
+            </div>
+            {lead.title && <div className="text-xs text-muted-foreground truncate mt-0.5">{lead.title}</div>}
+            {lead.company && (
+              <div className="flex items-center gap-1 text-xs text-muted-foreground mt-2">
+                <Building2 className="w-3 h-3 flex-shrink-0" />
+                <span className="truncate">{lead.company}</span>
+              </div>
+            )}
           </div>
-          {lead.title && (
-            <div className="text-xs text-muted-foreground truncate mt-0.5">{lead.title}</div>
-          )}
-          {lead.company && (
-            <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-              <Building2 className="w-3 h-3 flex-shrink-0" />
-              <span className="truncate">{lead.company}</span>
+          {lead.score > 0 && (
+            <div className="flex items-center gap-0.5 text-xs text-amber-600 flex-shrink-0">
+              <Star className="w-3 h-3 fill-current" />
+              <span>{lead.score}</span>
             </div>
           )}
         </div>
-        {lead.score > 0 && (
-          <div className="flex items-center gap-0.5 text-xs text-yellow-400 flex-shrink-0">
-            <Star className="w-3 h-3 fill-current" />
-            <span>{lead.score}</span>
-          </div>
-        )}
+        <Badge variant="outline" className="mt-3 text-[10px] h-5 capitalize">
+          {lead.status}
+        </Badge>
       </div>
-    </div>
+    </Link>
   );
 }
 
@@ -69,40 +89,46 @@ function StageColumn({
   onDrop,
   onDragStart,
 }: {
-  stage: Stage & { leads: Lead[] };
-  onDrop: (stageId: number) => void;
-  onDragStart: (id: number) => void;
+  stage: Stage;
+  onDrop: (stageId: string) => void;
+  onDragStart: (id: string) => void;
 }) {
   const [over, setOver] = useState(false);
   const stageLeads = asArray<Lead>(stage.leads);
 
   return (
     <div
-      className="flex-shrink-0 w-64 flex flex-col"
-      onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+      className="flex-shrink-0 w-72 flex flex-col"
+      onDragOver={(event) => {
+        event.preventDefault();
+        setOver(true);
+      }}
       onDragLeave={() => setOver(false)}
-      onDrop={() => { setOver(false); onDrop(stage.id); }}
+      onDrop={() => {
+        setOver(false);
+        onDrop(stage.id);
+      }}
     >
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between mb-3 px-1">
+        <div className="flex items-center gap-2 min-w-0">
           <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: stage.color }} />
-          <span className="font-semibold text-foreground text-sm">{stage.name}</span>
+          <span className="font-semibold text-foreground text-sm truncate">{stage.name}</span>
         </div>
         <Badge variant="secondary" className="text-xs bg-muted text-muted-foreground">
           {stageLeads.length}
         </Badge>
       </div>
       <div
-        className={`flex-1 rounded-xl border-2 border-dashed p-2 space-y-2 min-h-[120px] transition-colors ${
-          over ? "border-primary/60 bg-primary/5" : "border-border/50 bg-card/30"
+        className={`flex-1 rounded-lg border p-2 space-y-2 min-h-[360px] transition-colors ${
+          over ? "border-primary/60 bg-primary/5" : "border-border bg-card"
         }`}
       >
         {stageLeads.map((lead) => (
           <LeadCard key={lead.id} lead={lead} onDragStart={onDragStart} />
         ))}
         {stageLeads.length === 0 && (
-          <div className="h-20 flex items-center justify-center text-xs text-muted-foreground/50">
-            Drop leads here
+          <div className="h-28 flex items-center justify-center text-xs text-muted-foreground border border-dashed border-border rounded-lg">
+            Drop contacts here
           </div>
         )}
       </div>
@@ -111,116 +137,238 @@ function StageColumn({
 }
 
 export default function PipelinePage() {
-  const [data, setData] = useState<PipelineData | null>(null);
-  const [draggingId, setDraggingId] = useState<number | null>(null);
+  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
+  const [selectedPipelineId, setSelectedPipelineId] = useState("");
+  const [data, setData] = useState<PipelineData>({ stages: [], unassigned: [] });
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [showPipelineDialog, setShowPipelineDialog] = useState(false);
+  const [showStageDialog, setShowStageDialog] = useState(false);
+  const [newPipeline, setNewPipeline] = useState({ name: "", description: "" });
+  const [newStage, setNewStage] = useState({ name: "", color: STAGE_COLORS[0] });
   const { toast } = useToast();
 
-  const load = useCallback(async () => {
-    const result = await apiFetch("/api/pipeline/leads") as Partial<PipelineData>;
-    setData({
-      stages: asArray<Stage>(result.stages).map((stage) => ({
-        ...stage,
-        leads: asArray<Lead>(stage.leads),
-      })),
-      unassigned: asArray<Lead>(result.unassigned),
-    });
+  const selectedPipeline = useMemo(
+    () => pipelines.find((pipeline) => pipeline.id === selectedPipelineId),
+    [pipelines, selectedPipelineId],
+  );
+
+  const loadPipelines = useCallback(async () => {
+    const rows = asArray<Pipeline>(await apiFetch("/api/pipelines"));
+    setPipelines(rows);
+    setSelectedPipelineId((current) => current || rows[0]?.id || "");
+    return rows;
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const loadBoard = useCallback(async (pipelineId: string) => {
+    setLoading(true);
+    try {
+      const result = await apiFetch(`/api/pipeline/leads${pipelineId ? `?pipelineId=${pipelineId}` : ""}`) as Partial<PipelineData>;
+      setData({
+        stages: asArray<Stage>(result.stages).map((stage) => ({ ...stage, leads: asArray<Lead>(stage.leads) })),
+        unassigned: asArray<Lead>(result.unassigned),
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  async function handleDrop(stageId: number) {
+  useEffect(() => {
+    loadPipelines();
+  }, [loadPipelines]);
+
+  useEffect(() => {
+    loadBoard(selectedPipelineId);
+  }, [loadBoard, selectedPipelineId]);
+
+  async function createPipeline() {
+    if (!newPipeline.name.trim()) return;
+    const pipeline = await apiFetch("/api/pipelines", {
+      method: "POST",
+      body: JSON.stringify({ name: newPipeline.name.trim(), description: newPipeline.description.trim() || null }),
+    }) as Pipeline;
+    setShowPipelineDialog(false);
+    setNewPipeline({ name: "", description: "" });
+    await loadPipelines();
+    setSelectedPipelineId(pipeline.id);
+    toast({ title: "Pipeline created" });
+  }
+
+  async function createStage() {
+    if (!newStage.name.trim() || !selectedPipelineId) return;
+    await apiFetch("/api/pipeline/stages", {
+      method: "POST",
+      body: JSON.stringify({
+        name: newStage.name.trim(),
+        color: newStage.color,
+        pipelineId: selectedPipelineId,
+        position: data.stages.length,
+      }),
+    });
+    setShowStageDialog(false);
+    setNewStage({ name: "", color: STAGE_COLORS[0] });
+    loadBoard(selectedPipelineId);
+    toast({ title: "Stage added" });
+  }
+
+  async function handleDrop(stageId: string | null) {
     if (!draggingId) return;
+    const leadId = draggingId;
     setDraggingId(null);
     try {
-      await apiFetch(`/api/pipeline/leads/${draggingId}/stage`, {
-      method: "PATCH",
-      body: JSON.stringify({ stageId }),
+      await apiFetch(`/api/pipeline/leads/${leadId}/stage`, {
+        method: "PATCH",
+        body: JSON.stringify({ stageId }),
       });
+      loadBoard(selectedPipelineId);
     } catch {
-      toast({ title: "Failed to move lead", variant: "destructive" });
+      toast({ title: "Failed to move contact", variant: "destructive" });
     }
-    load();
   }
 
-  async function handleDropUnassigned() {
-    if (!draggingId) return;
-    setDraggingId(null);
-    await apiFetch(`/api/pipeline/leads/${draggingId}/stage`, {
-      method: "PATCH",
-      body: JSON.stringify({ stageId: null }),
-    });
-    load();
-  }
-
-  if (!data) {
-    return (
-
-        <div className="p-6 flex items-center justify-center text-muted-foreground">Loading pipeline…</div>
-
-    );
-  }
-
-  const totalLeads = data.stages.reduce((s, st) => s + st.leads.length, 0) + data.unassigned.length;
+  const totalLeads = data.stages.reduce((sum, stage) => sum + stage.leads.length, 0) + data.unassigned.length;
 
   return (
-
-      <div className="p-6 flex flex-col h-full">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6 flex-shrink-0">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Pipeline</h1>
-            <p className="text-muted-foreground mt-1">{totalLeads} leads across {data.stages.length} stages</p>
+    <div className="p-6 h-full flex flex-col gap-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+            <LayoutDashboard className="w-4 h-4" />
+            CRM
           </div>
+          <h1 className="text-2xl font-bold text-foreground">Deals / Pipeline</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {totalLeads} contacts across {data.stages.length} stages{selectedPipeline ? ` in ${selectedPipeline.name}` : ""}
+          </p>
         </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setShowPipelineDialog(true)}>
+            <Plus className="w-4 h-4 mr-1.5" /> Pipeline
+          </Button>
+          <Button size="sm" onClick={() => setShowStageDialog(true)} disabled={!selectedPipelineId}>
+            <Plus className="w-4 h-4 mr-1.5" /> Stage
+          </Button>
+        </div>
+      </div>
 
-        {/* Board */}
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3">
+        <div className="flex items-center gap-3">
+          <Columns3 className="w-4 h-4 text-muted-foreground" />
+          <Label className="text-xs text-muted-foreground uppercase tracking-wide">Pipeline</Label>
+          <Select value={selectedPipelineId} onValueChange={setSelectedPipelineId}>
+            <SelectTrigger className="w-64 h-9">
+              <SelectValue placeholder="Create your first pipeline" />
+            </SelectTrigger>
+            <SelectContent>
+              {pipelines.map((pipeline) => (
+                <SelectItem key={pipeline.id} value={pipeline.id}>{pipeline.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="text-xs text-muted-foreground">
+          <GripVertical className="w-3 h-3 inline mr-1" />
+          Drag contacts between stages
+        </div>
+      </div>
+
+      {pipelines.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border bg-card p-10 text-center">
+          <h2 className="font-semibold text-foreground">Create your first pipeline</h2>
+          <p className="text-sm text-muted-foreground mt-1">Build separate sales processes for different teams, services, or client types.</p>
+          <Button className="mt-4" onClick={() => setShowPipelineDialog(true)}>
+            <Plus className="w-4 h-4 mr-1.5" /> Create pipeline
+          </Button>
+        </div>
+      ) : loading ? (
+        <div className="p-8 text-sm text-muted-foreground">Loading pipeline...</div>
+      ) : (
         <div className="flex gap-4 overflow-x-auto pb-4 flex-1">
-          {/* Unassigned column */}
           <div
-            className="flex-shrink-0 w-64 flex flex-col"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={handleDropUnassigned}
+            className="flex-shrink-0 w-72 flex flex-col"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={() => handleDrop(null)}
           >
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-muted flex-shrink-0" />
-                <span className="font-semibold text-muted-foreground text-sm">Unassigned</span>
-              </div>
-              <Badge variant="secondary" className="text-xs bg-muted text-muted-foreground">
-                {data.unassigned.length}
-              </Badge>
+            <div className="flex items-center justify-between mb-3 px-1">
+              <span className="font-semibold text-muted-foreground text-sm">Unassigned</span>
+              <Badge variant="secondary" className="text-xs bg-muted text-muted-foreground">{data.unassigned.length}</Badge>
             </div>
-            <div className="flex-1 rounded-xl border-2 border-dashed border-border/30 bg-card/20 p-2 space-y-2 min-h-[120px]">
+            <div className="flex-1 rounded-lg border border-border bg-card p-2 space-y-2 min-h-[360px]">
               {data.unassigned.map((lead) => (
                 <LeadCard key={lead.id} lead={lead} onDragStart={setDraggingId} />
               ))}
               {data.unassigned.length === 0 && (
-                <div className="h-20 flex items-center justify-center text-xs text-muted-foreground/40">
-                  All leads assigned
+                <div className="h-28 flex items-center justify-center text-xs text-muted-foreground border border-dashed border-border rounded-lg">
+                  No unassigned contacts
                 </div>
               )}
             </div>
           </div>
 
-          {/* Stage columns */}
           {data.stages.map((stage) => (
-            <StageColumn
-              key={stage.id}
-              stage={stage}
-              onDrop={handleDrop}
-              onDragStart={setDraggingId}
-            />
+            <StageColumn key={stage.id} stage={stage} onDrop={handleDrop} onDragStart={setDraggingId} />
           ))}
-        </div>
 
-        {/* Legend */}
-        <div className="flex-shrink-0 pt-3 border-t border-border mt-2">
-          <p className="text-xs text-muted-foreground">
-            <GripVertical className="w-3 h-3 inline mr-1" />
-            Drag leads between columns to move them through your pipeline
-          </p>
+          {data.stages.length === 0 && (
+            <button
+              onClick={() => setShowStageDialog(true)}
+              className="w-72 min-h-[360px] rounded-lg border border-dashed border-border text-sm text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
+            >
+              Add the first stage
+            </button>
+          )}
         </div>
-      </div>
+      )}
 
+      <Dialog open={showPipelineDialog} onOpenChange={setShowPipelineDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Create pipeline</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs text-muted-foreground">Pipeline name</Label>
+              <Input className="mt-1" value={newPipeline.name} onChange={(e) => setNewPipeline((p) => ({ ...p, name: e.target.value }))} />
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Description</Label>
+              <Input className="mt-1" value={newPipeline.description} onChange={(e) => setNewPipeline((p) => ({ ...p, description: e.target.value }))} />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setShowPipelineDialog(false)}>Cancel</Button>
+              <Button onClick={createPipeline} disabled={!newPipeline.name.trim()}>Create</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showStageDialog} onOpenChange={setShowStageDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add stage</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs text-muted-foreground">Stage name</Label>
+              <Input className="mt-1" value={newStage.name} onChange={(e) => setNewStage((s) => ({ ...s, name: e.target.value }))} />
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Color</Label>
+              <div className="flex gap-2 mt-2">
+                {STAGE_COLORS.map((color) => (
+                  <button
+                    key={color}
+                    onClick={() => setNewStage((s) => ({ ...s, color }))}
+                    className={`w-8 h-8 rounded-full border ${newStage.color === color ? "ring-2 ring-offset-2 ring-primary" : "border-border"}`}
+                    style={{ backgroundColor: color }}
+                    aria-label={color}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setShowStageDialog(false)}>Cancel</Button>
+              <Button onClick={createStage} disabled={!newStage.name.trim() || !selectedPipelineId}>Add stage</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
