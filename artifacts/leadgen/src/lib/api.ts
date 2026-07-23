@@ -20,8 +20,9 @@ export async function apiFetch(path: string, opts?: RequestInit) {
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     try {
-      const data = JSON.parse(text) as { error?: string; message?: string; supabaseError?: string };
-      throw new Error([data.error ?? data.message, data.supabaseError].filter(Boolean).join(" — ") || `HTTP ${res.status} for ${url}`);
+      const data = JSON.parse(text) as { error?: string; message?: string; supabaseError?: string; errors?: string[] };
+      const validationErrors = Array.isArray(data.errors) ? data.errors.join("; ") : undefined;
+      throw new Error([data.error ?? data.message ?? validationErrors, data.supabaseError].filter(Boolean).join(" — ") || `HTTP ${res.status} for ${url}`);
     } catch (error) {
       if (error instanceof SyntaxError) throw new Error(text || `HTTP ${res.status} for ${url}`);
       throw error;

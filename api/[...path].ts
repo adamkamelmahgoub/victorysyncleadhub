@@ -1125,9 +1125,16 @@ async function deleteLeads(req: VercelRequest, res: VercelResponse) {
 async function importLeads(req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as { leads?: LeadInput[]; campaignId?: number };
   const incoming = Array.isArray(body.leads) ? body.leads : [];
-  const leads = incoming.map((lead) =>
-    normalizeLead({ ...lead, campaignId: body.campaignId ?? lead.campaignId }),
-  );
+  const leads = incoming.map((lead) => {
+    const email = lead.email?.trim() ?? "";
+    const nameParts = email.split("@")[0]?.split(/[._+-]+/).filter(Boolean) ?? [];
+    return normalizeLead({
+      ...lead,
+      firstName: lead.firstName?.trim() || nameParts[0] || "Unknown",
+      lastName: lead.lastName?.trim() || nameParts.slice(1).join(" ") || "Unknown",
+      campaignId: body.campaignId ?? lead.campaignId,
+    });
+  });
   const valid = leads.filter((lead) => !validateLead(lead));
   const errors = leads
     .map((lead) => validateLead(lead))

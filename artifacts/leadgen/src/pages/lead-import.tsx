@@ -6,8 +6,8 @@ import { Link } from "wouter";
 import { parseXlsx } from "@/lib/xlsx";
 
 const LEAD_FIELDS = [
-  { key: "firstName", label: "First Name", required: true },
-  { key: "lastName", label: "Last Name", required: true },
+  { key: "firstName", label: "First Name", required: false },
+  { key: "lastName", label: "Last Name", required: false },
   { key: "email", label: "Email", required: true },
   { key: "phone", label: "Phone", required: false },
   { key: "company", label: "Company", required: false },
@@ -138,6 +138,12 @@ export default function LeadImport() {
         .filter((field) => field.name.trim() && field.column)
         .map((field) => [field.name.trim(), row[parsed.headers.indexOf(field.column)] ?? ""]),
     );
+    const email = String(lead.email ?? "").trim();
+    if (email) {
+      const nameParts = email.split("@")[0]!.split(/[._+-]+/).filter(Boolean);
+      if (!String(lead.firstName ?? "").trim()) lead.firstName = nameParts[0] || "Unknown";
+      if (!String(lead.lastName ?? "").trim()) lead.lastName = nameParts.slice(1).join(" ") || "Unknown";
+    }
     return lead;
   }
 
@@ -148,7 +154,12 @@ export default function LeadImport() {
 
   function doImport() {
     if (!parsed) return;
-    const leads = parsed.rows.map(mapRow).filter((lead) => lead.email && lead.firstName && lead.lastName);
+    const leads = parsed.rows.map(mapRow).filter((lead) => lead.email);
+    if (leads.length === 0) {
+      setResult({ imported: 0, failed: parsed.rows.length, errors: ["No rows contained an email address. Check the Email column mapping."] });
+      setStep("done");
+      return;
+    }
     importMutation.mutate(leads);
   }
 
@@ -283,7 +294,7 @@ export default function LeadImport() {
               <button onClick={() => setStep("upload")} className="px-4 py-2 text-sm font-medium border border-border rounded-lg text-muted-foreground hover:bg-muted">Back</button>
               <button
                 onClick={() => setStep("preview")}
-                disabled={!mapping.firstName || !mapping.lastName || !mapping.email}
+                disabled={!mapping.email}
                 className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-40"
               >
                 Preview Import
