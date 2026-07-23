@@ -67,10 +67,13 @@ export default function Team() {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [createdInvite, setCreatedInvite] = useState<InviteResponse["invite"] | null>(null);
 
-  const { data: membersResponse = [], isLoading } = useQuery<TeamMember[]>({
+  const { data: membersResponse = [], isLoading, error: membersError } = useQuery<TeamMember[]>({
     queryKey: ["team"],
     queryFn: async () => {
-      await apiFetch("/auth/sync-session", { method: "POST", body: "{}" });
+      await apiFetch("/auth/sync-session", {
+        method: "POST",
+        body: JSON.stringify({ orgId: window.sessionStorage.getItem("victorysync_org_id") }),
+      });
       return apiFetch("/team");
     },
   });
@@ -159,6 +162,11 @@ export default function Team() {
         </div>
 
         <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
+          {membersError && (
+            <div className="border-b border-red-200 bg-red-50 px-5 py-3 text-sm text-red-700">
+              Team synchronization failed: {membersError instanceof Error ? membersError.message : String(membersError)}
+            </div>
+          )}
           <table className="w-full">
             <thead>
               <tr className="border-b border-border bg-muted/30">

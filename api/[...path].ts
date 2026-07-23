@@ -288,7 +288,23 @@ function normalizeDashboardRole(role: unknown) {
   return "member";
 }
 
-async function resolveDashboardMembership(user: AuthenticatedUser, req: VercelRequest): Promise<DashboardMembership> {
+async function resolveDashboardMembership(user: AuthenticatedUser, req: VercelRequest, requestedOrgId?: string | null): Promise<DashboardMembership> {
+  if (requestedOrgId) {
+    for (const table of ["org_users", "org_members"]) {
+      try {
+        const memberships = await supabaseRest(
+          `${table}?user_id=eq.${encodeURIComponent(user.id)}&org_id=eq.${encodeURIComponent(requestedOrgId)}&select=org_id,role&limit=1`,
+          { method: "GET" },
+          req,
+        ) as DashboardMembership[];
+        if (memberships[0]?.org_id) return memberships[0];
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!message.includes("Could not find the table") && !message.includes("schema cache")) throw error;
+      }
+    }
+    throw new Error("Your VictorySync account is not a member of the selected organization");
+  }
   const metadataOrgId = orgIdFromUser(user);
   const metadataRole = user.user_metadata?.role ?? user.app_metadata?.role;
   if (metadataOrgId) return { org_id: metadataOrgId, role: normalizeDashboardRole(metadataRole) };
@@ -361,13 +377,15 @@ async function authenticateRequest(req: VercelRequest): Promise<AuthenticatedUse
 }
 
 async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
+  const body = await readJson(req) as { orgId?: unknown };
+  const requestedOrgId = typeof body.orgId === "string" && body.orgId.trim() ? body.orgId.trim() : null;
   const email = String(user.email ?? "").trim().toLowerCase();
   if (!email) {
     sendJson(res, 400, { message: "The dashboard session does not include an email address" });
     return;
   }
   const metadata = user.user_metadata ?? {};
-  const dashboardMembership = await resolveDashboardMembership(user, req);
+  const dashboardMembership = await resolveDashboardMembership(user, req, requestedOrgId);
   const orgId = dashboardMembership.org_id ?? null;
   const byAuthId = await supabaseRest(
     `team_members?auth_user_id=eq.${encodeURIComponent(user.id)}&select=*&limit=1`,

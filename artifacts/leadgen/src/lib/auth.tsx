@@ -40,7 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           authorization: `Bearer ${nextSession.access_token}`,
           "content-type": "application/json",
         },
-        body: "{}",
+        body: JSON.stringify({ orgId: window.sessionStorage.getItem("victorysync_org_id") }),
       });
       if (!response.ok) {
         synchronizedUsers.delete(nextSession.user.id);
@@ -54,6 +54,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
       const accessToken = hash.get("access_token") ?? url.searchParams.get("access_token");
       const refreshToken = hash.get("refresh_token") ?? url.searchParams.get("refresh_token");
+      const orgId = hash.get("org_id") ?? url.searchParams.get("org_id");
+      if (orgId) window.sessionStorage.setItem("victorysync_org_id", orgId);
       if (code) {
         await supabase.auth.exchangeCodeForSession(code);
         url.searchParams.delete("code");
