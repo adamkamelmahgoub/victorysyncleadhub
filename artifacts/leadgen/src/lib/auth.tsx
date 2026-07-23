@@ -10,6 +10,8 @@ import type { Session, User } from "@supabase/supabase-js";
 import { setAuthTokenGetter } from "@workspace/api-client-react";
 import { supabase } from "./supabase";
 
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
 type AuthContextValue = {
   loading: boolean;
   session: Session | null;
@@ -28,18 +30,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    const synchronizedUsers = new Set<string>();
+    const syncDashboardMember = async (nextSession: Session | null) => {
+      if (!nextSession || synchronizedUsers.has(nextSession.user.id)) return;
+      synchronizedUsers.add(nextSession.user.id);
+      const response = await fetch(`${BASE}/api/auth/sync-session`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${nextSession.access_token}`,
+          "content-type": "application/json",
+        },
+        body: "{}",
+      });
+      if (!response.ok) {
+        synchronizedUsers.delete(nextSession.user.id);
+        const message = await response.text().catch(() => "");
+        console.warn("Dashboard team synchronization failed", message || response.status);
+      }
+    };
     const establishDashboardSession = async () => {
       const url = new URL(window.location.href);
       const code = url.searchParams.get("code");
       const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
-      const accessToken = hash.get("access_token");
-      const refreshToken = hash.get("refresh_token");
+      const accessToken = hash.get("access_token") ?? url.searchParams.get("access_token");
+      const refreshToken = hash.get("refresh_token") ?? url.searchParams.get("refresh_token");
       if (code) {
         await supabase.auth.exchangeCodeForSession(code);
         url.searchParams.delete("code");
         window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
       } else if (accessToken && refreshToken) {
         await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+        url.searchParams.delete("access_token");
+        url.searchParams.delete("refresh_token");
         window.history.replaceState({}, "", `${url.pathname}${url.search}`);
       }
     };
@@ -52,11 +74,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!mounted) return;
       setSession(data.session);
       setLoading(false);
+      void syncDashboardMember(data.session);
     });
 
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
       setLoading(false);
+      void syncDashboardMember(nextSession);
     });
 
     return () => {

@@ -300,6 +300,77 @@ async function authenticateRequest(req: VercelRequest): Promise<AuthenticatedUse
   return await response.json() as AuthenticatedUser;
 }
 
+async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
+  const email = String(user.email ?? "").trim().toLowerCase();
+  if (!email) {
+    sendJson(res, 400, { message: "The dashboard session does not include an email address" });
+    return;
+  }
+  const metadata = user.user_metadata ?? {};
+  const byAuthId = await supabaseRest(
+    `team_members?auth_user_id=eq.${encodeURIComponent(user.id)}&select=*&limit=1`,
+    { method: "GET" },
+    req,
+  ) as Array<Record<string, unknown>>;
+  const byEmail = byAuthId.length ? [] : await supabaseRest(
+    `team_members?email=eq.${encodeURIComponent(email)}&select=*&limit=1`,
+    { method: "GET" },
+    req,
+  ) as Array<Record<string, unknown>>;
+  const existing = byAuthId[0] ?? byEmail[0];
+  const dashboardName = String(metadata.full_name ?? metadata.name ?? email.split("@")[0] ?? "Team member").trim();
+
+  let member: Record<string, unknown>;
+  if (existing?.id) {
+    const rows = await supabaseRest(`team_members?id=eq.${encodeURIComponent(String(existing.id))}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        auth_user_id: user.id,
+        name: existing.name || dashboardName,
+        status: "active",
+        updated_at: new Date().toISOString(),
+      }),
+    }, req) as Array<Record<string, unknown>>;
+    member = rows[0] ?? existing;
+  } else {
+    const rows = await supabaseRest("team_members", {
+      method: "POST",
+      body: JSON.stringify({
+        auth_user_id: user.id,
+        name: dashboardName,
+        email,
+        role: typeof metadata.role === "string" ? metadata.role : "member",
+        status: "active",
+        client_account_id: typeof metadata.client_account_id === "string" ? metadata.client_account_id : null,
+        page_permissions: Array.isArray(metadata.page_permissions) ? metadata.page_permissions : null,
+      }),
+    }, req) as Array<Record<string, unknown>>;
+    member = rows[0] ?? {};
+  }
+
+  if (supabaseUrl && supabaseServiceRoleKey && member.id) {
+    const mergedMetadata = {
+      ...metadata,
+      role: member.role ?? metadata.role ?? "member",
+      client_account_id: member.client_account_id ?? metadata.client_account_id ?? null,
+      page_permissions: Array.isArray(member.page_permissions) ? member.page_permissions : metadata.page_permissions ?? null,
+      team_member_id: member.id,
+      status: "active",
+    };
+    const response = await fetch(`${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(user.id)}`, {
+      method: "PUT",
+      headers: {
+        apikey: supabaseServiceRoleKey,
+        authorization: `Bearer ${supabaseServiceRoleKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ user_metadata: mergedMetadata }),
+    });
+    if (!response.ok) throw new Error("Unable to synchronize dashboard access metadata");
+  }
+  sendJson(res, 200, { member: toCamelValue(member) });
+}
+
 async function signupWithInvite(req: VercelRequest, res: VercelResponse) {
   if (!supabaseUrl || !supabaseServiceRoleKey) {
     sendJson(res, 503, { message: "Invited-user signup requires the Supabase service role key" });
@@ -1786,6 +1857,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const currentUser = await authenticateRequest(req);
+    if (method === "POST" && path === "/api/auth/sync-session") {
+      await syncDashboardTeamMember(currentUser, req, res);
+      return;
+    }
     const role = String(currentUser.user_metadata?.role ?? "member");
     const status = String(currentUser.user_metadata?.status ?? "active");
     if (status === "inactive" || status === "deactivated") {
