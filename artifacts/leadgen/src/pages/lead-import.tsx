@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Upload, FileText, CheckCircle, AlertCircle, X, Download, ChevronRight } from "lucide-react";
+import { Upload, FileText, CheckCircle, AlertCircle, X, Download, ChevronRight, Plus } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { Link } from "wouter";
 import { parseXlsx } from "@/lib/xlsx";
@@ -43,6 +43,7 @@ export default function LeadImport() {
   const [parsed, setParsed] = useState<{ headers: string[]; rows: string[][] } | null>(null);
   const [fileName, setFileName] = useState("");
   const [mapping, setMapping] = useState<Record<string, string>>({});
+  const [customMappings, setCustomMappings] = useState<Array<{ id: string; name: string; column: string }>>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [result, setResult] = useState<{ imported: number; failed: number; errors: string[] } | null>(null);
   const [fileError, setFileError] = useState("");
@@ -92,6 +93,7 @@ export default function LeadImport() {
         if (match) autoMap[f.key] = match;
       });
       setMapping(autoMap);
+      setCustomMappings([]);
       setStep("map");
   }
 
@@ -102,40 +104,34 @@ export default function LeadImport() {
     if (file) void handleFile(file);
   }
 
+  function mapRow(row: string[]) {
+    if (!parsed) return {};
+    const lead: Record<string, unknown> = {};
+    LEAD_FIELDS.forEach((field) => {
+      const column = mapping[field.key];
+      if (!column) return;
+      const index = parsed.headers.indexOf(column);
+      if (index !== -1) lead[field.key] = row[index] ?? "";
+    });
+    if (lead.contactAttempts) {
+      lead.contactAttempts = Math.max(0, Number.parseInt(String(lead.contactAttempts), 10) || 0);
+    }
+    lead.customFields = Object.fromEntries(
+      customMappings
+        .filter((field) => field.name.trim() && field.column)
+        .map((field) => [field.name.trim(), row[parsed.headers.indexOf(field.column)] ?? ""]),
+    );
+    return lead;
+  }
+
   function getPreviewLeads() {
     if (!parsed) return [];
-    return parsed.rows.slice(0, 5).map((row) => {
-      const lead: Record<string, string> = {};
-      LEAD_FIELDS.forEach((f) => {
-        const col = mapping[f.key];
-        if (col) {
-          const idx = parsed.headers.indexOf(col);
-          if (idx !== -1) lead[f.key] = row[idx] ?? "";
-        }
-      });
-      if (lead.contactAttempts) {
-        (lead as Record<string, string | number>).contactAttempts = Math.max(0, Number.parseInt(lead.contactAttempts, 10) || 0);
-      }
-      return lead;
-    });
+    return parsed.rows.slice(0, 5).map(mapRow);
   }
 
   function doImport() {
     if (!parsed) return;
-    const leads = parsed.rows.map((row) => {
-      const lead: Record<string, string> = {};
-      LEAD_FIELDS.forEach((f) => {
-        const col = mapping[f.key];
-        if (col) {
-          const idx = parsed.headers.indexOf(col);
-          if (idx !== -1) lead[f.key] = row[idx] ?? "";
-        }
-      });
-      if (lead.contactAttempts) {
-        (lead as Record<string, string | number>).contactAttempts = Math.max(0, Number.parseInt(lead.contactAttempts, 10) || 0);
-      }
-      return lead;
-    }).filter((l) => l.email && l.firstName && l.lastName);
+    const leads = parsed.rows.map(mapRow).filter((lead) => lead.email && lead.firstName && lead.lastName);
     importMutation.mutate(leads);
   }
 
@@ -222,6 +218,49 @@ export default function LeadImport() {
                   </div>
                 ))}
               </div>
+              <div className="border-t border-border pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Custom fields</p>
+                    <p className="text-xs text-muted-foreground">Choose a spreadsheet column and name its CRM field.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCustomMappings((fields) => [...fields, { id: crypto.randomUUID(), name: "", column: "" }])}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border rounded-lg hover:bg-muted"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add field
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {customMappings.map((field) => (
+                    <div key={field.id} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                      <input
+                        value={field.name}
+                        onChange={(e) => setCustomMappings((fields) => fields.map((item) => item.id === field.id ? { ...item, name: e.target.value } : item))}
+                        placeholder="CRM field name"
+                        className="px-3 py-2 text-sm border border-border rounded-lg"
+                      />
+                      <select
+                        value={field.column}
+                        onChange={(e) => setCustomMappings((fields) => fields.map((item) => item.id === field.id ? { ...item, column: e.target.value } : item))}
+                        className="px-3 py-2 text-sm border border-border rounded-lg bg-background"
+                      >
+                        <option value="">Select file column</option>
+                        {parsed.headers.map((header) => <option key={header} value={header}>{header}</option>)}
+                      </select>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${field.name || "custom field"}`}
+                        onClick={() => setCustomMappings((fields) => fields.filter((item) => item.id !== field.id))}
+                        className="p-2 text-muted-foreground hover:text-red-500"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
             <div className="px-6 pb-6 flex gap-2 justify-end">
               <button onClick={() => setStep("upload")} className="px-4 py-2 text-sm font-medium border border-border rounded-lg text-muted-foreground hover:bg-muted">Back</button>
@@ -249,13 +288,21 @@ export default function LeadImport() {
                     {LEAD_FIELDS.filter((f) => mapping[f.key]).map((f) => (
                       <th key={f.key} className="text-left text-xs font-semibold text-muted-foreground px-4 py-2">{f.label}</th>
                     ))}
+                    {customMappings.filter((field) => field.name.trim() && field.column).map((field) => (
+                      <th key={field.id} className="text-left text-xs font-semibold text-muted-foreground px-4 py-2">{field.name.trim()}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {getPreviewLeads().map((lead, i) => (
                     <tr key={i} className="border-b border-border/50 hover:bg-muted/20">
                       {LEAD_FIELDS.filter((f) => mapping[f.key]).map((f) => (
-                        <td key={f.key} className="px-4 py-2 text-xs text-foreground">{lead[f.key] || <span className="text-muted-foreground">—</span>}</td>
+                        <td key={f.key} className="px-4 py-2 text-xs text-foreground">{String(lead[f.key] || "") || <span className="text-muted-foreground">—</span>}</td>
+                      ))}
+                      {customMappings.filter((field) => field.name.trim() && field.column).map((field) => (
+                        <td key={field.id} className="px-4 py-2 text-xs text-foreground">
+                          {String((lead.customFields as Record<string, string>)[field.name.trim()] || "") || <span className="text-muted-foreground">—</span>}
+                        </td>
                       ))}
                     </tr>
                   ))}
@@ -305,7 +352,7 @@ export default function LeadImport() {
                 View Contacts
               </Link>
               <button
-                onClick={() => { setStep("upload"); setParsed(null); setMapping({}); setResult(null); setFileName(""); }}
+                onClick={() => { setStep("upload"); setParsed(null); setMapping({}); setCustomMappings([]); setResult(null); setFileName(""); }}
                 className="px-4 py-2 text-sm font-medium border border-border rounded-lg text-muted-foreground hover:bg-muted"
               >
                 Import More

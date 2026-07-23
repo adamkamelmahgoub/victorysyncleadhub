@@ -19,7 +19,13 @@ export async function apiFetch(path: string, opts?: RequestInit) {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(text || `HTTP ${res.status}`);
+    try {
+      const data = JSON.parse(text) as { error?: string; message?: string; supabaseError?: string };
+      throw new Error([data.error ?? data.message, data.supabaseError].filter(Boolean).join(" — ") || `HTTP ${res.status}`);
+    } catch (error) {
+      if (error instanceof SyntaxError) throw new Error(text || `HTTP ${res.status}`);
+      throw error;
+    }
   }
   if (res.status === 204) return null;
   return res.json();

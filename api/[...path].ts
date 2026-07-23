@@ -1957,7 +1957,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     ) {
       sendJson(res, 503, {
         error:
-          "Required Supabase tables are missing. Run the platform schema migration in Supabase SQL Editor, then retry.",
+          "The portal database schema is incomplete. Run supabase/migrations/20260723_crm_launch_features.sql in the Supabase SQL Editor, then retry.",
+        supabaseError: message,
         databaseUrlConfigured: hasDatabaseUrl,
       });
       return;
