@@ -37,6 +37,7 @@ import Onboarding from "@/pages/onboarding";
 import Affiliates from "@/pages/affiliates";
 import BillingIntegration from "@/pages/billing-integration";
 import VictorySyncHome from "@/pages/victorysync-home";
+import AgentTraining from "@/pages/agent-training";
 import { Layout } from "@/components/layout";
 import Login from "@/pages/login";
 import { AuthProvider, useAuth } from "@/lib/auth";
@@ -89,6 +90,7 @@ function Router() {
       <Route path="/leadgen/sequence-analytics" component={SequenceAnalytics} />
       <Route path="/leadgen/revenue-attribution" component={RevenueAttribution} />
       <Route path="/leadgen/getting-started" component={Onboarding} />
+      <Route path="/leadgen/training" component={AgentTraining} />
 
       <Route path="/dashboard" component={VictorySyncHome} />
       <Route path="/leads" component={Leads} />
@@ -121,6 +123,7 @@ function Router() {
       <Route path="/sequence-analytics" component={SequenceAnalytics} />
       <Route path="/revenue-attribution" component={RevenueAttribution} />
       <Route path="/getting-started" component={Onboarding} />
+      <Route path="/training" component={AgentTraining} />
       <Route path="/affiliates" component={Affiliates} />
       <Route path="/billing-integration" component={BillingIntegration} />
       <Route component={NotFound} />

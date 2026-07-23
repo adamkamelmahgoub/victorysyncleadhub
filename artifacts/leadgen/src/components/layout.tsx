@@ -5,7 +5,7 @@ import {
   Megaphone, Zap, Layers, Globe, BarChart3, Star, Settings,
   Search, Mail, Share2, UserPlus, Plug, Upload, Filter,
   ChevronDown, Bell, Webhook, FileText, Building2, Target,
-  CalendarClock, TrendingUp, Gift, Rocket, Key,
+  CalendarClock, TrendingUp, Gift, Rocket, Key, BookOpen,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
@@ -18,6 +18,7 @@ const NAV: NavEntry[] = [
   { href: "/", label: "Home", icon: LayoutDashboard },
   { href: "/sub-accounts", label: "Client Accounts", icon: Building2 },
   { href: "/team", label: "Team & Invites", icon: UserPlus },
+  { href: "/training", label: "Agent Training", icon: BookOpen },
   null,
   { section: "CRM" },
   { href: "/leads", label: "Contacts", icon: Users },
