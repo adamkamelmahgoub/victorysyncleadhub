@@ -111,21 +111,17 @@ export default function Settings() {
 
         {/* API Key */}
         <Card className="p-6 border border-border bg-card">
-          <div className="flex items-center gap-2 mb-5">
-            <Key className="w-4 h-4 text-muted-foreground" />
-            <p className="text-sm font-semibold text-foreground">API Access</p>
-          </div>
-          <div className="space-y-3">
+          <div className="flex items-center justify-between gap-4">
             <div>
-              <Label className="text-xs text-muted-foreground">API Key</Label>
-              <div className="flex gap-2 mt-1">
-                <Input className="font-mono text-xs" value="lg_live_••••••••••••••••••••••••••••••" readOnly />
-                <Button variant="outline" size="sm" className="flex-shrink-0" onClick={() => toast({ title: "API key regeneration coming soon" })}>
-                  Regenerate
-                </Button>
+              <div className="flex items-center gap-2">
+                <Key className="w-4 h-4 text-muted-foreground" />
+                <p className="text-sm font-semibold text-foreground">API Access</p>
               </div>
+              <p className="mt-2 text-xs text-muted-foreground">Create, revoke, and manage real VictorySync API keys.</p>
             </div>
-            <p className="text-xs text-muted-foreground">Use this key to authenticate API requests and integrate with external systems.</p>
+            <Link href="/billing-integration">
+              <Button variant="outline" size="sm">Manage API Keys</Button>
+            </Link>
           </div>
         </Card>
       </div>

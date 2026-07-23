@@ -39,7 +39,8 @@ export default function Login() {
         setLoading(false);
         const text = await signupRes.text().catch(() => "");
         try {
-          setError(JSON.parse(text).error ?? text);
+          const parsed = JSON.parse(text);
+          setError(parsed.error ?? parsed.message ?? text);
         } catch {
           setError(text || `HTTP ${signupRes.status}`);
         }
@@ -112,7 +113,7 @@ export default function Login() {
             id="password"
             type="password"
             autoComplete={mode === "signin" ? "current-password" : "new-password"}
-            minLength={6}
+            minLength={8}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             required

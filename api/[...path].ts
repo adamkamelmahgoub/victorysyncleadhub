@@ -252,6 +252,100 @@ function getHeader(req: VercelRequest, name: string) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+type AuthenticatedUser = {
+  id: string;
+  email?: string;
+  user_metadata?: Record<string, unknown>;
+};
+
+async function authenticateRequest(req: VercelRequest): Promise<AuthenticatedUser> {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Supabase authentication environment is not configured");
+  }
+  const authorization = getHeader(req, "authorization");
+  if (!authorization?.toLowerCase().startsWith("bearer ")) {
+    throw new Error("Authentication required");
+  }
+  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    headers: { apikey: supabaseAnonKey, authorization },
+  });
+  if (!response.ok) throw new Error("Your session is invalid or has expired");
+  return await response.json() as AuthenticatedUser;
+}
+
+async function signupWithInvite(req: VercelRequest, res: VercelResponse) {
+  if (!supabaseUrl || !supabaseServiceRoleKey) {
+    sendJson(res, 503, { message: "Invited-user signup requires the Supabase service role key" });
+    return;
+  }
+  const body = await readJson(req) as Record<string, unknown>;
+  const name = String(body.name ?? "").trim();
+  const email = String(body.email ?? "").trim().toLowerCase();
+  const password = String(body.password ?? "");
+  const inviteCode = String(body.inviteCode ?? "").trim();
+  if (!name || !email || password.length < 8 || !inviteCode) {
+    sendJson(res, 400, { message: "Name, email, an 8-character password, and invite code are required" });
+    return;
+  }
+
+  const codeHash = crypto.createHash("sha256").update(inviteCode).digest("hex");
+  const invites = await supabaseRest(
+    `invite_codes?code_hash=eq.${codeHash}&used_at=is.null&select=*&limit=1`,
+    { method: "GET" },
+  ) as Array<Record<string, unknown>>;
+  const invite = invites[0];
+  if (!invite || String(invite.email ?? "").toLowerCase() !== email) {
+    sendJson(res, 400, { message: "This invite code is invalid or belongs to another email address" });
+    return;
+  }
+  if (invite.expires_at && new Date(String(invite.expires_at)).getTime() <= Date.now()) {
+    sendJson(res, 400, { message: "This invite has expired. Ask an administrator to resend it." });
+    return;
+  }
+
+  const teamId = String(invite.team_member_id ?? "");
+  const members = await supabaseRest(
+    `team_members?id=eq.${encodeURIComponent(teamId)}&select=*&limit=1`,
+    { method: "GET" },
+  ) as Array<Record<string, unknown>>;
+  const member = members[0];
+  if (!member) {
+    sendJson(res, 409, { message: "The team member linked to this invite is missing" });
+    return;
+  }
+
+  const metadata = {
+    name,
+    role: member.role ?? invite.role ?? "viewer",
+    client_account_id: member.client_account_id ?? invite.client_account_id ?? null,
+    team_member_id: teamId,
+  };
+  const authResponse = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
+    method: "POST",
+    headers: {
+      apikey: supabaseServiceRoleKey,
+      authorization: `Bearer ${supabaseServiceRoleKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ email, password, email_confirm: true, user_metadata: metadata }),
+  });
+  const authData = await authResponse.json() as Record<string, unknown>;
+  if (!authResponse.ok) {
+    sendJson(res, authResponse.status, { message: String(authData.msg ?? authData.message ?? "Unable to create user") });
+    return;
+  }
+  const userId = String(authData.id ?? "");
+  await supabaseRest(`invite_codes?id=eq.${encodeURIComponent(String(invite.id))}`, {
+    method: "PATCH",
+    body: JSON.stringify({ used_at: new Date().toISOString(), used_by_user_id: userId }),
+  });
+  await supabaseRest(`team_members?id=eq.${encodeURIComponent(teamId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name, auth_user_id: userId, status: "active", updated_at: new Date().toISOString() }),
+  });
+  sendJson(res, 201, { success: true, userId });
+}
+
 async function supabaseRest(path: string, init: FetchInit, req?: VercelRequest) {
   if (!supabaseUrl || !supabaseKey) {
     throw new Error("Supabase server environment is not configured");
@@ -868,6 +962,128 @@ async function createSubAccount(req: VercelRequest, res: VercelResponse) {
     }, req);
   }
   sendJson(res, 201, toCamelValue(account));
+}
+
+async function createTeamInvite(req: VercelRequest, res: VercelResponse) {
+  const body = (await readJson(req)) as { name?: string; email?: string; role?: string; clientAccountId?: string | null };
+  const name = body.name?.trim() ?? "";
+  const email = body.email?.trim().toLowerCase() ?? "";
+  const role = body.role ?? "member";
+  if (!name || !email.includes("@")) { sendJson(res, 400, { error: "Name and a valid email are required" }); return; }
+  if (role === "agent" && !body.clientAccountId) { sendJson(res, 400, { error: "Select a client account for this agent" }); return; }
+  const existing = await supabaseRest(`team_members?email=eq.${encodeURIComponent(email)}&select=id&limit=1`, { method: "GET" }, req) as Array<{ id?: string }>;
+  if (existing.length) { sendJson(res, 409, { error: "A team member with this email already exists" }); return; }
+
+  const rows = await supabaseRest("team_members", {
+    method: "POST",
+    body: JSON.stringify({ name, email, role, client_account_id: body.clientAccountId ?? null, status: "invited" }),
+  }, req) as Array<Record<string, unknown>>;
+  const member = rows[0];
+  if (!member?.id) { sendJson(res, 500, { error: "Supabase did not return the created team member" }); return; }
+
+  const code = `VS-${crypto.randomBytes(3).toString("hex").toUpperCase()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  try {
+    await supabaseRest("invite_codes", {
+      method: "POST",
+      body: JSON.stringify({
+        code_hash: crypto.createHash("sha256").update(code).digest("hex"),
+        email,
+        name,
+        role,
+        client_account_id: body.clientAccountId ?? null,
+        team_member_id: member.id,
+        created_by: "dashboard",
+        expires_at: expiresAt,
+      }),
+    }, req);
+  } catch (error) {
+    await supabaseRest(`team_members?id=eq.${encodeURIComponent(String(member.id))}`, { method: "DELETE" }, req).catch(() => undefined);
+    throw error;
+  }
+  const appUrl = (process.env.APP_URL ?? "").replace(/\/$/, "");
+  sendJson(res, 201, {
+    member: toCamelValue(member),
+    invite: {
+      code,
+      email,
+      name,
+      expiresAt,
+      url: appUrl ? `${appUrl}?invite=${encodeURIComponent(code)}&email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}` : undefined,
+    },
+  });
+}
+
+async function resendTeamInvite(memberId: string, req: VercelRequest, res: VercelResponse) {
+  const rows = await supabaseRest(`team_members?id=eq.${encodeURIComponent(memberId)}&select=*&limit=1`, { method: "GET" }, req) as Array<Record<string, unknown>>;
+  const member = rows[0];
+  if (!member) { sendJson(res, 404, { error: "Team member not found" }); return; }
+  const code = `VS-${crypto.randomBytes(3).toString("hex").toUpperCase()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  await supabaseRest("invite_codes", {
+    method: "POST",
+    body: JSON.stringify({
+      code_hash: crypto.createHash("sha256").update(code).digest("hex"),
+      email: member.email,
+      name: member.name,
+      role: member.role ?? "member",
+      client_account_id: member.client_account_id ?? null,
+      team_member_id: member.id,
+      created_by: "dashboard",
+      expires_at: expiresAt,
+    }),
+  }, req);
+  const appUrl = (process.env.APP_URL ?? "").replace(/\/$/, "");
+  sendJson(res, 201, {
+    code,
+    email: member.email,
+    name: member.name,
+    expiresAt,
+    url: appUrl ? `${appUrl}?invite=${encodeURIComponent(code)}&email=${encodeURIComponent(String(member.email))}&name=${encodeURIComponent(String(member.name))}` : undefined,
+  });
+}
+
+async function updateTeamMember(memberId: string, req: VercelRequest, res: VercelResponse) {
+  const body = await readJson(req) as Record<string, unknown>;
+  const update = toSnakeValue(body) as Record<string, unknown>;
+  delete update.id;
+  delete update.auth_user_id;
+  update.updated_at = new Date().toISOString();
+  const rows = await supabaseRest(`team_members?id=eq.${encodeURIComponent(memberId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(update),
+  }, req) as Array<Record<string, unknown>>;
+  const member = rows[0];
+  if (!member) {
+    sendJson(res, 404, { message: "Team member not found" });
+    return;
+  }
+
+  const authUserId = String(member.auth_user_id ?? "");
+  if (authUserId && supabaseUrl && supabaseServiceRoleKey) {
+    const response = await fetch(`${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(authUserId)}`, {
+      method: "PUT",
+      headers: {
+        apikey: supabaseServiceRoleKey,
+        authorization: `Bearer ${supabaseServiceRoleKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        user_metadata: {
+          role: member.role ?? "viewer",
+          client_account_id: member.client_account_id ?? null,
+          team_member_id: member.id,
+          status: member.status ?? "active",
+        },
+        ban_duration: member.status === "active" ? "none" : "876000h",
+      }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({})) as Record<string, unknown>;
+      throw new Error(String(data.msg ?? data.message ?? "Unable to update the member's login access"));
+    }
+  }
+  sendJson(res, 200, toCamelValue(member));
 }
 
 async function deleteLeads(req: VercelRequest, res: VercelResponse) {
@@ -1506,6 +1722,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    if (method === "POST" && path === "/api/auth/signup-with-invite") {
+      await signupWithInvite(req, res);
+      return;
+    }
+
+    const currentUser = await authenticateRequest(req);
+    const role = String(currentUser.user_metadata?.role ?? "member");
+    const status = String(currentUser.user_metadata?.status ?? "active");
+    if (status === "inactive" || status === "deactivated") {
+      sendJson(res, 403, { message: "This CRM account has been deactivated" });
+      return;
+    }
+    if (role === "viewer" && method !== "GET") {
+      sendJson(res, 403, { message: "Viewer accounts have read-only access" });
+      return;
+    }
+    if (role === "agent" && /^\/api\/(?:team|sub-accounts|api-keys)/.test(path)) {
+      sendJson(res, 403, { message: "Agent accounts cannot manage workspace access" });
+      return;
+    }
+
     if (method === "GET" && path === "/api/leads") {
       await listLeads(req, res);
       return;
@@ -1609,18 +1846,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (method === "POST" && path === "/api/team/invite") {
-      const body = (await readJson(req)) as Record<string, unknown>;
-      const rows = await supabaseRest("team_members", {
-        method: "POST",
-        body: JSON.stringify({
-          ...(toSnakeValue(body) as Record<string, unknown>),
-          status: "invited",
-        }),
-      }, req);
-      const member = (Array.isArray(rows)
-        ? toCamelValue(rows[0] ?? {})
-        : toCamelValue(rows)) as Record<string, unknown>;
-      sendJson(res, 201, { ...member, inviteUrl: "/login" });
+      await createTeamInvite(req, res);
+      return;
+    }
+
+    const resendInviteMatch = path.match(/^\/api\/team\/([^/]+)\/resend$/);
+    if (method === "POST" && resendInviteMatch?.[1]) {
+      await resendTeamInvite(decodeURIComponent(resendInviteMatch[1]), req, res);
+      return;
+    }
+
+    const teamMemberMatch = path.match(/^\/api\/team\/([^/]+)$/);
+    if (method === "PATCH" && teamMemberMatch?.[1]) {
+      await updateTeamMember(decodeURIComponent(teamMemberMatch[1]), req, res);
       return;
     }
 
@@ -1700,6 +1938,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     sendJson(res, 404, { error: `API route not implemented: ${method} ${path}` });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (message === "Authentication required" || message.includes("session is invalid")) {
+      sendJson(res, 401, { error: message });
+      return;
+    }
     if (message.includes("row-level security policy")) {
       sendJson(res, 403, {
         error:

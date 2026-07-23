@@ -8,13 +8,19 @@ import { apiFetch } from "@/lib/api";
 import { asArray } from "@/lib/data-shape";
 
 interface TeamMember {
-  id: number;
+  id: string;
   name: string;
   email: string;
   role: "owner" | "admin" | "agent" | "member" | "viewer";
   clientAccountId: string | null;
   status: "active" | "invited" | "deactivated";
   createdAt: string;
+}
+
+interface ClientAccount {
+  id: string;
+  name: string;
+  slug: string;
 }
 
 interface InviteResponse {
@@ -56,7 +62,7 @@ export default function Team() {
   const [showInvite, setShowInvite] = useState(false);
   const [editMember, setEditMember] = useState<TeamMember | null>(null);
   const [form, setForm] = useState({ name: "", email: "", role: "member" as TeamMember["role"], clientAccountId: null as string | null });
-  const [openMenu, setOpenMenu] = useState<number | null>(null);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [createdInvite, setCreatedInvite] = useState<InviteResponse["invite"] | null>(null);
 
   const { data: membersResponse = [], isLoading } = useQuery<TeamMember[]>({
@@ -64,6 +70,11 @@ export default function Team() {
     queryFn: () => apiFetch("/team"),
   });
   const members = asArray<TeamMember>(membersResponse);
+  const { data: accountsResponse = [], isLoading: accountsLoading } = useQuery<ClientAccount[]>({
+    queryKey: ["sub-accounts"],
+    queryFn: () => apiFetch("/sub-accounts"),
+  });
+  const clientAccounts = asArray<ClientAccount>(accountsResponse);
 
   const invite = useMutation({
     mutationFn: (body: typeof form) => apiFetch("/team/invite", { method: "POST", body: JSON.stringify(body) }) as Promise<InviteResponse>,
@@ -75,14 +86,18 @@ export default function Team() {
   });
 
   const update = useMutation({
-    mutationFn: ({ id, ...body }: Partial<TeamMember> & { id: number }) =>
+    mutationFn: ({ id, ...body }: Partial<TeamMember> & { id: string }) =>
       apiFetch(`/team/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["team"] }); setEditMember(null); setOpenMenu(null); },
   });
 
   const remove = useMutation({
-    mutationFn: (id: number) => apiFetch(`/team/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) => apiFetch(`/team/${id}`, { method: "DELETE" }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["team"] }); setOpenMenu(null); },
+  });
+  const resend = useMutation({
+    mutationFn: (id: string) => apiFetch(`/team/${id}/resend`, { method: "POST" }) as Promise<InviteResponse["invite"]>,
+    onSuccess: (data) => { setCreatedInvite(data); setShowInvite(true); },
   });
 
   const filtered = members.filter((m) =>
@@ -197,7 +212,8 @@ export default function Team() {
                       <div className="flex items-center justify-end gap-1 relative">
                         {m.status === "invited" && (
                           <button
-                            onClick={() => { /* resend invite */ }}
+                            onClick={() => resend.mutate(m.id)}
+                            disabled={resend.isPending}
                             className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-border hover:bg-muted text-muted-foreground"
                           >
                             <Mail className="w-3 h-3" /> Resend
@@ -254,7 +270,7 @@ export default function Team() {
         <div className="bg-white rounded-xl border border-border shadow-sm p-5">
           <h3 className="text-sm font-semibold text-foreground mb-4">Role Permissions</h3>
           <div className="grid grid-cols-4 gap-4">
-            {(["owner", "admin", "member", "viewer"] as const).map((role) => (
+            {(["owner", "admin", "agent", "member", "viewer"] as const).map((role) => (
               <div key={role} className="p-3 rounded-lg bg-muted/40 border border-border">
                 <div className={`inline-flex items-center text-xs px-2 py-0.5 rounded-full font-medium border mb-2 capitalize ${ROLE_STYLES[role]}`}>
                   {role}
@@ -352,8 +368,17 @@ export default function Team() {
                   </div>
                   {form.role === "agent" && (
                     <div>
-                      <label className="text-xs font-medium text-muted-foreground block mb-1.5">Client account ID *</label>
-                      <input type="text" value={form.clientAccountId ?? ""} onChange={(e) => setForm((f) => ({ ...f, clientAccountId: e.target.value || null }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg" placeholder="Client account UUID" />
+                      <label className="text-xs font-medium text-muted-foreground block mb-1.5">Assigned client *</label>
+                      <select
+                        value={form.clientAccountId ?? ""}
+                        onChange={(e) => setForm((f) => ({ ...f, clientAccountId: e.target.value || null }))}
+                        disabled={accountsLoading}
+                        className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-white"
+                      >
+                        <option value="">{accountsLoading ? "Loading clients..." : "Select a client account"}</option>
+                        {clientAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+                      </select>
+                      {!accountsLoading && clientAccounts.length === 0 && <p className="mt-1 text-xs text-amber-600">Create a client account before inviting an agent.</p>}
                     </div>
                   )}
                   {invite.error && <p className="text-xs text-red-500">{invite.error instanceof Error ? invite.error.message : String(invite.error)}</p>}
