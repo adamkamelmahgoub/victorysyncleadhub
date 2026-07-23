@@ -5,15 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Building2, Bell, Users, Key, Check } from "lucide-react";
-
-const TEAM_MEMBERS = [
-  { name: "Alex Carter", email: "alex@company.com", role: "Admin", initials: "AC" },
-  { name: "Maya Patel", email: "maya@company.com", role: "Manager", initials: "MP" },
-  { name: "Jordan Lee", email: "jordan@company.com", role: "Member", initials: "JL" },
-];
+import { Link } from "wouter";
 
 export default function Settings() {
   const { toast } = useToast();
@@ -106,26 +100,13 @@ export default function Settings() {
               <Users className="w-4 h-4 text-muted-foreground" />
               <p className="text-sm font-semibold text-foreground">Team Members</p>
             </div>
-            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => toast({ title: "Team invite coming soon" })}>
-              Invite Member
-            </Button>
+            <Link href="/team">
+              <Button size="sm" variant="outline" className="h-8 text-xs">Manage Team</Button>
+            </Link>
           </div>
-          <div className="space-y-3">
-            {TEAM_MEMBERS.map((m) => (
-              <div key={m.email} className="flex items-center justify-between py-2">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
-                    {m.initials}
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{m.name}</p>
-                    <p className="text-xs text-muted-foreground">{m.email}</p>
-                  </div>
-                </div>
-                <Badge variant="outline" className="text-xs">{m.role}</Badge>
-              </div>
-            ))}
-          </div>
+          <p className="text-sm text-muted-foreground">
+            Team members are loaded from your VictorySync workspace. Use Team Management to invite users and control their access.
+          </p>
         </Card>
 
         {/* API Key */}
