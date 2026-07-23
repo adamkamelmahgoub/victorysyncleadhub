@@ -103,5 +103,14 @@ export async function requireSupabaseUser(
   }
 
   res.locals.user = data.user;
+  const role = typeof data.user.user_metadata?.role === "string" ? data.user.user_metadata.role : "member";
+  if (role === "viewer" && !["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+    res.status(403).json({ error: "Viewer access is read-only" });
+    return;
+  }
+  if (role === "agent" && ["/team", "/sub-accounts", "/api-keys"].some((path) => req.path.startsWith(path))) {
+    res.status(403).json({ error: "Agents cannot manage platform access" });
+    return;
+  }
   next();
 }

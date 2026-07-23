@@ -14,6 +14,7 @@ import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { asArray } from "@/lib/data-shape";
+import { Checkbox } from "@/components/ui/checkbox";
 
 type Lead = {
   id: string;
@@ -28,6 +29,8 @@ type Lead = {
   score: number;
   campaignName?: string | null;
   createdAt?: string;
+  disposition?: string | null;
+  contactAttempts: number;
 };
 
 type LeadsResponse = {
@@ -74,6 +77,9 @@ export default function Leads() {
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [showDispositions, setShowDispositions] = useState(false);
+  const [newDisposition, setNewDisposition] = useState("");
   const [form, setForm] = useState({ firstName: "", lastName: "", email: "", phone: "", company: "", title: "", source: "" });
 
   const queryClient = useQueryClient();
@@ -97,12 +103,18 @@ export default function Leads() {
       return apiFetch(`/api/leads?${params}`) as Promise<LeadsResponse>;
     },
   });
+  const { data: dispositionsResponse = [] } = useQuery<{ id: string; name: string; color: string }[]>({
+    queryKey: ["dispositions"],
+    queryFn: () => apiFetch("/dispositions"),
+  });
+  const dispositions = asArray<{ id: string; name: string; color: string }>(dispositionsResponse);
 
   const leads = asArray<Lead>(data?.leads);
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const to = Math.min(page * PAGE_SIZE, total);
+  const allSelected = leads.length > 0 && leads.every((lead) => selected.has(lead.id));
 
   const stats = useMemo(() => {
     const companies = new Set(leads.map((lead) => lead.company).filter(Boolean));
@@ -134,6 +146,13 @@ export default function Leads() {
     await apiFetch(`/api/leads/${id}`, { method: "DELETE" });
     toast({ title: "Contact deleted" });
     refresh();
+  }
+
+  async function deleteSelected() {
+    await apiFetch("/api/leads", { method: "DELETE", body: JSON.stringify({ ids: [...selected] }) });
+    setSelected(new Set());
+    toast({ title: "Selected contacts deleted" });
+    await refresh();
   }
 
   async function handleImport() {
@@ -215,16 +234,24 @@ export default function Leads() {
                 {STATUSES.map((status) => <SelectItem key={status} value={status} className="capitalize">{status}</SelectItem>)}
               </SelectContent>
             </Select>
+            <Button variant="outline" onClick={() => setSelected(allSelected ? new Set() : new Set(leads.map((lead) => lead.id)))}>
+              {allSelected ? "Clear all" : `Select all (${leads.length})`}
+            </Button>
+            {selected.size > 0 && <Button variant="destructive" onClick={() => void deleteSelected()}>Delete {selected.size}</Button>}
+            <Button variant="outline" onClick={() => setShowDispositions(true)}>Dispositions</Button>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
+                  <th className="px-4 py-3"><Checkbox checked={allSelected} onCheckedChange={() => setSelected(allSelected ? new Set() : new Set(leads.map((lead) => lead.id)))} aria-label="Select all contacts" /></th>
                   <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Contact</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Company</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Phone</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Status</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Disposition</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Contacted</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Score</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Source</th>
                   <th className="px-4 py-3"></th>
@@ -233,10 +260,13 @@ export default function Leads() {
               <tbody className="divide-y divide-border">
                 {isLoading && [...Array(8)].map((_, index) => (
                   <tr key={index}>
+                    <td className="px-4 py-3"><Skeleton className="h-4 w-4" /></td>
                     <td className="px-5 py-3"><Skeleton className="h-10 w-56" /></td>
                     <td className="px-4 py-3"><Skeleton className="h-4 w-32" /></td>
                     <td className="px-4 py-3"><Skeleton className="h-4 w-24" /></td>
                     <td className="px-4 py-3"><Skeleton className="h-5 w-20" /></td>
+                    <td className="px-4 py-3"><Skeleton className="h-4 w-20" /></td>
+                    <td className="px-4 py-3"><Skeleton className="h-4 w-16" /></td>
                     <td className="px-4 py-3"><Skeleton className="h-4 w-20" /></td>
                     <td className="px-4 py-3"><Skeleton className="h-4 w-20" /></td>
                     <td className="px-4 py-3"></td>
@@ -244,11 +274,12 @@ export default function Leads() {
                 ))}
                 {!isLoading && leads.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="text-center py-14 text-muted-foreground text-sm">No contacts found</td>
+                    <td colSpan={10} className="text-center py-14 text-muted-foreground text-sm">No contacts found</td>
                   </tr>
                 )}
                 {leads.map((lead) => (
                   <tr key={lead.id} className="hover:bg-muted/20 transition-colors">
+                    <td className="px-4 py-3"><Checkbox checked={selected.has(lead.id)} onCheckedChange={() => setSelected((current) => { const next = new Set(current); next.has(lead.id) ? next.delete(lead.id) : next.add(lead.id); return next; })} aria-label={`Select ${lead.firstName} ${lead.lastName}`} /></td>
                     <td className="px-5 py-3">
                       <Link href={`/leads/${lead.id}`} className="flex items-center gap-3 group">
                         <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary flex-shrink-0">
@@ -272,6 +303,8 @@ export default function Leads() {
                         {lead.status}
                       </Badge>
                     </td>
+                    <td className="px-4 py-3 text-muted-foreground">{lead.disposition || "Not set"}</td>
+                    <td className="px-4 py-3 text-center font-medium">{lead.contactAttempts ?? 0}</td>
                     <td className="px-4 py-3"><ScoreBadge score={lead.score} /></td>
                     <td className="px-4 py-3 text-muted-foreground capitalize">{sourceLabel(lead.source)}</td>
                     <td className="px-4 py-3">
@@ -308,6 +341,22 @@ export default function Leads() {
           </div>
         </Card>
       </div>
+
+      <Dialog open={showDispositions} onOpenChange={setShowDispositions}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Custom dispositions</DialogTitle></DialogHeader>
+          <div className="flex flex-wrap gap-2">{dispositions.map((item) => <Badge key={item.id} variant="outline" style={{ borderColor: item.color, color: item.color }}>{item.name}</Badge>)}</div>
+          <div className="flex gap-2">
+            <Input value={newDisposition} onChange={(event) => setNewDisposition(event.target.value)} placeholder="Appointment booked" />
+            <Button onClick={async () => {
+              if (!newDisposition.trim()) return;
+              await apiFetch("/dispositions", { method: "POST", body: JSON.stringify({ name: newDisposition.trim(), color: "#f97316" }) });
+              setNewDisposition("");
+              await queryClient.invalidateQueries({ queryKey: ["dispositions"] });
+            }}>Add</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="max-w-lg">

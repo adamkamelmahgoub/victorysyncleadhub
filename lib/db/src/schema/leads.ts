@@ -1,9 +1,10 @@
-import { pgTable, text, serial, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, jsonb, uuid } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const leadsTable = pgTable("leads", {
   id: serial("id").primaryKey(),
+  clientAccountId: uuid("client_account_id"),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   email: text("email").notNull(),
@@ -12,6 +13,8 @@ export const leadsTable = pgTable("leads", {
   title: text("title"),
   source: text("source"),
   status: text("status").notNull().default("new"),
+  disposition: text("disposition"),
+  contactAttempts: integer("contact_attempts").notNull().default(0),
   score: integer("score").notNull().default(0),
   campaignId: integer("campaign_id"),
   formId: integer("form_id"),

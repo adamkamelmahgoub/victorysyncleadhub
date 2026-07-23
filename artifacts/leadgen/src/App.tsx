@@ -1,6 +1,6 @@
-import { Component, type ErrorInfo, type ReactNode } from "react";
+ import { Component, type ErrorInfo, type ReactNode } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MutationCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
@@ -19,7 +19,6 @@ import FormEditor from "@/pages/form-editor";
 import Analytics from "@/pages/analytics";
 import Settings from "@/pages/settings";
 import Conversations from "@/pages/conversations";
-import CalendarPage from "@/pages/calendar";
 import Automation from "@/pages/automation";
 import Reputation from "@/pages/reputation";
 import Team from "@/pages/team";
@@ -41,8 +40,17 @@ import VictorySyncHome from "@/pages/victorysync-home";
 import { Layout } from "@/components/layout";
 import Login from "@/pages/login";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { useEffect } from "react";
+import { useToast } from "@/hooks/use-toast";
 
 const queryClient = new QueryClient({
+  mutationCache: new MutationCache({
+    onError: (error) => {
+      window.dispatchEvent(new CustomEvent("victorysync-api-error", {
+        detail: error instanceof Error ? error.message : String(error),
+      }));
+    },
+  }),
   defaultOptions: {
     queries: { staleTime: 30_000, retry: 1 },
   },
@@ -56,7 +64,7 @@ function Router() {
       <Route path="/leadgen/leads" component={Leads} />
       <Route path="/leadgen/leads/:id" component={LeadDetail} />
       <Route path="/leadgen/conversations" component={Conversations} />
-      <Route path="/leadgen/calendars" component={CalendarPage} />
+      <Route path="/leadgen/calendars" component={MeetingScheduler} />
       <Route path="/leadgen/automation" component={Automation} />
       <Route path="/leadgen/reputation" component={Reputation} />
       <Route path="/leadgen/pipeline" component={Pipeline} />
@@ -85,7 +93,7 @@ function Router() {
       <Route path="/leads" component={Leads} />
       <Route path="/leads/:id" component={LeadDetail} />
       <Route path="/conversations" component={Conversations} />
-      <Route path="/calendars" component={CalendarPage} />
+      <Route path="/calendars" component={MeetingScheduler} />
       <Route path="/automation" component={Automation} />
       <Route path="/reputation" component={Reputation} />
       <Route path="/pipeline" component={Pipeline} />
@@ -128,12 +136,33 @@ function App() {
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
               <AuthenticatedApp />
             </WouterRouter>
+            <ApiErrorNotifier />
             <Toaster />
           </TooltipProvider>
         </AuthProvider>
       </AppErrorBoundary>
     </QueryClientProvider>
   );
+}
+
+function ApiErrorNotifier() {
+  const { toast } = useToast();
+  useEffect(() => {
+    const showError = (event: Event) => {
+      const message = (event as CustomEvent<string>).detail;
+      let description = message;
+      try {
+        const parsed = JSON.parse(message) as { error?: string };
+        description = parsed.error ?? message;
+      } catch {
+        // The API may return a plain-text error.
+      }
+      toast({ title: "Action failed", description, variant: "destructive" });
+    };
+    window.addEventListener("victorysync-api-error", showError);
+    return () => window.removeEventListener("victorysync-api-error", showError);
+  }, [toast]);
+  return null;
 }
 
 class AppErrorBoundary extends Component<

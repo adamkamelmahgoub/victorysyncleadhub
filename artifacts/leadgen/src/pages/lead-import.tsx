@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Upload, FileText, CheckCircle, AlertCircle, X, Download, ChevronRight } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { Link } from "wouter";
+import { parseXlsx } from "@/lib/xlsx";
 
 const LEAD_FIELDS = [
   { key: "firstName", label: "First Name", required: true },
@@ -13,6 +14,8 @@ const LEAD_FIELDS = [
   { key: "title", label: "Job Title", required: false },
   { key: "source", label: "Source", required: false },
   { key: "status", label: "Status", required: false },
+  { key: "disposition", label: "Disposition", required: false },
+  { key: "contactAttempts", label: "Times Contacted", required: false },
 ];
 
 function parseCSV(text: string): { headers: string[]; rows: string[][] } {
@@ -42,6 +45,7 @@ export default function LeadImport() {
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [isDragging, setIsDragging] = useState(false);
   const [result, setResult] = useState<{ imported: number; failed: number; errors: string[] } | null>(null);
+  const [fileError, setFileError] = useState("");
 
   const importMutation = useMutation({
     mutationFn: async (leads: object[]) => {
@@ -53,14 +57,35 @@ export default function LeadImport() {
     onSuccess: (data) => { setResult(data); setStep("done"); },
   });
 
-  function handleFile(file: File) {
+  async function handleFile(file: File) {
+    setFileError("");
+    if (file.size > 10 * 1024 * 1024) {
+      setFileError("The file is larger than the 10 MB limit.");
+      return;
+    }
+    if (!/\.(csv|xlsx)$/i.test(file.name)) {
+      setFileError("Choose a .csv or .xlsx file.");
+      return;
+    }
     setFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target?.result as string;
-      const p = parseCSV(text);
+    try {
+      if (/\.xlsx$/i.test(file.name)) {
+        finishParsing(await parseXlsx(await file.arrayBuffer()));
+        return;
+      }
+      const text = await file.text();
+      finishParsing(parseCSV(text));
+    } catch (error) {
+      setFileError(error instanceof Error ? error.message : "The file could not be read.");
+      setParsed(null);
+      setStep("upload");
+    }
+  }
+
+  function finishParsing(p: { headers: string[]; rows: string[][] }) {
+      if (!p.headers.length) throw new Error("The file does not contain a header row.");
+      if (!p.rows.length) throw new Error("The file does not contain any contact rows.");
       setParsed(p);
-      // Auto-map headers
       const autoMap: Record<string, string> = {};
       LEAD_FIELDS.forEach((f) => {
         const match = p.headers.find((h) => h.toLowerCase().replace(/\s+/g, "").includes(f.key.toLowerCase()) || f.label.toLowerCase().includes(h.toLowerCase()));
@@ -68,15 +93,13 @@ export default function LeadImport() {
       });
       setMapping(autoMap);
       setStep("map");
-    };
-    reader.readAsText(file);
   }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     setIsDragging(false);
     const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
+    if (file) void handleFile(file);
   }
 
   function getPreviewLeads() {
@@ -90,6 +113,9 @@ export default function LeadImport() {
           if (idx !== -1) lead[f.key] = row[idx] ?? "";
         }
       });
+      if (lead.contactAttempts) {
+        (lead as Record<string, string | number>).contactAttempts = Math.max(0, Number.parseInt(lead.contactAttempts, 10) || 0);
+      }
       return lead;
     });
   }
@@ -105,6 +131,9 @@ export default function LeadImport() {
           if (idx !== -1) lead[f.key] = row[idx] ?? "";
         }
       });
+      if (lead.contactAttempts) {
+        (lead as Record<string, string | number>).contactAttempts = Math.max(0, Number.parseInt(lead.contactAttempts, 10) || 0);
+      }
       return lead;
     }).filter((l) => l.email && l.firstName && l.lastName);
     importMutation.mutate(leads);
@@ -118,7 +147,7 @@ export default function LeadImport() {
       <div className="max-w-3xl mx-auto space-y-6">
         <div>
           <h1 className="text-xl font-bold text-foreground">Import Leads</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Upload a CSV file to bulk-import contacts into VictorySync</p>
+          <p className="text-sm text-muted-foreground mt-0.5">Upload a CSV or XLSX file to bulk-import contacts into VictorySync</p>
         </div>
 
         {/* Steps */}
@@ -146,11 +175,16 @@ export default function LeadImport() {
               className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-colors ${isDragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/20"}`}
             >
               <Upload className={`w-12 h-12 mx-auto mb-4 ${isDragging ? "text-primary" : "text-muted-foreground/40"}`} />
-              <p className="font-semibold text-foreground mb-1">Drop your CSV file here</p>
+              <p className="font-semibold text-foreground mb-1">Drop your CSV or XLSX file here</p>
               <p className="text-sm text-muted-foreground mb-4">or click to browse</p>
-              <span className="text-xs bg-muted px-3 py-1.5 rounded-full text-muted-foreground">Supports .csv files up to 10MB</span>
+              <span className="text-xs bg-muted px-3 py-1.5 rounded-full text-muted-foreground">Supports .csv and .xlsx files up to 10MB</span>
             </div>
-            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+            <input ref={fileRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f); }} />
+            {fileError && (
+              <div className="mt-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" /> {fileError}
+              </div>
+            )}
             <div className="mt-4 flex justify-center">
               <button onClick={downloadTemplate} className="flex items-center gap-1.5 text-sm text-primary hover:underline">
                 <Download className="w-4 h-4" /> Download CSV template

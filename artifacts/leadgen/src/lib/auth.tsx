@@ -14,6 +14,8 @@ type AuthContextValue = {
   loading: boolean;
   session: Session | null;
   user: User | null;
+  role: string;
+  clientAccountId: string | null;
   signOut: () => Promise<void>;
 };
 
@@ -25,12 +27,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    const establishDashboardSession = async () => {
+      const url = new URL(window.location.href);
+      const code = url.searchParams.get("code");
+      const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
+      const accessToken = hash.get("access_token");
+      const refreshToken = hash.get("refresh_token");
+      if (code) {
+        await supabase.auth.exchangeCodeForSession(code);
+        url.searchParams.delete("code");
+        window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+      } else if (accessToken && refreshToken) {
+        await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+        window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+      }
+    };
     setAuthTokenGetter(async () => {
       const { data } = await supabase.auth.getSession();
       return data.session?.access_token ?? null;
     });
 
-    supabase.auth.getSession().then(({ data }) => {
+    establishDashboardSession().then(() => supabase.auth.getSession()).then(({ data }) => {
       if (!mounted) return;
       setSession(data.session);
       setLoading(false);
@@ -53,6 +70,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       session,
       user: session?.user ?? null,
+      role: typeof session?.user?.user_metadata?.role === "string" ? session.user.user_metadata.role : "member",
+      clientAccountId: typeof session?.user?.user_metadata?.client_account_id === "string"
+        ? session.user.user_metadata.client_account_id
+        : null,
       signOut: async () => {
         await supabase.auth.signOut();
       },

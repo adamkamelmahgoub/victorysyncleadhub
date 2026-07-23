@@ -74,6 +74,8 @@ export const CreateLeadBody = zod.object({
   "title": zod.string().optional(),
   "source": zod.string().optional(),
   "status": zod.string().optional(),
+  "disposition": zod.string().optional(),
+  "contactAttempts": zod.number().optional(),
   "score": zod.number().optional(),
   "campaignId": zod.number().optional(),
   "tags": zod.array(zod.string()).optional(),
@@ -120,6 +122,8 @@ export const ImportLeadsBody = zod.object({
   "title": zod.string().optional(),
   "source": zod.string().optional(),
   "status": zod.string().optional(),
+  "disposition": zod.string().optional(),
+  "contactAttempts": zod.number().optional(),
   "score": zod.number().optional(),
   "campaignId": zod.number().optional(),
   "tags": zod.array(zod.string()).optional(),
@@ -181,6 +185,8 @@ export const UpdateLeadBody = zod.object({
   "title": zod.string().optional(),
   "source": zod.string().optional(),
   "status": zod.string().optional(),
+  "disposition": zod.string().optional(),
+  "contactAttempts": zod.number().optional(),
   "score": zod.number().optional(),
   "campaignId": zod.number().optional(),
   "pipelineStageId": zod.number().optional(),
@@ -780,5 +786,4 @@ export const GetTopLeadsResponseItem = zod.object({
   "updatedAt": zod.string()
 })
 export const GetTopLeadsResponse = zod.array(GetTopLeadsResponseItem)
-
 

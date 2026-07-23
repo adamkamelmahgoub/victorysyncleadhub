@@ -1,4 +1,4 @@
-import { integer, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { integer, pgTable, serial, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 export const inviteCodesTable = pgTable("invite_codes", {
   id: serial("id").primaryKey(),
@@ -6,6 +6,7 @@ export const inviteCodesTable = pgTable("invite_codes", {
   email: text("email").notNull(),
   name: text("name").notNull(),
   role: text("role").notNull().default("member"),
+  clientAccountId: uuid("client_account_id"),
   teamMemberId: integer("team_member_id"),
   createdBy: text("created_by").notNull().default("admin"),
   usedByUserId: text("used_by_user_id"),
