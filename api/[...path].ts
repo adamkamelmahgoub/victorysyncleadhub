@@ -257,7 +257,33 @@ type AuthenticatedUser = {
   id: string;
   email?: string;
   user_metadata?: Record<string, unknown>;
+  app_metadata?: Record<string, unknown>;
 };
+
+function orgIdFromUser(user: AuthenticatedUser) {
+  const sources = [user.user_metadata ?? {}, user.app_metadata ?? {}];
+  for (const source of sources) {
+    const value = source.org_id ?? source.organization_id ?? source.orgId ?? source.organizationId;
+    if (typeof value === "string" && value.trim()) return value.trim();
+    const organization = source.organization;
+    if (organization && typeof organization === "object" && "id" in organization) {
+      const nestedId = (organization as { id?: unknown }).id;
+      if (typeof nestedId === "string" && nestedId.trim()) return nestedId.trim();
+    }
+  }
+  return null;
+}
+
+async function resolveUserOrgId(user: AuthenticatedUser, req: VercelRequest) {
+  const metadataOrgId = orgIdFromUser(user);
+  if (metadataOrgId) return metadataOrgId;
+  const rows = await supabaseRest(
+    `team_members?auth_user_id=eq.${encodeURIComponent(user.id)}&select=org_id&limit=1`,
+    { method: "GET" },
+    req,
+  ) as Array<{ org_id?: string | null }>;
+  return rows[0]?.org_id ?? null;
+}
 
 function apiPermissionForPath(path: string) {
   const routes: Array<[RegExp, string]> = [
@@ -307,18 +333,23 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
     return;
   }
   const metadata = user.user_metadata ?? {};
+  const orgId = await resolveUserOrgId(user, req);
   const byAuthId = await supabaseRest(
     `team_members?auth_user_id=eq.${encodeURIComponent(user.id)}&select=*&limit=1`,
     { method: "GET" },
     req,
   ) as Array<Record<string, unknown>>;
   const byEmail = byAuthId.length ? [] : await supabaseRest(
-    `team_members?email=eq.${encodeURIComponent(email)}&select=*&limit=1`,
+    `team_members?${orgId ? `org_id=eq.${encodeURIComponent(orgId)}&` : ""}email=eq.${encodeURIComponent(email)}&select=*&limit=1`,
     { method: "GET" },
     req,
   ) as Array<Record<string, unknown>>;
   const existing = byAuthId[0] ?? byEmail[0];
   const dashboardName = String(metadata.full_name ?? metadata.name ?? email.split("@")[0] ?? "Team member").trim();
+  if (existing?.org_id && orgId && String(existing.org_id) !== orgId) {
+    sendJson(res, 403, { message: "This VictorySync user belongs to a different organization" });
+    return;
+  }
 
   let member: Record<string, unknown>;
   if (existing?.id) {
@@ -333,8 +364,12 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
     }, req) as Array<Record<string, unknown>>;
     member = rows[0] ?? existing;
   } else {
+    if (!orgId) {
+      sendJson(res, 400, { message: "The VictorySync dashboard session is missing an organization ID" });
+      return;
+    }
     const anyMembers = await supabaseRest(
-      "team_members?select=id&limit=1",
+      `team_members?org_id=eq.${encodeURIComponent(orgId)}&select=id&limit=1`,
       { method: "GET" },
       req,
     ) as Array<{ id: string | number }>;
@@ -347,6 +382,7 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
         auth_user_id: user.id,
         name: dashboardName,
         email,
+        org_id: orgId,
         role: dashboardRole,
         status: "active",
         client_account_id: typeof metadata.client_account_id === "string" ? metadata.client_account_id : null,
@@ -363,6 +399,7 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
       client_account_id: member.client_account_id ?? metadata.client_account_id ?? null,
       page_permissions: Array.isArray(member.page_permissions) ? member.page_permissions : metadata.page_permissions ?? null,
       team_member_id: member.id,
+      org_id: member.org_id ?? orgId,
       status: "active",
     };
     const response = await fetch(`${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(user.id)}`, {
@@ -377,6 +414,20 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
     if (!response.ok) throw new Error("Unable to synchronize dashboard access metadata");
   }
   sendJson(res, 200, { member: toCamelValue(member) });
+}
+
+async function listTeamMembers(currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
+  const orgId = await resolveUserOrgId(currentUser, req);
+  if (!orgId) {
+    sendJson(res, 400, { message: "Your dashboard session is missing an organization ID" });
+    return;
+  }
+  const rows = await supabaseRest(
+    `team_members?org_id=eq.${encodeURIComponent(orgId)}&select=*&order=created_at.desc`,
+    { method: "GET" },
+    req,
+  ) as Array<Record<string, unknown>>;
+  sendJson(res, 200, rows.map(toCamelValue));
 }
 
 async function signupWithInvite(req: VercelRequest, res: VercelResponse) {
@@ -425,6 +476,7 @@ async function signupWithInvite(req: VercelRequest, res: VercelResponse) {
     role: member.role ?? invite.role ?? "viewer",
     client_account_id: member.client_account_id ?? invite.client_account_id ?? null,
     team_member_id: teamId,
+    org_id: member.org_id ?? invite.org_id ?? null,
     page_permissions: Array.isArray(member.page_permissions) ? member.page_permissions : null,
   };
   const authResponse = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
@@ -1093,19 +1145,21 @@ async function createSubAccount(req: VercelRequest, res: VercelResponse) {
   sendJson(res, 201, toCamelValue(account));
 }
 
-async function createTeamInvite(req: VercelRequest, res: VercelResponse) {
+async function createTeamInvite(currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as { name?: string; email?: string; role?: string; clientAccountId?: string | null; pagePermissions?: string[] };
   const name = body.name?.trim() ?? "";
   const email = body.email?.trim().toLowerCase() ?? "";
   const role = body.role ?? "member";
   if (!name || !email.includes("@")) { sendJson(res, 400, { error: "Name and a valid email are required" }); return; }
   if (role === "agent" && !body.clientAccountId) { sendJson(res, 400, { error: "Select a client account for this agent" }); return; }
-  const existing = await supabaseRest(`team_members?email=eq.${encodeURIComponent(email)}&select=id&limit=1`, { method: "GET" }, req) as Array<{ id?: string }>;
+  const orgId = await resolveUserOrgId(currentUser, req);
+  if (!orgId) { sendJson(res, 400, { error: "Your dashboard session is missing an organization ID. Sign out through VictorySync and open the CRM again." }); return; }
+  const existing = await supabaseRest(`team_members?org_id=eq.${encodeURIComponent(orgId)}&email=eq.${encodeURIComponent(email)}&select=id&limit=1`, { method: "GET" }, req) as Array<{ id?: string }>;
   if (existing.length) { sendJson(res, 409, { error: "A team member with this email already exists" }); return; }
 
   const rows = await supabaseRest("team_members", {
     method: "POST",
-    body: JSON.stringify({ name, email, role, client_account_id: body.clientAccountId ?? null, page_permissions: Array.isArray(body.pagePermissions) ? body.pagePermissions : null, status: "invited" }),
+    body: JSON.stringify({ name, email, org_id: orgId, role, client_account_id: body.clientAccountId ?? null, page_permissions: Array.isArray(body.pagePermissions) ? body.pagePermissions : null, status: "invited" }),
   }, req) as Array<Record<string, unknown>>;
   const member = rows[0];
   if (!member?.id) { sendJson(res, 500, { error: "Supabase did not return the created team member" }); return; }
@@ -1122,6 +1176,7 @@ async function createTeamInvite(req: VercelRequest, res: VercelResponse) {
         role,
         client_account_id: body.clientAccountId ?? null,
         team_member_id: member.id,
+        org_id: orgId,
         created_by: "dashboard",
         expires_at: expiresAt,
       }),
@@ -1158,6 +1213,7 @@ async function resendTeamInvite(memberId: string, req: VercelRequest, res: Verce
       role: member.role ?? "member",
       client_account_id: member.client_account_id ?? null,
       team_member_id: member.id,
+      org_id: member.org_id ?? null,
       created_by: "dashboard",
       expires_at: expiresAt,
     }),
@@ -1202,6 +1258,7 @@ async function updateTeamMember(memberId: string, req: VercelRequest, res: Verce
           role: member.role ?? "viewer",
           client_account_id: member.client_account_id ?? null,
           team_member_id: member.id,
+          org_id: member.org_id ?? null,
           status: member.status ?? "active",
           page_permissions: Array.isArray(member.page_permissions) ? member.page_permissions : null,
         },
@@ -1997,7 +2054,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (method === "POST" && path === "/api/team/invite") {
-      await createTeamInvite(req, res);
+      await createTeamInvite(currentUser, req, res);
+      return;
+    }
+
+    if (method === "GET" && path === "/api/team") {
+      await listTeamMembers(currentUser, req, res);
       return;
     }
 
