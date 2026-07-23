@@ -19,7 +19,6 @@ import FormEditor from "@/pages/form-editor";
 import Analytics from "@/pages/analytics";
 import Settings from "@/pages/settings";
 import Conversations from "@/pages/conversations";
-import CalendarPage from "@/pages/calendar";
 import Automation from "@/pages/automation";
 import Reputation from "@/pages/reputation";
 import Team from "@/pages/team";
@@ -65,7 +64,7 @@ function Router() {
       <Route path="/leadgen/leads" component={Leads} />
       <Route path="/leadgen/leads/:id" component={LeadDetail} />
       <Route path="/leadgen/conversations" component={Conversations} />
-      <Route path="/leadgen/calendars" component={CalendarPage} />
+      <Route path="/leadgen/calendars" component={MeetingScheduler} />
       <Route path="/leadgen/automation" component={Automation} />
       <Route path="/leadgen/reputation" component={Reputation} />
       <Route path="/leadgen/pipeline" component={Pipeline} />
@@ -94,7 +93,7 @@ function Router() {
       <Route path="/leads" component={Leads} />
       <Route path="/leads/:id" component={LeadDetail} />
       <Route path="/conversations" component={Conversations} />
-      <Route path="/calendars" component={CalendarPage} />
+      <Route path="/calendars" component={MeetingScheduler} />
       <Route path="/automation" component={Automation} />
       <Route path="/reputation" component={Reputation} />
       <Route path="/pipeline" component={Pipeline} />
