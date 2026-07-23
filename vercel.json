@@ -9,6 +9,10 @@
       "dest": "/api/[...path].ts"
     },
     {
+      "src": "/leadgen/api/(.*)",
+      "dest": "/api/[...path].ts"
+    },
+    {
       "handle": "filesystem"
     },
     {

@@ -128,7 +128,7 @@ function sendJson(res: VercelResponse, statusCode: number, data: unknown) {
 }
 
 function pathFromUrl(url = "/") {
-  return new URL(url, "https://local.invalid").pathname;
+  return new URL(url, "https://local.invalid").pathname.replace(/^\/leadgen(?=\/api\/)/, "");
 }
 
 async function readJson(req: VercelRequest) {

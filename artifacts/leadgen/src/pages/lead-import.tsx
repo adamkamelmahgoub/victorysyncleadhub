@@ -50,10 +50,27 @@ export default function LeadImport() {
 
   const importMutation = useMutation({
     mutationFn: async (leads: object[]) => {
-      return apiFetch("/api/leads/import", {
-        method: "POST",
-        body: JSON.stringify({ leads }),
-      });
+      try {
+        return await apiFetch("/api/leads/import", {
+          method: "POST",
+          body: JSON.stringify({ leads }),
+        });
+      } catch (error) {
+        if (!(error instanceof Error) || !/\b404\b/.test(error.message)) throw error;
+        const errors: string[] = [];
+        let imported = 0;
+        for (let index = 0; index < leads.length; index += 5) {
+          const batch = leads.slice(index, index + 5);
+          const results = await Promise.allSettled(
+            batch.map((lead) => apiFetch("/api/leads", { method: "POST", body: JSON.stringify(lead) })),
+          );
+          results.forEach((result, batchIndex) => {
+            if (result.status === "fulfilled") imported += 1;
+            else errors.push(`Row ${index + batchIndex + 2}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+          });
+        }
+        return { imported, failed: leads.length - imported, total: leads.length, errors };
+      }
     },
     onSuccess: (data) => { setResult(data); setStep("done"); },
   });
