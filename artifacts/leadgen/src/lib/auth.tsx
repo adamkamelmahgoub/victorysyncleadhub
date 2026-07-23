@@ -16,6 +16,7 @@ type AuthContextValue = {
   user: User | null;
   role: string;
   clientAccountId: string | null;
+  pagePermissions: string[] | null;
   signOut: () => Promise<void>;
 };
 
@@ -73,6 +74,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       role: typeof session?.user?.user_metadata?.role === "string" ? session.user.user_metadata.role : "member",
       clientAccountId: typeof session?.user?.user_metadata?.client_account_id === "string"
         ? session.user.user_metadata.client_account_id
+        : null,
+      pagePermissions: session?.user?.user_metadata?.role === "owner"
+        ? null
+        : Array.isArray(session?.user?.user_metadata?.page_permissions)
+        ? session.user.user_metadata.page_permissions.filter((value): value is string => typeof value === "string")
         : null,
       signOut: async () => {
         await supabase.auth.signOut();

@@ -42,6 +42,7 @@ import Login from "@/pages/login";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { canAccessPath } from "@/lib/permissions";
 
 const queryClient = new QueryClient({
   mutationCache: new MutationCache({
@@ -211,7 +212,7 @@ class AppErrorBoundary extends Component<
 }
 
 function AuthenticatedApp() {
-  const { loading, session } = useAuth();
+  const { loading, session, pagePermissions } = useAuth();
   const [location] = useLocation();
 
   if (loading) {
@@ -224,6 +225,17 @@ function AuthenticatedApp() {
 
   if (!session) {
     return <Login />;
+  }
+
+  if (!canAccessPath(location, pagePermissions)) {
+    return (
+      <Layout>
+        <div className="max-w-lg mx-auto mt-20 rounded-xl border border-border bg-white p-8 text-center shadow-sm">
+          <h1 className="text-lg font-semibold text-foreground">Access restricted</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Your administrator has not enabled this page for your account.</p>
+        </div>
+      </Layout>
+    );
   }
 
   return (

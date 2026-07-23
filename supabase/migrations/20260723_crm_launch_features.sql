@@ -32,6 +32,7 @@ create table if not exists public.team_members (
   status text not null default 'invited',
   auth_user_id text unique,
   client_account_id uuid references public.sub_accounts(id) on delete set null,
+  page_permissions jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -81,7 +82,8 @@ alter table public.leads
 
 alter table public.team_members
   add column if not exists auth_user_id text unique,
-  add column if not exists client_account_id uuid references public.sub_accounts(id) on delete set null;
+  add column if not exists client_account_id uuid references public.sub_accounts(id) on delete set null,
+  add column if not exists page_permissions jsonb;
 
 alter table public.invite_codes
   add column if not exists client_account_id uuid references public.sub_accounts(id) on delete set null;

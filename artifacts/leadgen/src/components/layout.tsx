@@ -8,6 +8,7 @@ import {
   CalendarClock, TrendingUp, Gift, Rocket, Key,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { canAccessPath } from "@/lib/permissions";
 
 type NavItem = { href: string; label: string; icon: React.ElementType; badge?: string };
 type NavEntry = NavItem | { section: string } | null;
@@ -65,7 +66,7 @@ function GHLLogo() {
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const { user, role, clientAccountId, signOut } = useAuth();
+  const { user, role, clientAccountId, pagePermissions, signOut } = useAuth();
   const userEmail = user?.email ?? "Signed in user";
   const initials = userEmail
     .split("@")[0]
@@ -124,6 +125,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 </div>
               );
             }
+            if (!canAccessPath(item.href, pagePermissions)) return null;
             const active = isActive(item.href);
             return (
               <Link key={item.href} href={item.href}>
@@ -162,7 +164,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Bottom */}
         <div className="p-2 flex-shrink-0" style={{ borderTop: "1px solid hsl(var(--sidebar-border))" }}>
-          <Link href="/settings">
+          {canAccessPath("/settings", pagePermissions) && <Link href="/settings">
             <div
               className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer mb-1"
               style={isActive("/settings") ? { background: "hsl(25 95% 53% / 0.18)", color: "#FB923C" } : { color: "hsl(var(--sidebar-foreground))" }}
@@ -170,8 +172,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <Settings className="w-3.5 h-3.5 flex-shrink-0" />
               Settings
             </div>
-          </Link>
-          <Link href="/billing-integration">
+          </Link>}
+          {canAccessPath("/billing-integration", pagePermissions) && <Link href="/billing-integration">
             <div
               className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer mb-1"
               style={isActive("/billing-integration") ? { background: "hsl(25 95% 53% / 0.18)", color: "#FB923C" } : { color: "hsl(var(--sidebar-foreground))" }}
@@ -179,7 +181,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <Key className="w-3.5 h-3.5 flex-shrink-0" />
               API & SSO
             </div>
-          </Link>
+          </Link>}
           <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg mt-1">
             <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ background: "#F97316" }}>
               {initials}
@@ -218,16 +220,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <Bell className="w-4 h-4" />
               <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-primary rounded-full" />
             </button>
-            <Link href="/lead-import">
+            {canAccessPath("/lead-import", pagePermissions) && <Link href="/lead-import">
               <button className="text-sm font-medium px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors flex items-center gap-1.5">
                 <Upload className="w-3.5 h-3.5" /> Import
               </button>
-            </Link>
-            <Link href="/leads">
+            </Link>}
+            {canAccessPath("/leads", pagePermissions) && <Link href="/leads">
               <button className="text-sm font-medium px-3 py-1.5 rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors">
                 + Add Contact
               </button>
-            </Link>
+            </Link>}
           </div>
         </header>
 

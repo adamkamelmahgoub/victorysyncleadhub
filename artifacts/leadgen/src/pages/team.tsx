@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { asArray } from "@/lib/data-shape";
+import { ALL_PAGE_PERMISSION_KEYS, PAGE_PERMISSIONS } from "@/lib/permissions";
 
 interface TeamMember {
   id: string;
@@ -15,6 +16,7 @@ interface TeamMember {
   clientAccountId: string | null;
   status: "active" | "invited" | "deactivated";
   createdAt: string;
+  pagePermissions: string[] | null;
 }
 
 interface ClientAccount {
@@ -61,7 +63,7 @@ export default function Team() {
   const [search, setSearch] = useState("");
   const [showInvite, setShowInvite] = useState(false);
   const [editMember, setEditMember] = useState<TeamMember | null>(null);
-  const [form, setForm] = useState({ name: "", email: "", role: "member" as TeamMember["role"], clientAccountId: null as string | null });
+  const [form, setForm] = useState({ name: "", email: "", role: "member" as TeamMember["role"], clientAccountId: null as string | null, pagePermissions: [...ALL_PAGE_PERMISSION_KEYS] });
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [createdInvite, setCreatedInvite] = useState<InviteResponse["invite"] | null>(null);
 
@@ -81,7 +83,7 @@ export default function Team() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["team"] });
       setCreatedInvite(data.invite);
-      setForm({ name: "", email: "", role: "member", clientAccountId: null });
+      setForm({ name: "", email: "", role: "member", clientAccountId: null, pagePermissions: [...ALL_PAGE_PERMISSION_KEYS] });
     },
   });
 
@@ -381,6 +383,31 @@ export default function Team() {
                       {!accountsLoading && clientAccounts.length === 0 && <p className="mt-1 text-xs text-amber-600">Create a client account before inviting an agent.</p>}
                     </div>
                   )}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-medium text-muted-foreground">Pages and features</label>
+                      <button type="button" onClick={() => setForm((current) => ({ ...current, pagePermissions: current.pagePermissions.length === ALL_PAGE_PERMISSION_KEYS.length ? [] : [...ALL_PAGE_PERMISSION_KEYS] }))} className="text-xs text-primary hover:underline">
+                        {form.pagePermissions.length === ALL_PAGE_PERMISSION_KEYS.length ? "Clear all" : "Select all"}
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 max-h-44 overflow-y-auto rounded-lg border border-border p-3">
+                      {PAGE_PERMISSIONS.map((permission) => (
+                        <label key={permission.key} className="flex items-center gap-2 text-xs text-foreground">
+                          <input
+                            type="checkbox"
+                            checked={form.pagePermissions.includes(permission.key)}
+                            onChange={(event) => setForm((current) => ({
+                              ...current,
+                              pagePermissions: event.target.checked
+                                ? [...current.pagePermissions, permission.key]
+                                : current.pagePermissions.filter((key) => key !== permission.key),
+                            }))}
+                          />
+                          {permission.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
                   {invite.error && <p className="text-xs text-red-500">{invite.error instanceof Error ? invite.error.message : String(invite.error)}</p>}
                 </div>
                 <div className="px-6 pb-6 flex gap-2 justify-end">
@@ -407,17 +434,51 @@ export default function Team() {
               <h3 className="font-semibold text-foreground">Edit Role — {editMember.name}</h3>
               <button onClick={() => setEditMember(null)} className="text-muted-foreground hover:text-foreground">x</button>
             </div>
-            <div className="p-6 space-y-2">
+            <div className="p-6 space-y-3">
               {(["admin", "agent", "member", "viewer"] as const).map((role) => (
                 <button
                   key={role}
-                  onClick={() => update.mutate({ id: editMember.id, role })}
+                  onClick={() => setEditMember((member) => member ? { ...member, role } : member)}
                   className={`w-full p-3 border rounded-xl text-left transition-colors ${editMember.role === role ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
                 >
                   <div className={`text-sm font-semibold capitalize ${editMember.role === role ? "text-primary" : "text-foreground"}`}>{role}</div>
                   <div className="text-xs text-muted-foreground mt-0.5">{(ROLE_PERMS[role] ?? [])[0]}</div>
                 </button>
               ))}
+              <div className="pt-3 border-t border-border">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-medium text-muted-foreground">Pages and features</label>
+                  <button type="button" onClick={() => setEditMember((member) => member ? { ...member, pagePermissions: (member.pagePermissions ?? ALL_PAGE_PERMISSION_KEYS).length === ALL_PAGE_PERMISSION_KEYS.length ? [] : [...ALL_PAGE_PERMISSION_KEYS] } : member)} className="text-xs text-primary hover:underline">
+                    {(editMember.pagePermissions ?? ALL_PAGE_PERMISSION_KEYS).length === ALL_PAGE_PERMISSION_KEYS.length ? "Clear all" : "Select all"}
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto rounded-lg border border-border p-3">
+                  {PAGE_PERMISSIONS.map((permission) => {
+                    const selected = editMember.pagePermissions ?? ALL_PAGE_PERMISSION_KEYS;
+                    return (
+                      <label key={permission.key} className="flex items-center gap-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(permission.key)}
+                          onChange={(event) => setEditMember((member) => {
+                            if (!member) return member;
+                            const current = member.pagePermissions ?? [...ALL_PAGE_PERMISSION_KEYS];
+                            return { ...member, pagePermissions: event.target.checked ? [...current, permission.key] : current.filter((key) => key !== permission.key) };
+                          })}
+                        />
+                        {permission.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+              <button
+                onClick={() => update.mutate({ id: editMember.id, role: editMember.role, pagePermissions: editMember.pagePermissions ?? [...ALL_PAGE_PERMISSION_KEYS] })}
+                disabled={update.isPending}
+                className="w-full mt-2 px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg disabled:opacity-50"
+              >
+                {update.isPending ? "Saving..." : "Save access"}
+              </button>
             </div>
           </div>
         </div>

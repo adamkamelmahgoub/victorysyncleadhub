@@ -258,6 +258,32 @@ type AuthenticatedUser = {
   user_metadata?: Record<string, unknown>;
 };
 
+function apiPermissionForPath(path: string) {
+  const routes: Array<[RegExp, string]> = [
+    [/^\/api\/(?:sub-accounts|white-label)/, "client-accounts"],
+    [/^\/api\/team/, "team"],
+    [/^\/api\/leads\/import/, "imports"],
+    [/^\/api\/(?:leads|activities|notes|tasks)/, "contacts"],
+    [/^\/api\/segments/, "segments"],
+    [/^\/api\/email\/(?:send|logs)/, "conversations"],
+    [/^\/api\/(?:pipelines|pipeline)/, "pipeline"],
+    [/^\/api\/(?:prospects|scraper)/, "prospecting"],
+    [/^\/api\/meeting/, "calendar"],
+    [/^\/api\/sequences/, "sequences"],
+    [/^\/api\/campaigns/, "campaigns"],
+    [/^\/api\/(?:email-templates|email-accounts)/, "email"],
+    [/^\/api\/social/, "social"],
+    [/^\/api\/automation/, "automation"],
+    [/^\/api\/forms/, "forms"],
+    [/^\/api\/(?:integrations|webhooks|oauth)/, "integrations"],
+    [/^\/api\/reviews/, "reputation"],
+    [/^\/api\/(?:analytics|revenue)/, "reporting"],
+    [/^\/api\/(?:affiliates|referrals)/, "affiliates"],
+    [/^\/api\/(?:api-keys|onboarding)/, "settings"],
+  ];
+  return routes.find(([pattern]) => pattern.test(path))?.[1];
+}
+
 async function authenticateRequest(req: VercelRequest): Promise<AuthenticatedUser> {
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error("Supabase authentication environment is not configured");
@@ -319,6 +345,7 @@ async function signupWithInvite(req: VercelRequest, res: VercelResponse) {
     role: member.role ?? invite.role ?? "viewer",
     client_account_id: member.client_account_id ?? invite.client_account_id ?? null,
     team_member_id: teamId,
+    page_permissions: Array.isArray(member.page_permissions) ? member.page_permissions : null,
   };
   const authResponse = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
     method: "POST",
@@ -965,7 +992,7 @@ async function createSubAccount(req: VercelRequest, res: VercelResponse) {
 }
 
 async function createTeamInvite(req: VercelRequest, res: VercelResponse) {
-  const body = (await readJson(req)) as { name?: string; email?: string; role?: string; clientAccountId?: string | null };
+  const body = (await readJson(req)) as { name?: string; email?: string; role?: string; clientAccountId?: string | null; pagePermissions?: string[] };
   const name = body.name?.trim() ?? "";
   const email = body.email?.trim().toLowerCase() ?? "";
   const role = body.role ?? "member";
@@ -976,7 +1003,7 @@ async function createTeamInvite(req: VercelRequest, res: VercelResponse) {
 
   const rows = await supabaseRest("team_members", {
     method: "POST",
-    body: JSON.stringify({ name, email, role, client_account_id: body.clientAccountId ?? null, status: "invited" }),
+    body: JSON.stringify({ name, email, role, client_account_id: body.clientAccountId ?? null, page_permissions: Array.isArray(body.pagePermissions) ? body.pagePermissions : null, status: "invited" }),
   }, req) as Array<Record<string, unknown>>;
   const member = rows[0];
   if (!member?.id) { sendJson(res, 500, { error: "Supabase did not return the created team member" }); return; }
@@ -1074,6 +1101,7 @@ async function updateTeamMember(memberId: string, req: VercelRequest, res: Verce
           client_account_id: member.client_account_id ?? null,
           team_member_id: member.id,
           status: member.status ?? "active",
+          page_permissions: Array.isArray(member.page_permissions) ? member.page_permissions : null,
         },
         ban_duration: member.status === "active" ? "none" : "876000h",
       }),
@@ -1740,6 +1768,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (role === "agent" && /^\/api\/(?:team|sub-accounts|api-keys)/.test(path)) {
       sendJson(res, 403, { message: "Agent accounts cannot manage workspace access" });
+      return;
+    }
+    const pagePermissions = currentUser.user_metadata?.page_permissions;
+    const requiredPermission = apiPermissionForPath(path);
+    if (role !== "owner" && Array.isArray(pagePermissions) && requiredPermission && !pagePermissions.includes(requiredPermission)) {
+      sendJson(res, 403, { message: `Access to ${requiredPermission} is disabled for this account` });
       return;
     }
 
