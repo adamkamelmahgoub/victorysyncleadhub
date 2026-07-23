@@ -146,6 +146,10 @@ export default function PipelinePage() {
   const [showStageDialog, setShowStageDialog] = useState(false);
   const [newPipeline, setNewPipeline] = useState({ name: "", description: "" });
   const [newStage, setNewStage] = useState({ name: "", color: STAGE_COLORS[0] });
+  const [pipelineError, setPipelineError] = useState("");
+  const [stageError, setStageError] = useState("");
+  const [creatingPipeline, setCreatingPipeline] = useState(false);
+  const [creatingStage, setCreatingStage] = useState(false);
   const { toast } = useToast();
 
   const selectedPipeline = useMemo(
@@ -183,32 +187,48 @@ export default function PipelinePage() {
 
   async function createPipeline() {
     if (!newPipeline.name.trim()) return;
-    const pipeline = await apiFetch("/api/pipelines", {
-      method: "POST",
-      body: JSON.stringify({ name: newPipeline.name.trim(), description: newPipeline.description.trim() || null }),
-    }) as Pipeline;
-    setShowPipelineDialog(false);
-    setNewPipeline({ name: "", description: "" });
-    await loadPipelines();
-    setSelectedPipelineId(pipeline.id);
-    toast({ title: "Pipeline created" });
+    setPipelineError("");
+    setCreatingPipeline(true);
+    try {
+      const pipeline = await apiFetch("/api/pipelines", {
+        method: "POST",
+        body: JSON.stringify({ name: newPipeline.name.trim(), description: newPipeline.description.trim() || null }),
+      }) as Pipeline;
+      setShowPipelineDialog(false);
+      setNewPipeline({ name: "", description: "" });
+      await loadPipelines();
+      setSelectedPipelineId(pipeline.id);
+      toast({ title: "Pipeline created" });
+    } catch (error) {
+      setPipelineError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCreatingPipeline(false);
+    }
   }
 
   async function createStage() {
     if (!newStage.name.trim() || !selectedPipelineId) return;
-    await apiFetch("/api/pipeline/stages", {
-      method: "POST",
-      body: JSON.stringify({
-        name: newStage.name.trim(),
-        color: newStage.color,
-        pipelineId: selectedPipelineId,
-        position: data.stages.length,
-      }),
-    });
-    setShowStageDialog(false);
-    setNewStage({ name: "", color: STAGE_COLORS[0] });
-    loadBoard(selectedPipelineId);
-    toast({ title: "Stage added" });
+    setStageError("");
+    setCreatingStage(true);
+    try {
+      await apiFetch("/api/pipeline/stages", {
+        method: "POST",
+        body: JSON.stringify({
+          name: newStage.name.trim(),
+          color: newStage.color,
+          pipelineId: selectedPipelineId,
+          position: data.stages.length,
+        }),
+      });
+      setShowStageDialog(false);
+      setNewStage({ name: "", color: STAGE_COLORS[0] });
+      await loadBoard(selectedPipelineId);
+      toast({ title: "Stage added" });
+    } catch (error) {
+      setStageError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCreatingStage(false);
+    }
   }
 
   async function handleDrop(stageId: string | null) {
@@ -334,8 +354,9 @@ export default function PipelinePage() {
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" onClick={() => setShowPipelineDialog(false)}>Cancel</Button>
-              <Button onClick={createPipeline} disabled={!newPipeline.name.trim()}>Create</Button>
+              <Button onClick={createPipeline} disabled={!newPipeline.name.trim() || creatingPipeline}>{creatingPipeline ? "Creating..." : "Create"}</Button>
             </div>
+            {pipelineError && <p className="text-sm text-red-600">{pipelineError}</p>}
           </div>
         </DialogContent>
       </Dialog>
@@ -364,8 +385,9 @@ export default function PipelinePage() {
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" onClick={() => setShowStageDialog(false)}>Cancel</Button>
-              <Button onClick={createStage} disabled={!newStage.name.trim() || !selectedPipelineId}>Add stage</Button>
+              <Button onClick={createStage} disabled={!newStage.name.trim() || !selectedPipelineId || creatingStage}>{creatingStage ? "Adding..." : "Add stage"}</Button>
             </div>
+            {stageError && <p className="text-sm text-red-600">{stageError}</p>}
           </div>
         </DialogContent>
       </Dialog>

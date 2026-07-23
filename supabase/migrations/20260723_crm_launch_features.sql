@@ -1,5 +1,26 @@
 create extension if not exists "pgcrypto";
 
+create table if not exists public.pipelines (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  description text,
+  is_default boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.pipeline_stages (
+  id uuid primary key default gen_random_uuid(),
+  pipeline_id uuid references public.pipelines(id) on delete cascade,
+  name text not null,
+  color text not null default '#f97316',
+  position integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+alter table public.pipeline_stages
+  add column if not exists pipeline_id uuid references public.pipelines(id) on delete cascade;
+
 create table if not exists public.sub_accounts (
   id uuid primary key default gen_random_uuid(),
   name text not null,
