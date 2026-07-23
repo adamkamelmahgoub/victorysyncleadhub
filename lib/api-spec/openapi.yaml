@@ -654,7 +654,7 @@ components:
     # ── Lead schemas ────────────────────────────────────────────────────────────
     Lead:
       type: object
-      required: [id, firstName, lastName, email, status, score, createdAt, updatedAt]
+      required: [id, firstName, lastName, email, status, contactAttempts, score, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -674,6 +674,10 @@ components:
           type: ["string", "null"]
         status:
           type: string
+        disposition:
+          type: ["string", "null"]
+        contactAttempts:
+          type: integer
         score:
           type: integer
         campaignId:
@@ -719,6 +723,10 @@ components:
           type: string
         status:
           type: string
+        disposition:
+          type: string
+        contactAttempts:
+          type: integer
         score:
           type: integer
         campaignId:
@@ -751,6 +759,10 @@ components:
           type: string
         status:
           type: string
+        disposition:
+          type: string
+        contactAttempts:
+          type: integer
         score:
           type: integer
         campaignId:

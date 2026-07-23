@@ -74,6 +74,7 @@ router.post("/auth/signup-with-invite", async (req, res): Promise<void> => {
     user_metadata: {
       full_name: invite.name,
       role: invite.role,
+      client_account_id: invite.clientAccountId,
       team_member_id: invite.teamMemberId,
       invite_code_id: invite.id,
     },
@@ -93,7 +94,7 @@ router.post("/auth/signup-with-invite", async (req, res): Promise<void> => {
   if (invite.teamMemberId) {
     await db
       .update(teamMembersTable)
-      .set({ status: "active", updatedAt: now })
+      .set({ status: "active", authUserId: data.user.id, updatedAt: now })
       .where(eq(teamMembersTable.id, invite.teamMemberId));
   }
 

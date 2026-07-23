@@ -15,6 +15,7 @@ export * from "./reviews";
 export * from "./webhooks";
 export * from "./email-templates";
 export * from "./contact-tasks";
+export * from "./dispositions";
 export * from "./sub-accounts";
 export * from "./api-keys";
 export * from "./meeting-scheduler";

@@ -3,6 +3,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { db, inviteCodesTable, teamMembersTable } from "@workspace/db";
 import { z } from "zod";
 import crypto from "crypto";
+import { isSupabaseServiceRoleConfigured, supabase } from "../lib/supabase.js";
 
 const router: IRouter = Router();
 
@@ -23,7 +24,8 @@ router.post("/team/invite", async (req, res): Promise<void> => {
   const body = z.object({
     name: z.string().min(1),
     email: z.string().email(),
-    role: z.enum(["owner", "admin", "member", "viewer"]).default("member"),
+    role: z.enum(["owner", "admin", "agent", "member", "viewer"]).default("member"),
+    clientAccountId: z.string().uuid().nullable().optional(),
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
 
@@ -40,6 +42,7 @@ router.post("/team/invite", async (req, res): Promise<void> => {
     email: member.email,
     name: member.name,
     role: member.role,
+    clientAccountId: member.clientAccountId,
     teamMemberId: member.id,
     createdBy,
     expiresAt,
@@ -63,7 +66,8 @@ router.patch("/team/:id", async (req, res): Promise<void> => {
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const body = z.object({
-    role: z.enum(["owner", "admin", "member", "viewer"]).optional(),
+    role: z.enum(["owner", "admin", "agent", "member", "viewer"]).optional(),
+    clientAccountId: z.string().uuid().nullable().optional(),
     status: z.enum(["active", "invited", "deactivated"]).optional(),
     name: z.string().min(1).optional(),
   }).safeParse(req.body);
@@ -71,6 +75,12 @@ router.patch("/team/:id", async (req, res): Promise<void> => {
 
   const [member] = await db.update(teamMembersTable).set({ ...body.data, updatedAt: new Date() }).where(eq(teamMembersTable.id, id)).returning();
   if (!member) { res.status(404).json({ error: "Member not found" }); return; }
+  if (member.authUserId && supabase && isSupabaseServiceRoleConfigured()) {
+    const { error } = await supabase.auth.admin.updateUserById(member.authUserId, {
+      user_metadata: { role: member.role, client_account_id: member.clientAccountId },
+    });
+    if (error) { res.status(502).json({ error: `CRM role saved but auth sync failed: ${error.message}` }); return; }
+  }
   res.json({ ...member, createdAt: member.createdAt.toISOString(), updatedAt: member.updatedAt.toISOString() });
 });
 

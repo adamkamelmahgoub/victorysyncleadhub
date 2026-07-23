@@ -11,7 +11,8 @@ interface TeamMember {
   id: number;
   name: string;
   email: string;
-  role: "owner" | "admin" | "member" | "viewer";
+  role: "owner" | "admin" | "agent" | "member" | "viewer";
+  clientAccountId: string | null;
   status: "active" | "invited" | "deactivated";
   createdAt: string;
 }
@@ -30,6 +31,7 @@ interface InviteResponse {
 const ROLE_STYLES: Record<string, string> = {
   owner: "bg-purple-100 text-purple-700 border-purple-200",
   admin: "bg-blue-100 text-blue-700 border-blue-200",
+  agent: "bg-orange-100 text-orange-700 border-orange-200",
   member: "bg-green-100 text-green-700 border-green-200",
   viewer: "bg-gray-100 text-gray-600 border-gray-200",
 };
@@ -43,6 +45,7 @@ const STATUS_STYLES: Record<string, { label: string; class: string; icon: React.
 const ROLE_PERMS: Record<string, string[]> = {
   owner: ["Full access to all features and billing"],
   admin: ["Manage contacts, campaigns, automations, team (cannot manage billing)"],
+  agent: ["Work only for the assigned client account"],
   member: ["Manage contacts, campaigns, automations (cannot manage team)"],
   viewer: ["Read-only access to all data"],
 };
@@ -52,7 +55,7 @@ export default function Team() {
   const [search, setSearch] = useState("");
   const [showInvite, setShowInvite] = useState(false);
   const [editMember, setEditMember] = useState<TeamMember | null>(null);
-  const [form, setForm] = useState({ name: "", email: "", role: "member" as TeamMember["role"] });
+  const [form, setForm] = useState({ name: "", email: "", role: "member" as TeamMember["role"], clientAccountId: null as string | null });
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const [createdInvite, setCreatedInvite] = useState<InviteResponse["invite"] | null>(null);
 
@@ -67,7 +70,7 @@ export default function Team() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["team"] });
       setCreatedInvite(data.invite);
-      setForm({ name: "", email: "", role: "member" });
+      setForm({ name: "", email: "", role: "member", clientAccountId: null });
     },
   });
 
@@ -335,7 +338,7 @@ export default function Team() {
                   <div>
                     <label className="text-xs font-medium text-muted-foreground block mb-2">Role</label>
                     <div className="grid grid-cols-2 gap-2">
-                      {(["admin", "member", "viewer"] as const).map((role) => (
+                      {(["admin", "agent", "member", "viewer"] as const).map((role) => (
                         <button
                           key={role}
                           onClick={() => setForm((f) => ({ ...f, role }))}
@@ -347,13 +350,19 @@ export default function Team() {
                       ))}
                     </div>
                   </div>
+                  {form.role === "agent" && (
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground block mb-1.5">Client account ID *</label>
+                      <input type="text" value={form.clientAccountId ?? ""} onChange={(e) => setForm((f) => ({ ...f, clientAccountId: e.target.value || null }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg" placeholder="Client account UUID" />
+                    </div>
+                  )}
                   {invite.error && <p className="text-xs text-red-500">{invite.error instanceof Error ? invite.error.message : String(invite.error)}</p>}
                 </div>
                 <div className="px-6 pb-6 flex gap-2 justify-end">
                   <button onClick={() => setShowInvite(false)} className="px-4 py-2 text-sm font-medium text-muted-foreground border border-border rounded-lg hover:bg-muted">Cancel</button>
                   <button
                     onClick={() => invite.mutate(form)}
-                    disabled={!form.name || !form.email || invite.isPending}
+                    disabled={!form.name || !form.email || (form.role === "agent" && !form.clientAccountId) || invite.isPending}
                     className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-40 transition-colors"
                   >
                     {invite.isPending ? "Creating..." : "Create Invite"}
@@ -374,7 +383,7 @@ export default function Team() {
               <button onClick={() => setEditMember(null)} className="text-muted-foreground hover:text-foreground">x</button>
             </div>
             <div className="p-6 space-y-2">
-              {(["admin", "member", "viewer"] as const).map((role) => (
+              {(["admin", "agent", "member", "viewer"] as const).map((role) => (
                 <button
                   key={role}
                   onClick={() => update.mutate({ id: editMember.id, role })}

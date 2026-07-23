@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Upload, FileText, CheckCircle, AlertCircle, X, Download, ChevronRight } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { Link } from "wouter";
+import { parseXlsx } from "@/lib/xlsx";
 
 const LEAD_FIELDS = [
   { key: "firstName", label: "First Name", required: true },
@@ -13,6 +14,8 @@ const LEAD_FIELDS = [
   { key: "title", label: "Job Title", required: false },
   { key: "source", label: "Source", required: false },
   { key: "status", label: "Status", required: false },
+  { key: "disposition", label: "Disposition", required: false },
+  { key: "contactAttempts", label: "Times Contacted", required: false },
 ];
 
 function parseCSV(text: string): { headers: string[]; rows: string[][] } {
@@ -53,14 +56,23 @@ export default function LeadImport() {
     onSuccess: (data) => { setResult(data); setStep("done"); },
   });
 
-  function handleFile(file: File) {
+  async function handleFile(file: File) {
     setFileName(file.name);
+    if (/\.xlsx$/i.test(file.name)) {
+      finishParsing(await parseXlsx(await file.arrayBuffer()));
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target?.result as string;
       const p = parseCSV(text);
+      finishParsing(p);
+    };
+    reader.readAsText(file);
+  }
+
+  function finishParsing(p: { headers: string[]; rows: string[][] }) {
       setParsed(p);
-      // Auto-map headers
       const autoMap: Record<string, string> = {};
       LEAD_FIELDS.forEach((f) => {
         const match = p.headers.find((h) => h.toLowerCase().replace(/\s+/g, "").includes(f.key.toLowerCase()) || f.label.toLowerCase().includes(h.toLowerCase()));
@@ -68,8 +80,6 @@ export default function LeadImport() {
       });
       setMapping(autoMap);
       setStep("map");
-    };
-    reader.readAsText(file);
   }
 
   function handleDrop(e: React.DragEvent) {
@@ -90,6 +100,9 @@ export default function LeadImport() {
           if (idx !== -1) lead[f.key] = row[idx] ?? "";
         }
       });
+      if (lead.contactAttempts) {
+        (lead as Record<string, string | number>).contactAttempts = Math.max(0, Number.parseInt(lead.contactAttempts, 10) || 0);
+      }
       return lead;
     });
   }
@@ -146,11 +159,11 @@ export default function LeadImport() {
               className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-colors ${isDragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/20"}`}
             >
               <Upload className={`w-12 h-12 mx-auto mb-4 ${isDragging ? "text-primary" : "text-muted-foreground/40"}`} />
-              <p className="font-semibold text-foreground mb-1">Drop your CSV file here</p>
+              <p className="font-semibold text-foreground mb-1">Drop your CSV or XLSX file here</p>
               <p className="text-sm text-muted-foreground mb-4">or click to browse</p>
-              <span className="text-xs bg-muted px-3 py-1.5 rounded-full text-muted-foreground">Supports .csv files up to 10MB</span>
+              <span className="text-xs bg-muted px-3 py-1.5 rounded-full text-muted-foreground">Supports .csv and .xlsx files up to 10MB</span>
             </div>
-            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+            <input ref={fileRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f); }} />
             <div className="mt-4 flex justify-center">
               <button onClick={downloadTemplate} className="flex items-center gap-1.5 text-sm text-primary hover:underline">
                 <Download className="w-4 h-4" /> Download CSV template

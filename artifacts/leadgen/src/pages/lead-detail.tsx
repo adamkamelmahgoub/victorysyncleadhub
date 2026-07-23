@@ -218,6 +218,7 @@ export default function LeadDetail() {
   const { data: notesResponse = [] } = useListLeadNotes(apiId, { query: { enabled: !!id, queryKey: getListLeadNotesQueryKey(apiId) } });
   const { data: campaignsResponse = [] } = useListCampaigns();
   const { data: stagesResponse = [] } = useQuery<PipelineStage[]>({ queryKey: ["pipeline-stages"], queryFn: () => apiFetch("/api/pipeline/stages") });
+  const { data: dispositionsResponse = [] } = useQuery<{ id: number; name: string; color: string }[]>({ queryKey: ["dispositions"], queryFn: () => apiFetch("/dispositions") });
   const { data: tasksResponse = [], refetch: refetchTasks } = useQuery<ContactTask[]>({
     queryKey: ["contact-tasks", id],
     queryFn: () => apiFetch(`/api/leads/${id}/tasks`),
@@ -228,6 +229,7 @@ export default function LeadDetail() {
   const activities = asArray<ArrayElement<NonNullable<typeof activitiesResponse>>>(activitiesResponse);
   const notes = asArray<ArrayElement<NonNullable<typeof notesResponse>>>(notesResponse);
   const campaigns = asArray<ArrayElement<NonNullable<typeof campaignsResponse>>>(campaignsResponse);
+  const dispositions = asArray<{ id: number; name: string; color: string }>(dispositionsResponse);
 
   const updateLead = useUpdateLead();
   const updateScore = useUpdateLeadScore();
@@ -298,7 +300,15 @@ export default function LeadDetail() {
   function addActivity() {
     if (!newActivityDesc.trim()) return;
     createActivity.mutate({ id: apiId, data: { type: newActivityType, description: newActivityDesc } }, {
-      onSuccess: () => { qc.invalidateQueries({ queryKey: getListLeadActivitiesQueryKey(apiId) }); setNewActivityDesc(""); toast({ title: "Activity logged" }); },
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: getListLeadActivitiesQueryKey(apiId) });
+        if (newActivityType === "call") {
+          updateLead.mutate({ id: apiId, data: { contactAttempts: (lead?.contactAttempts ?? 0) + 1 } });
+          qc.invalidateQueries({ queryKey: getGetLeadQueryKey(apiId) });
+        }
+        setNewActivityDesc("");
+        toast({ title: "Activity logged" });
+      },
     });
   }
 
@@ -455,6 +465,14 @@ export default function LeadDetail() {
               <EditableField label="Email" value={lead.email} icon={Mail} type="email" onSave={(v) => saveField("email", v)} />
               <EditableField label="Phone" value={lead.phone ?? ""} icon={Phone} placeholder="Add phone" type="tel" onSave={(v) => saveField("phone", v)} />
               <EditableField label="Title" value={lead.title ?? ""} icon={Briefcase} placeholder="Job title" onSave={(v) => saveField("title", v)} />
+              <div className="px-2 py-1">
+                <div className="text-[10px] text-muted-foreground mb-1">Disposition</div>
+                <select value={lead.disposition ?? ""} onChange={(event) => updateLead.mutate({ id: apiId, data: { disposition: event.target.value } }, { onSuccess: () => qc.invalidateQueries({ queryKey: getGetLeadQueryKey(apiId) }) })} className="w-full rounded-lg border border-border px-2 py-1.5 text-sm">
+                  <option value="">No disposition</option>
+                  {dispositions.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}
+                </select>
+              </div>
+              <EditableField label="Times Contacted" value={String(lead.contactAttempts)} icon={PhoneCall} type="number" onSave={(value) => updateLead.mutate({ id: apiId, data: { contactAttempts: Math.max(0, Number.parseInt(value, 10) || 0) } }, { onSuccess: () => qc.invalidateQueries({ queryKey: getGetLeadQueryKey(apiId) }) })} />
             </SideSection>
 
             {/* Company */}

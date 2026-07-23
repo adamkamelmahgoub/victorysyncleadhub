@@ -65,7 +65,7 @@ function GHLLogo() {
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const { user, signOut } = useAuth();
+  const { user, role, clientAccountId, signOut } = useAuth();
   const userEmail = user?.email ?? "Signed in user";
   const initials = userEmail
     .split("@")[0]
@@ -186,6 +186,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-xs font-medium text-white truncate">{userEmail}</div>
+              <div className="text-[10px] capitalize" style={{ color: "#FB923C" }}>
+                {role}{role === "agent" && clientAccountId ? ` · Client ${clientAccountId}` : ""}
+              </div>
               <button
                 type="button"
                 className="text-[10px] truncate text-left hover:text-white"

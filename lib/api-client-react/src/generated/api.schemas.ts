@@ -25,6 +25,9 @@ export interface Lead {
   /** @nullable */
   source?: string | null;
   status: string;
+  /** @nullable */
+  disposition?: string | null;
+  contactAttempts: number;
   score: number;
   /** @nullable */
   campaignId?: number | null;
@@ -54,6 +57,8 @@ export interface LeadInput {
   title?: string;
   source?: string;
   status?: string;
+  disposition?: string;
+  contactAttempts?: number;
   score?: number;
   campaignId?: number;
   tags?: string[];
@@ -71,6 +76,8 @@ export interface LeadUpdate {
   title?: string;
   source?: string;
   status?: string;
+  disposition?: string;
+  contactAttempts?: number;
   score?: number;
   campaignId?: number;
   pipelineStageId?: number;
@@ -277,4 +284,3 @@ source?: string;
 page?: number;
 limit?: number;
 };
-

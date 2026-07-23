@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
-import { eq, ilike, and, gte, lte, or, desc, sql } from "drizzle-orm";
-import { db, leadsTable, campaignsTable, activitiesTable } from "@workspace/db";
+import { eq, ilike, and, gte, lte, or, desc, sql, inArray } from "drizzle-orm";
+import { db, leadsTable, campaignsTable, activitiesTable, dispositionsTable } from "@workspace/db";
+import { z } from "zod";
 import {
   ListLeadsQueryParams,
   CreateLeadBody,
@@ -15,6 +16,13 @@ import {
 
 const router: IRouter = Router();
 
+function clientScope(res: { locals: Record<string, any> }) {
+  const metadata = res.locals.user?.user_metadata;
+  return metadata?.role === "agent" && typeof metadata?.client_account_id === "string"
+    ? metadata.client_account_id
+    : null;
+}
+
 router.get("/leads", async (req, res): Promise<void> => {
   const parsed = ListLeadsQueryParams.safeParse(req.query);
   if (!parsed.success) {
@@ -26,6 +34,8 @@ router.get("/leads", async (req, res): Promise<void> => {
   const offset = (page - 1) * limit;
 
   const conditions = [];
+  const scopedClientId = clientScope(res);
+  if (scopedClientId) conditions.push(eq(leadsTable.clientAccountId, scopedClientId));
   if (status) conditions.push(eq(leadsTable.status, status));
   if (campaignId) conditions.push(eq(leadsTable.campaignId, campaignId));
   if (source) conditions.push(eq(leadsTable.source, source));
@@ -56,6 +66,8 @@ router.get("/leads", async (req, res): Promise<void> => {
         title: leadsTable.title,
         source: leadsTable.source,
         status: leadsTable.status,
+        disposition: leadsTable.disposition,
+        contactAttempts: leadsTable.contactAttempts,
         score: leadsTable.score,
         campaignId: leadsTable.campaignId,
         formId: leadsTable.formId,
@@ -96,7 +108,7 @@ router.post("/leads", async (req, res): Promise<void> => {
     return;
   }
 
-  const [lead] = await db.insert(leadsTable).values(parsed.data).returning();
+  const [lead] = await db.insert(leadsTable).values({ ...parsed.data, clientAccountId: clientScope(res) }).returning();
 
   // Log activity
   await db.insert(activitiesTable).values({
@@ -133,7 +145,7 @@ router.post("/leads/import", async (req, res): Promise<void> => {
     try {
       const [inserted] = await db
         .insert(leadsTable)
-        .values({ ...lead, campaignId: campaignId ?? lead.campaignId })
+        .values({ ...lead, campaignId: campaignId ?? lead.campaignId, clientAccountId: clientScope(res) })
         .returning();
       await db.insert(activitiesTable).values({
         leadId: inserted.id,
@@ -148,6 +160,25 @@ router.post("/leads/import", async (req, res): Promise<void> => {
   }
 
   res.json({ imported, failed, total: leads.length, errors });
+});
+
+router.delete("/leads", async (req, res): Promise<void> => {
+  const parsed = z.object({ ids: z.array(z.number().int().positive()).min(1).max(5000) }).safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+  const scope = clientScope(res);
+  const deleted = await db.delete(leadsTable).where(and(inArray(leadsTable.id, parsed.data.ids), scope ? eq(leadsTable.clientAccountId, scope) : undefined)).returning({ id: leadsTable.id });
+  res.json({ deleted: deleted.length });
+});
+
+router.get("/dispositions", async (_req, res): Promise<void> => {
+  res.json(await db.select().from(dispositionsTable).where(eq(dispositionsTable.isActive, true)).orderBy(dispositionsTable.name));
+});
+
+router.post("/dispositions", async (req, res): Promise<void> => {
+  const parsed = z.object({ name: z.string().trim().min(1).max(80), color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#f97316") }).safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+  const [created] = await db.insert(dispositionsTable).values(parsed.data).returning();
+  res.status(201).json(created);
 });
 
 router.get("/leads/:id", async (req, res): Promise<void> => {
@@ -168,6 +199,8 @@ router.get("/leads/:id", async (req, res): Promise<void> => {
       title: leadsTable.title,
       source: leadsTable.source,
       status: leadsTable.status,
+      disposition: leadsTable.disposition,
+      contactAttempts: leadsTable.contactAttempts,
       score: leadsTable.score,
       campaignId: leadsTable.campaignId,
       formId: leadsTable.formId,
@@ -179,7 +212,7 @@ router.get("/leads/:id", async (req, res): Promise<void> => {
     })
     .from(leadsTable)
     .leftJoin(campaignsTable, eq(leadsTable.campaignId, campaignsTable.id))
-    .where(eq(leadsTable.id, params.data.id));
+    .where(and(eq(leadsTable.id, params.data.id), clientScope(res) ? eq(leadsTable.clientAccountId, clientScope(res)!) : undefined));
 
   if (!lead) {
     res.status(404).json({ error: "Lead not found" });
@@ -206,7 +239,7 @@ router.patch("/leads/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const prevLead = await db.select().from(leadsTable).where(eq(leadsTable.id, params.data.id)).limit(1);
+  const prevLead = await db.select().from(leadsTable).where(and(eq(leadsTable.id, params.data.id), clientScope(res) ? eq(leadsTable.clientAccountId, clientScope(res)!) : undefined)).limit(1);
   if (!prevLead[0]) {
     res.status(404).json({ error: "Lead not found" });
     return;
@@ -215,7 +248,7 @@ router.patch("/leads/:id", async (req, res): Promise<void> => {
   const [lead] = await db
     .update(leadsTable)
     .set(parsed.data)
-    .where(eq(leadsTable.id, params.data.id))
+    .where(and(eq(leadsTable.id, params.data.id), clientScope(res) ? eq(leadsTable.clientAccountId, clientScope(res)!) : undefined))
     .returning();
 
   // Log status change activity
@@ -248,7 +281,7 @@ router.delete("/leads/:id", async (req, res): Promise<void> => {
 
   const [lead] = await db
     .delete(leadsTable)
-    .where(eq(leadsTable.id, params.data.id))
+    .where(and(eq(leadsTable.id, params.data.id), clientScope(res) ? eq(leadsTable.clientAccountId, clientScope(res)!) : undefined))
     .returning();
 
   if (!lead) {
@@ -275,7 +308,7 @@ router.patch("/leads/:id/score", async (req, res): Promise<void> => {
   const [lead] = await db
     .update(leadsTable)
     .set({ score: body.data.score })
-    .where(eq(leadsTable.id, params.data.id))
+    .where(and(eq(leadsTable.id, params.data.id), clientScope(res) ? eq(leadsTable.clientAccountId, clientScope(res)!) : undefined))
     .returning();
 
   if (!lead) {

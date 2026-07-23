@@ -44,6 +44,7 @@ export const whiteLabelSettingsTable = pgTable("white_label_settings", {
 
 export const insertSubAccountSchema = createInsertSchema(subAccountsTable).omit({
   id: true,
+  slug: true,
   leadsCount: true,
   campaignsCount: true,
   healthScore: true,
