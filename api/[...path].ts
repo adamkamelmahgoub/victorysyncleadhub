@@ -274,15 +274,49 @@ function orgIdFromUser(user: AuthenticatedUser) {
   return null;
 }
 
-async function resolveUserOrgId(user: AuthenticatedUser, req: VercelRequest) {
+type DashboardMembership = {
+  org_id?: string | null;
+  role?: string | null;
+};
+
+function normalizeDashboardRole(role: unknown) {
+  const value = typeof role === "string" ? role.trim().toLowerCase() : "";
+  if (value === "org_owner" || value === "owner") return "owner";
+  if (value === "org_admin" || value === "admin") return "admin";
+  if (value === "agent") return "agent";
+  if (value === "viewer") return "viewer";
+  return "member";
+}
+
+async function resolveDashboardMembership(user: AuthenticatedUser, req: VercelRequest): Promise<DashboardMembership> {
   const metadataOrgId = orgIdFromUser(user);
-  if (metadataOrgId) return metadataOrgId;
+  const metadataRole = user.user_metadata?.role ?? user.app_metadata?.role;
+  if (metadataOrgId) return { org_id: metadataOrgId, role: normalizeDashboardRole(metadataRole) };
   const rows = await supabaseRest(
-    `team_members?auth_user_id=eq.${encodeURIComponent(user.id)}&select=org_id&limit=1`,
+    `team_members?auth_user_id=eq.${encodeURIComponent(user.id)}&select=org_id,role&limit=1`,
     { method: "GET" },
     req,
-  ) as Array<{ org_id?: string | null }>;
-  return rows[0]?.org_id ?? null;
+  ) as DashboardMembership[];
+  if (rows[0]?.org_id) return rows[0];
+
+  for (const table of ["org_users", "org_members"]) {
+    try {
+      const memberships = await supabaseRest(
+        `${table}?user_id=eq.${encodeURIComponent(user.id)}&select=org_id,role&limit=1`,
+        { method: "GET" },
+        req,
+      ) as DashboardMembership[];
+      if (memberships[0]?.org_id) return memberships[0];
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("Could not find the table") && !message.includes("schema cache")) throw error;
+    }
+  }
+  return {};
+}
+
+async function resolveUserOrgId(user: AuthenticatedUser, req: VercelRequest) {
+  return (await resolveDashboardMembership(user, req)).org_id ?? null;
 }
 
 function apiPermissionForPath(path: string) {
@@ -333,7 +367,8 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
     return;
   }
   const metadata = user.user_metadata ?? {};
-  const orgId = await resolveUserOrgId(user, req);
+  const dashboardMembership = await resolveDashboardMembership(user, req);
+  const orgId = dashboardMembership.org_id ?? null;
   const byAuthId = await supabaseRest(
     `team_members?auth_user_id=eq.${encodeURIComponent(user.id)}&select=*&limit=1`,
     { method: "GET" },
@@ -373,8 +408,10 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
       { method: "GET" },
       req,
     ) as Array<{ id: string | number }>;
-    const dashboardRole = typeof metadata.role === "string" && metadata.role
-      ? metadata.role
+    const dashboardRole = dashboardMembership.role
+      ? normalizeDashboardRole(dashboardMembership.role)
+      : typeof metadata.role === "string" && metadata.role
+      ? normalizeDashboardRole(metadata.role)
       : anyMembers.length === 0 ? "owner" : "member";
     const rows = await supabaseRest("team_members", {
       method: "POST",
@@ -416,12 +453,82 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
   sendJson(res, 200, { member: toCamelValue(member) });
 }
 
+async function syncOrganizationDashboardMembers(orgId: string, req: VercelRequest) {
+  if (!supabaseUrl || !supabaseServiceRoleKey) return;
+  let memberships: Array<Record<string, unknown>> = [];
+  for (const table of ["org_users", "org_members"]) {
+    try {
+      const rows = await supabaseRest(
+        `${table}?org_id=eq.${encodeURIComponent(orgId)}&select=*&limit=500`,
+        { method: "GET" },
+        req,
+      ) as Array<Record<string, unknown>>;
+      memberships = [...memberships, ...rows];
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("Could not find the table") && !message.includes("schema cache")) throw error;
+    }
+  }
+
+  const uniqueMemberships = Array.from(new Map(
+    memberships
+      .filter((membership) => typeof membership.user_id === "string" && membership.user_id)
+      .map((membership) => [String(membership.user_id), membership]),
+  ).values());
+  if (!uniqueMemberships.length) return;
+
+  const authIds = uniqueMemberships.map((membership) => String(membership.user_id));
+  const existing = await supabaseRest(
+    `team_members?org_id=eq.${encodeURIComponent(orgId)}&auth_user_id=in.(${authIds.map(encodeURIComponent).join(",")})&select=auth_user_id`,
+    { method: "GET" },
+    req,
+  ) as Array<{ auth_user_id?: string | null }>;
+  const existingIds = new Set(existing.map((member) => member.auth_user_id).filter(Boolean));
+
+  for (const membership of uniqueMemberships) {
+    const authUserId = String(membership.user_id);
+    if (existingIds.has(authUserId)) continue;
+    const response = await fetch(`${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(authUserId)}`, {
+      headers: {
+        apikey: supabaseServiceRoleKey,
+        authorization: `Bearer ${supabaseServiceRoleKey}`,
+      },
+    });
+    if (!response.ok) continue;
+    const dashboardUser = await response.json() as AuthenticatedUser;
+    const email = String(dashboardUser.email ?? membership.email ?? "").trim().toLowerCase();
+    if (!email) continue;
+    const metadata = dashboardUser.user_metadata ?? {};
+    const name = String(metadata.full_name ?? metadata.name ?? membership.name ?? email.split("@")[0]).trim();
+    const duplicateEmail = await supabaseRest(
+      `team_members?org_id=eq.${encodeURIComponent(orgId)}&email=eq.${encodeURIComponent(email)}&select=id&limit=1`,
+      { method: "GET" },
+      req,
+    ) as Array<{ id?: string }>;
+    if (duplicateEmail.length) continue;
+    await supabaseRest("team_members", {
+      method: "POST",
+      body: JSON.stringify({
+        auth_user_id: authUserId,
+        org_id: orgId,
+        name,
+        email,
+        role: normalizeDashboardRole(membership.role ?? metadata.role),
+        status: "active",
+        client_account_id: typeof metadata.client_account_id === "string" ? metadata.client_account_id : null,
+        page_permissions: Array.isArray(metadata.page_permissions) ? metadata.page_permissions : null,
+      }),
+    }, req);
+  }
+}
+
 async function listTeamMembers(currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
   const orgId = await resolveUserOrgId(currentUser, req);
   if (!orgId) {
     sendJson(res, 400, { message: "Your dashboard session is missing an organization ID" });
     return;
   }
+  await syncOrganizationDashboardMembers(orgId, req);
   const rows = await supabaseRest(
     `team_members?org_id=eq.${encodeURIComponent(orgId)}&select=*&order=created_at.desc`,
     { method: "GET" },
