@@ -69,7 +69,10 @@ export default function Team() {
 
   const { data: membersResponse = [], isLoading } = useQuery<TeamMember[]>({
     queryKey: ["team"],
-    queryFn: () => apiFetch("/team"),
+    queryFn: async () => {
+      await apiFetch("/auth/sync-session", { method: "POST", body: "{}" });
+      return apiFetch("/team");
+    },
   });
   const members = asArray<TeamMember>(membersResponse);
   const { data: accountsResponse = [], isLoading: accountsLoading } = useQuery<ClientAccount[]>({

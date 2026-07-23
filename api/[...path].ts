@@ -333,13 +333,21 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
     }, req) as Array<Record<string, unknown>>;
     member = rows[0] ?? existing;
   } else {
+    const anyMembers = await supabaseRest(
+      "team_members?select=id&limit=1",
+      { method: "GET" },
+      req,
+    ) as Array<{ id: string | number }>;
+    const dashboardRole = typeof metadata.role === "string" && metadata.role
+      ? metadata.role
+      : anyMembers.length === 0 ? "owner" : "member";
     const rows = await supabaseRest("team_members", {
       method: "POST",
       body: JSON.stringify({
         auth_user_id: user.id,
         name: dashboardName,
         email,
-        role: typeof metadata.role === "string" ? metadata.role : "member",
+        role: dashboardRole,
         status: "active",
         client_account_id: typeof metadata.client_account_id === "string" ? metadata.client_account_id : null,
         page_permissions: Array.isArray(metadata.page_permissions) ? metadata.page_permissions : null,
