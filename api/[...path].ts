@@ -118,6 +118,7 @@ const supabaseKey = supabaseServiceRoleKey ?? supabaseAnonKey;
 const hasServiceRole = Boolean(supabaseServiceRoleKey);
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
 let sequenceSchemaReady = false;
+let legacyDemoDataChecked = false;
 
 const badLeadSources = new Set(["mcgrawno", "mcgraw no", "mcgraw", "unknown", "n/a", "na", "-"]);
 
@@ -414,6 +415,28 @@ async function supabaseRest(path: string, init: FetchInit, req?: VercelRequest) 
   }
 
   return data;
+}
+
+async function removeLegacyDemoTemplates(req: VercelRequest) {
+  if (legacyDemoDataChecked) return;
+  const names = [
+    "Welcome Email", "Follow-up After Demo", "Cold Outreach", "Review Request",
+    "Appointment Reminder", "Deal Won Confirmation", "Re-engagement",
+  ];
+  const rows = await supabaseRest(
+    `email_templates?is_default=eq.true&select=id,name`,
+    { method: "GET" },
+    req,
+  ) as Array<{ id: string | number; name: string }>;
+  const ids = rows.filter((row) => names.includes(row.name)).map((row) => row.id);
+  if (ids.length) {
+    await supabaseRest(
+      `email_templates?id=in.(${ids.map((id) => encodeURIComponent(String(id))).join(",")})`,
+      { method: "DELETE" },
+      req,
+    );
+  }
+  legacyDemoDataChecked = true;
 }
 
 async function ensureSequenceTables() {
@@ -1827,6 +1850,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (method === "GET" && path === "/api/email/logs") {
       await listEmailLogs(req, res);
       return;
+    }
+
+    if (method === "GET" && path === "/api/email-templates") {
+      await removeLegacyDemoTemplates(req);
     }
 
     if (method === "POST" && path === "/api/email/send") {
