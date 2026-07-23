@@ -29,7 +29,7 @@ Content-Type: application/json
 {
   "name": "Client Agency Name",
   "ownerEmail": "client@agency.com",
-  "ownerName": "John Doe",
+  "ownerName": "OWNER_NAME",
   "plan": "pro",
   "externalId": "cus_stripe_id_here"
 }`,
@@ -49,8 +49,8 @@ Content-Type: application/json
 {
   "subAccountId": 123,
   "externalUserId": "user_abc",
-  "email": "client@example.com",
-  "name": "Client Name",
+  "email": "CLIENT_EMAIL",
+  "name": "CLIENT_NAME",
   "role": "member"
 }
 

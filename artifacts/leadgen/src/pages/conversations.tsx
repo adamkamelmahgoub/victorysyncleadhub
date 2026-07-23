@@ -254,33 +254,6 @@ export default function Conversations() {
                 </div>
               ))}
 
-              {/* Sample received message for first contacts */}
-              {leads.indexOf(selected) < 3 && (
-                <div className="flex gap-3">
-                  <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-xs font-bold flex-shrink-0">
-                    {selected.firstName?.[0]}
-                  </div>
-                  <div className="max-w-lg">
-                    <div className="bg-white border border-border rounded-2xl rounded-tl-sm px-4 py-2.5 shadow-sm">
-                      <p className="text-sm text-foreground">
-                        {leads.indexOf(selected) === 0
-                          ? "Hi, I saw your message. I'd love to learn more about your platform. Can we set up a quick 15-minute call this week?"
-                          : leads.indexOf(selected) === 1
-                          ? "Thanks for reaching out! We're definitely interested. What does pricing look like?"
-                          : "Just following up on your last email. We had a chance to review the proposal and have a few questions."}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1 mt-1 ml-1">
-                      <Clock className="w-3 h-3 text-muted-foreground" />
-                      <span className="text-[10px] text-muted-foreground">
-                        {leads.indexOf(selected) === 0 ? "2 hours ago" : leads.indexOf(selected) === 1 ? "Yesterday" : "2 days ago"}
-                      </span>
-                      <Mail className="w-3 h-3 text-muted-foreground ml-1" />
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* New sent messages */}
               {(sentMessages[selected.id] ?? []).map((msg, i) => (
                 <div key={i} className="flex gap-3 justify-end">

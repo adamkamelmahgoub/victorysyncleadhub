@@ -35,46 +35,6 @@ const STATUS_STYLES: Record<PostStatus, string> = {
 };
 
 const now = new Date();
-const SAMPLE_POSTS: Post[] = [
-  {
-    id: 1,
-    content: "🚀 Exciting news! We just hit 1,000 customers. Thank you to everyone who believed in us from day one. Here's to the next milestone! #growth #SaaS #grateful",
-    platforms: ["facebook", "instagram", "linkedin"],
-    status: "published",
-    scheduledAt: addDays(now, -2).toISOString(),
-    stats: { likes: 142, comments: 23, shares: 18, reach: 2847 },
-  },
-  {
-    id: 2,
-    content: "Sales tip: The best time to follow up is within 5 minutes of a lead showing interest. Our automation does this for you automatically. Learn more 👇",
-    platforms: ["linkedin", "twitter"],
-    status: "published",
-    scheduledAt: addDays(now, -1).toISOString(),
-    stats: { likes: 67, comments: 8, shares: 31, reach: 1204 },
-  },
-  {
-    id: 3,
-    content: "Did you know? Companies that automate their lead follow-up see a 451% increase in qualified leads. VictorySync makes this easy. Start your free trial today!",
-    platforms: ["facebook", "instagram"],
-    status: "scheduled",
-    scheduledAt: addDays(now, 1).toISOString(),
-  },
-  {
-    id: 4,
-    content: "New feature alert! 🎉 Introducing our AI-powered email personalization. Every message now feels 1:1, at scale. Check it out in your dashboard.",
-    platforms: ["facebook", "instagram", "linkedin", "twitter"],
-    status: "scheduled",
-    scheduledAt: addDays(now, 3).toISOString(),
-  },
-  {
-    id: 5,
-    content: "Weekly insight: The top performing cold email subject lines this month all had one thing in common — personalization. Read our full breakdown on the blog.",
-    platforms: ["linkedin"],
-    status: "draft",
-    scheduledAt: addDays(now, 5).toISOString(),
-  },
-];
-
 const PLATFORMS: { id: Platform; label: string }[] = [
   { id: "facebook", label: "Facebook" },
   { id: "instagram", label: "Instagram" },
@@ -84,7 +44,7 @@ const PLATFORMS: { id: Platform; label: string }[] = [
 ];
 
 export default function SocialPlanner() {
-  const [posts, setPosts] = useState(SAMPLE_POSTS);
+  const [posts, setPosts] = useState<Post[]>([]);
   const [view, setView] = useState<"list" | "calendar">("list");
   const [showNew, setShowNew] = useState(false);
   const [newPost, setNewPost] = useState({ content: "", platforms: [] as Platform[], scheduledAt: format(addDays(now, 1), "yyyy-MM-dd'T'HH:mm") });

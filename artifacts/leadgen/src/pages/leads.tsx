@@ -417,7 +417,7 @@ export default function Leads() {
             <p className="text-sm text-muted-foreground">Paste CSV data with columns: firstName, lastName, email, phone, company, title, source</p>
             <Textarea
               className="font-mono text-xs h-48"
-              placeholder={`firstName,lastName,email,phone,company,title,source\nJane,Doe,jane@example.com,+1-555-0101,Acme Inc,CEO,LinkedIn`}
+              placeholder="firstName,lastName,email,phone,company,title,source"
               value={importText}
               onChange={(event) => setImportText(event.target.value)}
             />

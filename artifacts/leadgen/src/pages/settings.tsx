@@ -11,7 +11,7 @@ import { Link } from "wouter";
 
 export default function Settings() {
   const { toast } = useToast();
-  const [org, setOrg] = useState({ name: "Acme Corp", domain: "acme.com", website: "https://acme.com" });
+  const [org, setOrg] = useState({ name: "", domain: "", website: "" });
   const [notifications, setNotifications] = useState({
     newLead: true,
     highScore: true,

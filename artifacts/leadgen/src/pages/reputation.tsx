@@ -467,7 +467,7 @@ export default function Reputation() {
               <div className="space-y-3">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Contact Name *</label>
-                  <input value={requestForm.contactName} onChange={(e) => setRequestForm((f) => ({ ...f, contactName: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="Sarah Chen" />
+                  <input value={requestForm.contactName} onChange={(e) => setRequestForm((f) => ({ ...f, contactName: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="Enter contact name" />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>

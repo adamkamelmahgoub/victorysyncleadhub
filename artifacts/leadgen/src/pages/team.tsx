@@ -340,7 +340,7 @@ export default function Team() {
                       value={form.name}
                       onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
-                      placeholder="Jane Smith"
+                      placeholder="Enter full name"
                     />
                   </div>
                   <div>

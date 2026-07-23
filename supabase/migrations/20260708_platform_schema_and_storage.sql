@@ -563,14 +563,6 @@ values
   ('Lost', '#ef4444', 6)
 on conflict do nothing;
 
-insert into public.email_templates (name, subject, body, preview_text, category, is_default)
-values
-  ('Welcome Email', 'Welcome to {{company}}!', 'Hi {{firstName}},\n\nWe''re thrilled to have you on board. Reply any time if you have questions.\n\nBest,\nThe Team', 'Welcome aboard. Here''s everything you need to get started.', 'onboarding', true),
-  ('Follow-up After Demo', 'Great speaking with you, {{firstName}}', 'Hi {{firstName}},\n\nThank you for taking the time to see our demo. Are you free for a quick next-steps call this week?\n\nBest,\n{{senderName}}', 'Following up on our recent conversation.', 'sales', true),
-  ('Cold Outreach', 'Quick question about {{company}}', 'Hi {{firstName}},\n\nI came across {{company}} and thought there may be a useful fit. Would you be open to a 15-minute call this week?\n\nBest,\n{{senderName}}', 'A quick question about your growth.', 'outreach', true),
-  ('Review Request', 'How was your experience with us, {{firstName}}?', 'Hi {{firstName}},\n\nWe would love to hear about your experience. Would you mind leaving us a quick review?\n\nThank you,\nThe Team', 'Share your experience with a quick review.', 'reviews', true)
-on conflict do nothing;
-
 -- Storage buckets
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values

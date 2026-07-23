@@ -20,13 +20,7 @@ interface Appointment {
   color: string;
 }
 
-const SAMPLE_APPOINTMENTS: Appointment[] = [
-  { id: 1, title: "Discovery Call", contact: "Sarah Chen", time: "10:00 AM", duration: "30 min", type: "video", date: format(new Date(), "yyyy-MM-dd"), color: "bg-blue-500" },
-  { id: 2, title: "Product Demo", contact: "Marcus Rivera", time: "2:00 PM", duration: "45 min", type: "video", date: format(new Date(), "yyyy-MM-dd"), color: "bg-purple-500" },
-  { id: 3, title: "Follow-up Call", contact: "Priya Patel", time: "11:30 AM", duration: "15 min", type: "phone", date: format(addMonths(new Date(), 0).setDate(new Date().getDate() + 2) as unknown as Date, "yyyy-MM-dd"), color: "bg-green-500" },
-  { id: 4, title: "Contract Review", contact: "James O'Brien", time: "3:30 PM", duration: "60 min", type: "in-person", date: format(addMonths(new Date(), 0).setDate(new Date().getDate() + 4) as unknown as Date, "yyyy-MM-dd"), color: "bg-orange-500" },
-  { id: 5, title: "Onboarding Session", contact: "Yuki Tanaka", time: "9:00 AM", duration: "90 min", type: "video", date: format(addMonths(new Date(), 0).setDate(new Date().getDate() + 7) as unknown as Date, "yyyy-MM-dd"), color: "bg-pink-500" },
-];
+const APPOINTMENTS: Appointment[] = [];
 
 const TYPE_ICON = {
   video: Video,
@@ -47,14 +41,14 @@ export default function CalendarPage() {
   const days = eachDayOfInterval({ start: calStart, end: calEnd });
 
   function getAppts(date: Date) {
-    return SAMPLE_APPOINTMENTS.filter((a) => {
+    return APPOINTMENTS.filter((a) => {
       try { return isSameDay(parseISO(a.date), date); } catch { return false; }
     });
   }
 
   const selectedAppts = getAppts(selectedDay);
 
-  const upcoming = SAMPLE_APPOINTMENTS
+  const upcoming = APPOINTMENTS
     .filter((a) => { try { return parseISO(a.date) >= new Date(); } catch { return false; } })
     .sort((a, b) => a.date.localeCompare(b.date));
 

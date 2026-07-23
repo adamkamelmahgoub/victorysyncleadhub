@@ -62,7 +62,7 @@ router.post("/webhooks/:id/test", async (req, res): Promise<void> => {
     const r = await fetch(hook.url, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(hook.secret ? { "X-Webhook-Secret": hook.secret } : {}) },
-      body: JSON.stringify({ event: "test", source: "victorysync", timestamp: new Date().toISOString(), data: { contact: { firstName: "Test", lastName: "Contact", email: "test@example.com" } } }),
+      body: JSON.stringify({ event: "test", source: "victorysync", timestamp: new Date().toISOString(), data: {} }),
     });
     const ms = Date.now() - start;
     if (r.ok) {

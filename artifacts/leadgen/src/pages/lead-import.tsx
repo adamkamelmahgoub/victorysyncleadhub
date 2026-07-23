@@ -29,7 +29,7 @@ function parseCSV(text: string): { headers: string[]; rows: string[][] } {
 }
 
 function downloadTemplate() {
-  const csv = "First Name,Last Name,Email,Phone,Company,Job Title,Source,Status\nJane,Smith,jane@acme.com,+15551234567,Acme Corp,CEO,LinkedIn,new\nJohn,Doe,john@startup.io,,Startup IO,CTO,Webinar,new";
+  const csv = "First Name,Last Name,Email,Phone,Company,Job Title,Source,Status,Disposition,Times Contacted\n";
   const blob = new Blob([csv], { type: "text/csv" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
