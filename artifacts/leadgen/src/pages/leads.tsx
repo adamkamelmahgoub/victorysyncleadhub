@@ -31,6 +31,7 @@ type Lead = {
   createdAt?: string;
   disposition?: string | null;
   contactAttempts: number;
+  customFields?: Record<string, unknown>;
 };
 
 type LeadsResponse = {
@@ -115,6 +116,10 @@ export default function Leads() {
   const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const to = Math.min(page * PAGE_SIZE, total);
   const allSelected = leads.length > 0 && leads.every((lead) => selected.has(lead.id));
+  const customFieldNames = useMemo(
+    () => Array.from(new Set(leads.flatMap((lead) => Object.keys(lead.customFields ?? {})))),
+    [leads],
+  );
 
   const stats = useMemo(() => {
     const companies = new Set(leads.map((lead) => lead.company).filter(Boolean));
@@ -254,6 +259,9 @@ export default function Leads() {
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Contacted</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Score</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Source</th>
+                  {customFieldNames.map((name) => (
+                    <th key={name} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">{name}</th>
+                  ))}
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
@@ -274,7 +282,7 @@ export default function Leads() {
                 ))}
                 {!isLoading && leads.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="text-center py-14 text-muted-foreground text-sm">No contacts found</td>
+                    <td colSpan={10 + customFieldNames.length} className="text-center py-14 text-muted-foreground text-sm">No contacts found</td>
                   </tr>
                 )}
                 {leads.map((lead) => (
@@ -307,6 +315,10 @@ export default function Leads() {
                     <td className="px-4 py-3 text-center font-medium">{lead.contactAttempts ?? 0}</td>
                     <td className="px-4 py-3"><ScoreBadge score={lead.score} /></td>
                     <td className="px-4 py-3 text-muted-foreground capitalize">{sourceLabel(lead.source)}</td>
+                    {customFieldNames.map((name) => {
+                      const value = lead.customFields?.[name];
+                      return <td key={name} className="px-4 py-3 text-muted-foreground whitespace-nowrap">{value === null || value === undefined || value === "" ? "Not set" : String(value)}</td>;
+                    })}
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
                         <Link href={`/leads/${lead.id}`}>

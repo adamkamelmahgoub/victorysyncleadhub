@@ -16,7 +16,7 @@ import {
   Twitter, MapPin, Clock, Tag, CheckCircle2, Circle, Trash2, Edit3,
   Send, Plus, ChevronDown, ChevronRight, Activity, MessageSquare, Check,
   X, Zap, User, Calendar, Star, AlertTriangle, TrendingUp, ExternalLink,
-  MoreHorizontal, Target, PhoneCall, AtSign, Layers,
+  MoreHorizontal, Target, PhoneCall, AtSign, Layers, FileText,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
@@ -353,6 +353,10 @@ export default function LeadDetail() {
   const avatarColor = getAvatarColor(fullName);
   const initials = `${lead.firstName[0] ?? ""}${lead.lastName[0] ?? ""}`.toUpperCase();
   const cf = customFields;
+  const importedCustomFields = Object.entries(cf).filter(([key]) => ![
+    "industry", "annualRevenue", "employeeCount", "city", "state", "country", "timezone",
+    "website", "linkedinUrl", "twitterUrl", "assignedTo", "doNotEmail", "doNotSms",
+  ].includes(key));
 
   return (
 
@@ -506,6 +510,14 @@ export default function LeadDetail() {
               <EditableField label="LinkedIn" value={String(cf.linkedinUrl ?? "")} icon={Linkedin} placeholder="linkedin.com/in/..." onSave={(v) => saveField("linkedinUrl", v)} />
               <EditableField label="Twitter / X" value={String(cf.twitterUrl ?? "")} icon={Twitter} placeholder="x.com/..." onSave={(v) => saveField("twitterUrl", v)} />
             </SideSection>
+
+            {importedCustomFields.length > 0 && (
+              <SideSection title="Imported Custom Fields" icon={FileText}>
+                {importedCustomFields.map(([key, value]) => (
+                  <EditableField key={key} label={key} value={String(value ?? "")} placeholder="Not set" onSave={(nextValue) => saveField(key, nextValue)} />
+                ))}
+              </SideSection>
+            )}
 
             {/* Tags */}
             <SideSection title="Tags" icon={Tag}>
