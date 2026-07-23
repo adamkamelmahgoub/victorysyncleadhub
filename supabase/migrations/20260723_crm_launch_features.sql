@@ -102,12 +102,45 @@ alter table public.leads
     foreign key (client_account_id) references public.sub_accounts(id) on delete cascade;
 
 alter table public.team_members
+  add column if not exists name text,
+  add column if not exists email text,
+  add column if not exists role text not null default 'member',
+  add column if not exists status text not null default 'invited',
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now(),
   add column if not exists auth_user_id text unique,
   add column if not exists client_account_id uuid references public.sub_accounts(id) on delete set null,
   add column if not exists page_permissions jsonb;
 
+update public.team_members
+set
+  name = coalesce(nullif(name, ''), nullif(email, ''), 'Team member'),
+  email = coalesce(nullif(email, ''), 'unknown-' || id::text || '@invalid.local'),
+  role = coalesce(nullif(role, ''), 'member'),
+  status = coalesce(nullif(status, ''), 'invited');
+
+alter table public.team_members
+  alter column name set not null,
+  alter column email set not null,
+  alter column role set not null,
+  alter column status set not null;
+
 alter table public.invite_codes
+  add column if not exists code_hash text,
+  add column if not exists email text,
+  add column if not exists name text,
+  add column if not exists role text not null default 'member',
+  add column if not exists team_member_id uuid references public.team_members(id) on delete set null,
+  add column if not exists created_by text not null default 'dashboard',
+  add column if not exists used_by_user_id text,
+  add column if not exists used_at timestamptz,
+  add column if not exists expires_at timestamptz not null default (now() + interval '7 days'),
+  add column if not exists created_at timestamptz not null default now(),
   add column if not exists client_account_id uuid references public.sub_accounts(id) on delete set null;
+
+create unique index if not exists invite_codes_code_hash_unique
+  on public.invite_codes (code_hash)
+  where code_hash is not null;
 
 create table if not exists public.dispositions (
   id serial primary key,
@@ -124,3 +157,5 @@ insert into public.dispositions (name, color) values
   ('Not Interested', '#ef4444'),
   ('Wrong Number', '#8b5cf6')
 on conflict (name) do nothing;
+
+notify pgrst, 'reload schema';

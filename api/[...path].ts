@@ -2023,9 +2023,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       message.includes("Could not find the table") ||
       message.includes("schema cache")
     ) {
+      const portalSchema = message.includes("team_members") || message.includes("invite_codes");
       sendJson(res, 503, {
-        error:
-          "The portal database schema is incomplete. Run supabase/migrations/20260723_crm_launch_features.sql in the Supabase SQL Editor, then retry.",
+        error: portalSchema
+          ? "The portal database schema is incomplete. Run supabase/migrations/20260723_team_portal_schema_hotfix.sql in the Supabase SQL Editor, then retry."
+          : "The CRM database schema is incomplete. Run supabase/migrations/20260723_crm_launch_features.sql in the Supabase SQL Editor, then retry.",
         supabaseError: message,
         databaseUrlConfigured: hasDatabaseUrl,
       });
