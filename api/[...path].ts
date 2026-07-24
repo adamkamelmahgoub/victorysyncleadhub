@@ -288,6 +288,43 @@ function normalizeDashboardRole(role: unknown) {
   return "member";
 }
 
+function legacyCompatibleTeamRole(role: unknown) {
+  const normalized = normalizeDashboardRole(role);
+  if (normalized === "owner" || normalized === "admin") return "admin";
+  if (normalized === "agent") return "agent";
+  return "manager";
+}
+
+async function insertTeamMember(payload: Record<string, unknown>, req: VercelRequest) {
+  const attempts: Array<Record<string, unknown>> = [payload];
+  const attempted = new Set<string>();
+  let lastError: unknown;
+  while (attempts.length) {
+    const candidate = attempts.shift()!;
+    const signature = JSON.stringify(candidate);
+    if (attempted.has(signature)) continue;
+    attempted.add(signature);
+    try {
+      return await supabaseRest("team_members", {
+        method: "POST",
+        body: signature,
+      }, req) as Array<Record<string, unknown>>;
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("'user_id' column") || message.includes("column team_members.user_id does not exist")) {
+        const withoutLegacyUserId = { ...candidate };
+        delete withoutLegacyUserId.user_id;
+        attempts.push(withoutLegacyUserId);
+      }
+      if (message.includes("team_members_role_check") || message.includes("violates check constraint")) {
+        attempts.push({ ...candidate, role: legacyCompatibleTeamRole(candidate.role) });
+      }
+    }
+  }
+  throw lastError;
+}
+
 async function resolveDashboardMembership(user: AuthenticatedUser, req: VercelRequest, requestedOrgId?: string | null): Promise<DashboardMembership> {
   if (requestedOrgId) {
     for (const table of ["org_users", "org_members"]) {
@@ -309,7 +346,7 @@ async function resolveDashboardMembership(user: AuthenticatedUser, req: VercelRe
   const metadataRole = user.user_metadata?.role ?? user.app_metadata?.role;
   if (metadataOrgId) return { org_id: metadataOrgId, role: normalizeDashboardRole(metadataRole) };
   const rows = await supabaseRest(
-    `team_members?auth_user_id=eq.${encodeURIComponent(user.id)}&select=org_id,role&limit=1`,
+    `team_members?or=(auth_user_id.eq.${encodeURIComponent(user.id)},user_id.eq.${encodeURIComponent(user.id)})&select=org_id,role&limit=1`,
     { method: "GET" },
     req,
   ) as DashboardMembership[];
@@ -388,7 +425,7 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
   const dashboardMembership = await resolveDashboardMembership(user, req, requestedOrgId);
   const orgId = dashboardMembership.org_id ?? null;
   const byAuthId = await supabaseRest(
-    `team_members?auth_user_id=eq.${encodeURIComponent(user.id)}&select=*&limit=1`,
+    `team_members?or=(auth_user_id.eq.${encodeURIComponent(user.id)},user_id.eq.${encodeURIComponent(user.id)})&select=*&limit=1`,
     { method: "GET" },
     req,
   ) as Array<Record<string, unknown>>;
@@ -406,10 +443,12 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
 
   let member: Record<string, unknown>;
   if (existing?.id) {
+    const identityUpdate: Record<string, unknown> = { auth_user_id: user.id };
+    if ("user_id" in existing) identityUpdate.user_id = user.id;
     const rows = await supabaseRest(`team_members?id=eq.${encodeURIComponent(String(existing.id))}`, {
       method: "PATCH",
       body: JSON.stringify({
-        auth_user_id: user.id,
+        ...identityUpdate,
         name: existing.name || dashboardName,
         status: "active",
         updated_at: new Date().toISOString(),
@@ -431,10 +470,9 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
       : typeof metadata.role === "string" && metadata.role
       ? normalizeDashboardRole(metadata.role)
       : anyMembers.length === 0 ? "owner" : "member";
-    const rows = await supabaseRest("team_members", {
-      method: "POST",
-      body: JSON.stringify({
+    const rows = await insertTeamMember({
         auth_user_id: user.id,
+        user_id: user.id,
         name: dashboardName,
         email,
         org_id: orgId,
@@ -442,8 +480,7 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
         status: "active",
         client_account_id: typeof metadata.client_account_id === "string" ? metadata.client_account_id : null,
         page_permissions: Array.isArray(metadata.page_permissions) ? metadata.page_permissions : null,
-      }),
-    }, req) as Array<Record<string, unknown>>;
+      }, req);
     member = rows[0] ?? {};
   }
 
@@ -497,11 +534,11 @@ async function syncOrganizationDashboardMembers(orgId: string, req: VercelReques
 
   const authIds = uniqueMemberships.map((membership) => String(membership.user_id));
   const existing = await supabaseRest(
-    `team_members?org_id=eq.${encodeURIComponent(orgId)}&auth_user_id=in.(${authIds.map(encodeURIComponent).join(",")})&select=auth_user_id`,
+    `team_members?org_id=eq.${encodeURIComponent(orgId)}&or=(auth_user_id.in.(${authIds.map(encodeURIComponent).join(",")}),user_id.in.(${authIds.map(encodeURIComponent).join(",")}))&select=auth_user_id,user_id`,
     { method: "GET" },
     req,
-  ) as Array<{ auth_user_id?: string | null }>;
-  const existingIds = new Set(existing.map((member) => member.auth_user_id).filter(Boolean));
+  ) as Array<{ auth_user_id?: string | null; user_id?: string | null }>;
+  const existingIds = new Set(existing.flatMap((member) => [member.auth_user_id, member.user_id]).filter(Boolean));
 
   for (const membership of uniqueMemberships) {
     const authUserId = String(membership.user_id);
@@ -524,10 +561,9 @@ async function syncOrganizationDashboardMembers(orgId: string, req: VercelReques
       req,
     ) as Array<{ id?: string }>;
     if (duplicateEmail.length) continue;
-    await supabaseRest("team_members", {
-      method: "POST",
-      body: JSON.stringify({
+    await insertTeamMember({
         auth_user_id: authUserId,
+        user_id: authUserId,
         org_id: orgId,
         name,
         email,
@@ -535,8 +571,7 @@ async function syncOrganizationDashboardMembers(orgId: string, req: VercelReques
         status: "active",
         client_account_id: typeof metadata.client_account_id === "string" ? metadata.client_account_id : null,
         page_permissions: Array.isArray(metadata.page_permissions) ? metadata.page_permissions : null,
-      }),
-    }, req);
+      }, req);
   }
 }
 

@@ -41,6 +41,21 @@ alter table public.team_members
   add column if not exists client_account_id uuid references public.sub_accounts(id) on delete set null,
   add column if not exists page_permissions jsonb;
 
+-- Older VictorySync dashboard installs require user_id and restrict roles to
+-- admin/manager/agent. CRM invitations exist before an auth user is created,
+-- and CRM access management supports additional roles.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'team_members' and column_name = 'user_id'
+  ) then
+    alter table public.team_members alter column user_id drop not null;
+  end if;
+end $$;
+alter table public.team_members
+  drop constraint if exists team_members_role_check;
+
 update public.team_members
 set
   name = coalesce(nullif(name, ''), nullif(email, ''), 'Team member'),
