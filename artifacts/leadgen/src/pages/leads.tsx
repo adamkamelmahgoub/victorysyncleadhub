@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, Plus, Trash2, ExternalLink, Upload, Users, Building2, Mail, Phone, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, Plus, Trash2, ExternalLink, Upload, Users, Building2, Mail, Phone, ChevronLeft, ChevronRight, ScanSearch } from "lucide-react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
@@ -39,6 +39,16 @@ type LeadsResponse = {
   total: number;
   page: number;
   limit: number;
+};
+
+type DuplicateScan = {
+  groupCount: number;
+  duplicateCount: number;
+  groups: Array<{
+    keep: Lead;
+    duplicates: Lead[];
+    matchedBy: string[];
+  }>;
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -81,6 +91,9 @@ export default function Leads() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showDispositions, setShowDispositions] = useState(false);
   const [newDisposition, setNewDisposition] = useState("");
+  const [duplicateScan, setDuplicateScan] = useState<DuplicateScan | null>(null);
+  const [scanningDuplicates, setScanningDuplicates] = useState(false);
+  const [removingDuplicates, setRemovingDuplicates] = useState(false);
   const [form, setForm] = useState({ firstName: "", lastName: "", email: "", phone: "", company: "", title: "", source: "" });
 
   const queryClient = useQueryClient();
@@ -160,6 +173,37 @@ export default function Leads() {
     await refresh();
   }
 
+  async function scanDuplicates() {
+    setScanningDuplicates(true);
+    try {
+      const result = await apiFetch("/api/leads/duplicates") as DuplicateScan;
+      setDuplicateScan(result);
+      if (result.duplicateCount === 0) toast({ title: "No duplicate contacts found" });
+    } catch (error) {
+      toast({ title: "Duplicate scan failed", description: error instanceof Error ? error.message : String(error), variant: "destructive" });
+    } finally {
+      setScanningDuplicates(false);
+    }
+  }
+
+  async function removeDuplicates() {
+    setRemovingDuplicates(true);
+    try {
+      const result = await apiFetch("/api/leads/duplicates", {
+        method: "DELETE",
+        body: JSON.stringify({ confirm: true }),
+      }) as { deleted: number };
+      setDuplicateScan(null);
+      setSelected(new Set());
+      await refresh();
+      toast({ title: `${result.deleted} duplicate contact${result.deleted === 1 ? "" : "s"} removed` });
+    } catch (error) {
+      toast({ title: "Duplicate removal failed", description: error instanceof Error ? error.message : String(error), variant: "destructive" });
+    } finally {
+      setRemovingDuplicates(false);
+    }
+  }
+
   async function handleImport() {
     const lines = importText.trim().split("\n").filter(Boolean);
     if (lines.length < 2) {
@@ -193,6 +237,9 @@ export default function Leads() {
             <p className="text-sm text-muted-foreground mt-1">Manage people, companies, activity, source, and pipeline context.</p>
           </div>
           <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => void scanDuplicates()} disabled={scanningDuplicates} className="gap-1.5">
+              <ScanSearch className="w-4 h-4" /> {scanningDuplicates ? "Scanning..." : "Find Duplicates"}
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setShowImport(true)} className="gap-1.5">
               <Upload className="w-4 h-4" /> Import
             </Button>
@@ -367,6 +414,46 @@ export default function Leads() {
               await queryClient.invalidateQueries({ queryKey: ["dispositions"] });
             }}>Add</Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={duplicateScan !== null} onOpenChange={(open) => { if (!open && !removingDuplicates) setDuplicateScan(null); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Duplicate contact scan</DialogTitle></DialogHeader>
+          {duplicateScan && (
+            <div className="space-y-4">
+              <div className={`rounded-lg border p-4 ${duplicateScan.duplicateCount ? "border-amber-200 bg-amber-50" : "border-green-200 bg-green-50"}`}>
+                <p className="font-semibold">
+                  {duplicateScan.duplicateCount
+                    ? `${duplicateScan.duplicateCount} duplicate contact${duplicateScan.duplicateCount === 1 ? "" : "s"} found in ${duplicateScan.groupCount} group${duplicateScan.groupCount === 1 ? "" : "s"}.`
+                    : "No duplicate contacts found."}
+                </p>
+                {duplicateScan.duplicateCount > 0 && <p className="mt-1 text-sm text-muted-foreground">The oldest contact in each group will be kept. Newer records with the same normalized email or phone number will be removed.</p>}
+              </div>
+              {duplicateScan.groups.length > 0 && (
+                <div className="max-h-80 space-y-2 overflow-y-auto">
+                  {duplicateScan.groups.map((group, index) => (
+                    <div key={`${group.keep.id}-${index}`} className="rounded-lg border border-border p-3 text-sm">
+                      <div className="font-medium">{group.keep.firstName} {group.keep.lastName}</div>
+                      <div className="text-xs text-muted-foreground">{group.keep.email || group.keep.phone || "No contact detail"} · keep this record</div>
+                      <div className="mt-2 text-xs text-amber-700">
+                        Remove {group.duplicates.length} duplicate{group.duplicates.length === 1 ? "" : "s"} · matched by {group.matchedBy.join(" and ") || "email or phone"}
+                      </div>
+                    </div>
+                  ))}
+                  {duplicateScan.groupCount > duplicateScan.groups.length && <p className="text-xs text-muted-foreground">Showing the first {duplicateScan.groups.length} groups.</p>}
+                </div>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setDuplicateScan(null)} disabled={removingDuplicates}>Close</Button>
+                {duplicateScan.duplicateCount > 0 && (
+                  <Button variant="destructive" onClick={() => void removeDuplicates()} disabled={removingDuplicates}>
+                    <Trash2 className="mr-1.5 h-4 w-4" /> {removingDuplicates ? "Removing..." : `Remove ${duplicateScan.duplicateCount} Duplicates`}
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

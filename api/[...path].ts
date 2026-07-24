@@ -1498,6 +1498,108 @@ async function deleteLeads(req: VercelRequest, res: VercelResponse) {
   sendJson(res, 200, { deleted: ids.length });
 }
 
+type DuplicateLeadCandidate = {
+  id: string | number;
+  first_name?: string | null;
+  last_name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  created_at?: string | null;
+};
+
+function normalizedDuplicatePhone(value: unknown) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (digits.length < 7) return "";
+  return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+}
+
+async function findDuplicateLeads(req: VercelRequest) {
+  const rows: DuplicateLeadCandidate[] = [];
+  const pageSize = 1000;
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await supabaseRest(
+      `leads?select=id,first_name,last_name,email,phone,created_at&order=created_at.asc&limit=${pageSize}&offset=${offset}`,
+      { method: "GET" },
+      req,
+    ) as DuplicateLeadCandidate[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+
+  const parent = rows.map((_, index) => index);
+  const find = (index: number): number => parent[index] === index ? index : (parent[index] = find(parent[index]!));
+  const union = (left: number, right: number) => {
+    const leftRoot = find(left);
+    const rightRoot = find(right);
+    if (leftRoot !== rightRoot) parent[rightRoot] = leftRoot;
+  };
+  const owners = new Map<string, number>();
+  rows.forEach((row, index) => {
+    const email = String(row.email ?? "").trim().toLowerCase();
+    const phone = normalizedDuplicatePhone(row.phone);
+    for (const key of [email ? `email:${email}` : "", phone ? `phone:${phone}` : ""].filter(Boolean)) {
+      const owner = owners.get(key);
+      if (owner === undefined) owners.set(key, index);
+      else union(owner, index);
+    }
+  });
+
+  const components = new Map<number, DuplicateLeadCandidate[]>();
+  rows.forEach((row, index) => {
+    const root = find(index);
+    components.set(root, [...(components.get(root) ?? []), row]);
+  });
+  const groups = [...components.values()]
+    .filter((group) => group.length > 1)
+    .map((group) => ({
+      keep: group[0]!,
+      remove: group.slice(1),
+      matchedBy: [
+        new Set(group.map((row) => String(row.email ?? "").trim().toLowerCase()).filter(Boolean)).size === 1 ? "email" : null,
+        new Set(group.map((row) => normalizedDuplicatePhone(row.phone)).filter(Boolean)).size === 1 ? "phone" : null,
+      ].filter(Boolean),
+    }));
+  return {
+    groups,
+    duplicateIds: groups.flatMap((group) => group.remove.map((row) => String(row.id))),
+  };
+}
+
+async function scanDuplicateLeads(req: VercelRequest, res: VercelResponse) {
+  const result = await findDuplicateLeads(req);
+  sendJson(res, 200, {
+    groupCount: result.groups.length,
+    duplicateCount: result.duplicateIds.length,
+    groups: result.groups.slice(0, 50).map((group) => ({
+      keep: leadFromRow(group.keep as LeadRow),
+      duplicates: group.remove.map((row) => leadFromRow(row as LeadRow)),
+      matchedBy: group.matchedBy,
+    })),
+  });
+}
+
+async function removeDuplicateLeads(req: VercelRequest, res: VercelResponse) {
+  const body = await readJson(req) as { confirm?: boolean };
+  if (body.confirm !== true) {
+    sendJson(res, 400, { error: "Confirm duplicate removal before continuing" });
+    return;
+  }
+  const result = await findDuplicateLeads(req);
+  for (let index = 0; index < result.duplicateIds.length; index += 100) {
+    const ids = result.duplicateIds.slice(index, index + 100);
+    await supabaseRest(
+      `leads?id=in.(${ids.map(encodeURIComponent).join(",")})`,
+      { method: "DELETE" },
+      req,
+    );
+  }
+  sendJson(res, 200, {
+    deleted: result.duplicateIds.length,
+    groupsResolved: result.groups.length,
+    kept: result.groups.length,
+  });
+}
+
 async function importLeads(req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as { leads?: LeadInput[]; campaignId?: number };
   const incoming = Array.isArray(body.leads) ? body.leads : [];
@@ -2176,6 +2278,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (method === "DELETE" && path === "/api/leads") {
       await deleteLeads(req, res);
+      return;
+    }
+
+    if (method === "GET" && path === "/api/leads/duplicates") {
+      await scanDuplicateLeads(req, res);
+      return;
+    }
+
+    if (method === "DELETE" && path === "/api/leads/duplicates") {
+      await removeDuplicateLeads(req, res);
       return;
     }
 
