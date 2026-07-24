@@ -420,7 +420,7 @@ function apiPermissionForPath(path: string) {
     [/^\/api\/team/, "team"],
     [/^\/api\/leads\/import/, "imports"],
     [/^\/api\/(?:leads|activities|notes|tasks)/, "contacts"],
-    [/^\/api\/segments/, "segments"],
+    [/^\/api\/(?:segments|contact-groups)/, "segments"],
     [/^\/api\/email\/(?:send|logs)/, "conversations"],
     [/^\/api\/(?:pipelines|pipeline)/, "pipeline"],
     [/^\/api\/(?:prospects|scraper)/, "prospecting"],
@@ -1217,7 +1217,7 @@ async function handleGenericResource(path: string, method: string, req: VercelRe
   return false;
 }
 
-async function listLeads(req: VercelRequest, res: VercelResponse) {
+async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
   const url = new URL(req.url ?? "/api/leads", "https://local.invalid");
   const page = Math.max(Number(url.searchParams.get("page") ?? "1"), 1);
   const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? "50"), 1), 1000);
@@ -1232,6 +1232,18 @@ async function listLeads(req: VercelRequest, res: VercelResponse) {
     offset: String(offset),
   });
   const countQuery = new URLSearchParams({ select: "id" });
+  const currentRole = normalizeDashboardRole(currentUser.user_metadata?.role ?? currentUser.app_metadata?.role);
+  if (currentRole === "agent") {
+    const teamMemberId = currentUser.user_metadata?.team_member_id ?? currentUser.app_metadata?.team_member_id;
+    const clientAccountId = currentUser.user_metadata?.client_account_id ?? currentUser.app_metadata?.client_account_id;
+    if (typeof teamMemberId === "string" && teamMemberId) {
+      query.set("custom_fields->>assigned_agent_id", `eq.${teamMemberId}`);
+      countQuery.set("custom_fields->>assigned_agent_id", `eq.${teamMemberId}`);
+    } else if (typeof clientAccountId === "string" && clientAccountId) {
+      query.set("client_account_id", `eq.${clientAccountId}`);
+      countQuery.set("client_account_id", `eq.${clientAccountId}`);
+    }
+  }
   if (status) query.set("status", `eq.${status}`);
   if (status) countQuery.set("status", `eq.${status}`);
   if (search) {
@@ -1598,6 +1610,155 @@ async function removeDuplicateLeads(req: VercelRequest, res: VercelResponse) {
     groupsResolved: result.groups.length,
     kept: result.groups.length,
   });
+}
+
+type ContactGroupFilters = {
+  type?: string;
+  leadIds?: Array<string | number>;
+  clientAccountId?: string | null;
+  clientName?: string | null;
+  agentId?: string | null;
+  agentName?: string | null;
+};
+
+async function listContactGroups(req: VercelRequest, res: VercelResponse) {
+  const rows = await supabaseRest(
+    "segments?select=*&order=created_at.desc",
+    { method: "GET" },
+    req,
+  ) as Array<Record<string, unknown>>;
+  const groups = rows.filter((row) => {
+    const filters = row.filters as ContactGroupFilters | null;
+    return filters?.type === "contact_group";
+  });
+  sendJson(res, 200, groups.map(toCamelValue));
+}
+
+async function assignContactGroupLeads(
+  group: Record<string, unknown>,
+  leadIds: string[],
+  clientAccountId: string | null,
+  clientName: string | null,
+  agentId: string | null,
+  agentName: string | null,
+  req: VercelRequest,
+) {
+  if (!leadIds.length) return;
+  const rows = await supabaseRest(
+    `leads?id=in.(${leadIds.map(encodeURIComponent).join(",")})&select=id,custom_fields`,
+    { method: "GET" },
+    req,
+  ) as Array<{ id: string | number; custom_fields?: Record<string, unknown> | null }>;
+  for (const row of rows) {
+    const existingFields = row.custom_fields ?? {};
+    const existingGroups = Array.isArray(existingFields.contact_group_ids)
+      ? existingFields.contact_group_ids.map(String)
+      : [];
+    const update: Record<string, unknown> = {
+      custom_fields: {
+        ...existingFields,
+        contact_group_ids: Array.from(new Set([...existingGroups, String(group.id)])),
+        contact_group_name: group.name,
+        assigned_client_name: clientName,
+        assigned_agent_id: agentId,
+        assigned_agent_name: agentName,
+      },
+    };
+    if (clientAccountId) update.client_account_id = clientAccountId;
+    await supabaseRest(`leads?id=eq.${encodeURIComponent(String(row.id))}`, {
+      method: "PATCH",
+      body: JSON.stringify(update),
+    }, req);
+  }
+}
+
+async function saveContactGroup(req: VercelRequest, res: VercelResponse) {
+  const body = await readJson(req) as {
+    groupId?: string | number;
+    name?: string;
+    description?: string;
+    leadIds?: Array<string | number>;
+    clientAccountId?: string | null;
+    clientName?: string | null;
+    agentId?: string | null;
+    agentName?: string | null;
+  };
+  const leadIds = Array.from(new Set((Array.isArray(body.leadIds) ? body.leadIds : []).map(String).filter(Boolean)));
+  if (!leadIds.length) {
+    sendJson(res, 400, { error: "Select at least one contact" });
+    return;
+  }
+
+  let group: Record<string, unknown> | undefined;
+  if (body.groupId !== undefined && body.groupId !== null && String(body.groupId)) {
+    const rows = await supabaseRest(
+      `segments?id=eq.${encodeURIComponent(String(body.groupId))}&select=*&limit=1`,
+      { method: "GET" },
+      req,
+    ) as Array<Record<string, unknown>>;
+    group = rows[0];
+    const currentFilters = (group?.filters ?? {}) as ContactGroupFilters;
+    if (!group || currentFilters.type !== "contact_group") {
+      sendJson(res, 404, { error: "Contact group not found" });
+      return;
+    }
+    const combinedLeadIds = Array.from(new Set([...(currentFilters.leadIds ?? []).map(String), ...leadIds]));
+    const updated = await supabaseRest(`segments?id=eq.${encodeURIComponent(String(group.id))}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        filters: {
+          ...currentFilters,
+          leadIds: combinedLeadIds,
+          clientAccountId: body.clientAccountId ?? currentFilters.clientAccountId ?? null,
+          clientName: body.clientName ?? currentFilters.clientName ?? null,
+          agentId: body.agentId ?? currentFilters.agentId ?? null,
+          agentName: body.agentName ?? currentFilters.agentName ?? null,
+        },
+        contact_count: combinedLeadIds.length,
+        updated_at: new Date().toISOString(),
+      }),
+    }, req) as Array<Record<string, unknown>>;
+    group = updated[0] ?? group;
+  } else {
+    const name = String(body.name ?? "").trim();
+    if (!name) {
+      sendJson(res, 400, { error: "Group name is required" });
+      return;
+    }
+    const rows = await supabaseRest("segments", {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        description: String(body.description ?? "").trim() || null,
+        filters: {
+          type: "contact_group",
+          leadIds,
+          clientAccountId: body.clientAccountId ?? null,
+          clientName: body.clientName ?? null,
+          agentId: body.agentId ?? null,
+          agentName: body.agentName ?? null,
+        },
+        contact_count: leadIds.length,
+      }),
+    }, req) as Array<Record<string, unknown>>;
+    group = rows[0];
+  }
+
+  if (!group?.id) {
+    sendJson(res, 500, { error: "The contact group could not be saved" });
+    return;
+  }
+  const filters = group.filters as ContactGroupFilters;
+  await assignContactGroupLeads(
+    group,
+    leadIds,
+    body.clientAccountId ?? filters.clientAccountId ?? null,
+    body.clientName ?? filters.clientName ?? null,
+    body.agentId ?? filters.agentId ?? null,
+    body.agentName ?? filters.agentName ?? null,
+    req,
+  );
+  sendJson(res, 200, toCamelValue(group));
 }
 
 async function importLeads(req: VercelRequest, res: VercelResponse) {
@@ -2267,7 +2428,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (method === "GET" && path === "/api/leads") {
-      await listLeads(req, res);
+      await listLeads(currentUser, req, res);
       return;
     }
 
@@ -2288,6 +2449,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (method === "DELETE" && path === "/api/leads/duplicates") {
       await removeDuplicateLeads(req, res);
+      return;
+    }
+
+    if (method === "GET" && path === "/api/contact-groups") {
+      await listContactGroups(req, res);
+      return;
+    }
+
+    if (method === "POST" && path === "/api/contact-groups") {
+      await saveContactGroup(req, res);
       return;
     }
 

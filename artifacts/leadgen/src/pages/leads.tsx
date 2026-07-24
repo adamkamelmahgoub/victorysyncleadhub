@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, Plus, Trash2, ExternalLink, Upload, Users, Building2, Mail, Phone, ChevronLeft, ChevronRight, ScanSearch } from "lucide-react";
+import { Search, Plus, Trash2, ExternalLink, Upload, Users, Building2, Mail, Phone, ChevronLeft, ChevronRight, ScanSearch, FolderPlus } from "lucide-react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
@@ -50,6 +50,20 @@ type DuplicateScan = {
     matchedBy: string[];
   }>;
 };
+
+type ContactGroup = {
+  id: string | number;
+  name: string;
+  description?: string | null;
+  contactCount: number;
+  filters?: {
+    clientAccountId?: string | null;
+    agentId?: string | null;
+    agentName?: string | null;
+  };
+};
+
+type AssignmentOption = { id: string; name: string; email?: string; role?: string };
 
 const STATUS_COLORS: Record<string, string> = {
   new: "hsl(199 89% 48%)",
@@ -94,6 +108,9 @@ export default function Leads() {
   const [duplicateScan, setDuplicateScan] = useState<DuplicateScan | null>(null);
   const [scanningDuplicates, setScanningDuplicates] = useState(false);
   const [removingDuplicates, setRemovingDuplicates] = useState(false);
+  const [showGroupAssignment, setShowGroupAssignment] = useState(false);
+  const [savingGroup, setSavingGroup] = useState(false);
+  const [groupForm, setGroupForm] = useState({ groupId: "", name: "", description: "", clientAccountId: "", agentId: "" });
   const [form, setForm] = useState({ firstName: "", lastName: "", email: "", phone: "", company: "", title: "", source: "" });
 
   const queryClient = useQueryClient();
@@ -122,6 +139,21 @@ export default function Leads() {
     queryFn: () => apiFetch("/dispositions"),
   });
   const dispositions = asArray<{ id: string; name: string; color: string }>(dispositionsResponse);
+  const { data: contactGroupsResponse = [] } = useQuery<ContactGroup[]>({
+    queryKey: ["contact-groups"],
+    queryFn: () => apiFetch("/api/contact-groups"),
+  });
+  const { data: clientAccountsResponse = [] } = useQuery<AssignmentOption[]>({
+    queryKey: ["sub-accounts"],
+    queryFn: () => apiFetch("/sub-accounts"),
+  });
+  const { data: teamResponse = [] } = useQuery<AssignmentOption[]>({
+    queryKey: ["team"],
+    queryFn: () => apiFetch("/team"),
+  });
+  const contactGroups = asArray<ContactGroup>(contactGroupsResponse);
+  const clientAccounts = asArray<AssignmentOption>(clientAccountsResponse);
+  const agents = asArray<AssignmentOption>(teamResponse).filter((member) => member.role === "agent" || member.role === "member");
 
   const leads = asArray<Lead>(data?.leads);
   const total = data?.total ?? 0;
@@ -130,7 +162,10 @@ export default function Leads() {
   const to = Math.min(page * PAGE_SIZE, total);
   const allSelected = leads.length > 0 && leads.every((lead) => selected.has(lead.id));
   const customFieldNames = useMemo(
-    () => Array.from(new Set(leads.flatMap((lead) => Object.keys(lead.customFields ?? {})))),
+    () => Array.from(new Set(
+      leads.flatMap((lead) => Object.keys(lead.customFields ?? {}))
+        .filter((name) => !["contact_group_ids", "assigned_agent_id"].includes(name)),
+    )),
     [leads],
   );
 
@@ -201,6 +236,44 @@ export default function Leads() {
       toast({ title: "Duplicate removal failed", description: error instanceof Error ? error.message : String(error), variant: "destructive" });
     } finally {
       setRemovingDuplicates(false);
+    }
+  }
+
+  async function saveGroupAssignment() {
+    if (!groupForm.groupId && !groupForm.name.trim()) {
+      toast({ title: "Enter a group name or select an existing group", variant: "destructive" });
+      return;
+    }
+    const agent = agents.find((member) => String(member.id) === groupForm.agentId);
+    const client = clientAccounts.find((account) => String(account.id) === groupForm.clientAccountId);
+    setSavingGroup(true);
+    try {
+      await apiFetch("/api/contact-groups", {
+        method: "POST",
+        body: JSON.stringify({
+          groupId: groupForm.groupId || undefined,
+          name: groupForm.name.trim() || undefined,
+          description: groupForm.description.trim() || undefined,
+          leadIds: [...selected],
+          clientAccountId: groupForm.clientAccountId || null,
+          clientName: client?.name ?? null,
+          agentId: groupForm.agentId || null,
+          agentName: agent?.name ?? null,
+        }),
+      });
+      const assignedCount = selected.size;
+      setShowGroupAssignment(false);
+      setGroupForm({ groupId: "", name: "", description: "", clientAccountId: "", agentId: "" });
+      setSelected(new Set());
+      await Promise.all([
+        refresh(),
+        queryClient.invalidateQueries({ queryKey: ["contact-groups"] }),
+      ]);
+      toast({ title: `${assignedCount} contact${assignedCount === 1 ? "" : "s"} assigned to group` });
+    } catch (error) {
+      toast({ title: "Group assignment failed", description: error instanceof Error ? error.message : String(error), variant: "destructive" });
+    } finally {
+      setSavingGroup(false);
     }
   }
 
@@ -289,6 +362,11 @@ export default function Leads() {
             <Button variant="outline" onClick={() => setSelected(allSelected ? new Set() : new Set(leads.map((lead) => lead.id)))}>
               {allSelected ? "Clear all" : `Select all (${leads.length})`}
             </Button>
+            {selected.size > 0 && (
+              <Button variant="outline" onClick={() => setShowGroupAssignment(true)} className="gap-1.5">
+                <FolderPlus className="h-4 w-4" /> Group & Assign ({selected.size})
+              </Button>
+            )}
             {selected.size > 0 && <Button variant="destructive" onClick={() => void deleteSelected()}>Delete {selected.size}</Button>}
             <Button variant="outline" onClick={() => setShowDispositions(true)}>Dispositions</Button>
           </div>
@@ -307,7 +385,7 @@ export default function Leads() {
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Score</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Source</th>
                   {customFieldNames.map((name) => (
-                    <th key={name} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">{name}</th>
+                    <th key={name} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">{name.replace(/_/g, " ")}</th>
                   ))}
                   <th className="px-4 py-3"></th>
                 </tr>
@@ -454,6 +532,65 @@ export default function Leads() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showGroupAssignment} onOpenChange={(open) => { if (!savingGroup) setShowGroupAssignment(open); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Group and assign contacts</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">{selected.size} selected contact{selected.size === 1 ? "" : "s"} will be added to this group.</p>
+            <div>
+              <Label className="text-xs text-muted-foreground">Existing group</Label>
+              <Select value={groupForm.groupId || "new"} onValueChange={(value) => setGroupForm((form) => ({ ...form, groupId: value === "new" ? "" : value }))}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Create a new group" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="new">Create a new group</SelectItem>
+                  {contactGroups.map((group) => <SelectItem key={group.id} value={String(group.id)}>{group.name} ({group.contactCount ?? 0})</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            {!groupForm.groupId && (
+              <>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Group name *</Label>
+                  <Input className="mt-1" value={groupForm.name} onChange={(event) => setGroupForm((form) => ({ ...form, name: event.target.value }))} placeholder="July insurance leads" />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Description</Label>
+                  <Input className="mt-1" value={groupForm.description} onChange={(event) => setGroupForm((form) => ({ ...form, description: event.target.value }))} placeholder="Optional notes about this group" />
+                </div>
+              </>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs text-muted-foreground">Assign to client</Label>
+                <Select value={groupForm.clientAccountId || "none"} onValueChange={(value) => setGroupForm((form) => ({ ...form, clientAccountId: value === "none" ? "" : value }))}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="No client" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No client</SelectItem>
+                    {clientAccounts.map((client) => <SelectItem key={client.id} value={String(client.id)}>{client.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Assign to agent</Label>
+                <Select value={groupForm.agentId || "none"} onValueChange={(value) => setGroupForm((form) => ({ ...form, agentId: value === "none" ? "" : value }))}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="No agent" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No agent</SelectItem>
+                    {agents.map((agent) => <SelectItem key={agent.id} value={String(agent.id)}>{agent.name}{agent.email ? ` · ${agent.email}` : ""}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowGroupAssignment(false)} disabled={savingGroup}>Cancel</Button>
+              <Button onClick={() => void saveGroupAssignment()} disabled={savingGroup || (!groupForm.groupId && !groupForm.name.trim())}>
+                {savingGroup ? "Assigning..." : "Save Group Assignment"}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
