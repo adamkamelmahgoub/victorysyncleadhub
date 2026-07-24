@@ -372,6 +372,24 @@ async function resolveUserOrgId(user: AuthenticatedUser, req: VercelRequest) {
   return (await resolveDashboardMembership(user, req)).org_id ?? null;
 }
 
+async function isPlatformAdmin(user: AuthenticatedUser, req: VercelRequest) {
+  const metadataRole = user.user_metadata?.global_role
+    ?? user.app_metadata?.global_role
+    ?? user.user_metadata?.role
+    ?? user.app_metadata?.role;
+  if (metadataRole === "platform_admin") return true;
+  try {
+    const rows = await supabaseRest(
+      `profiles?id=eq.${encodeURIComponent(user.id)}&select=global_role&limit=1`,
+      { method: "GET" },
+      req,
+    ) as Array<{ global_role?: string | null }>;
+    return rows[0]?.global_role === "platform_admin";
+  } catch {
+    return false;
+  }
+}
+
 async function ensureOrganization(orgId: string, user: AuthenticatedUser | null, req: VercelRequest) {
   const rows = await supabaseRest(
     `organizations?id=eq.${encodeURIComponent(orgId)}&select=id&limit=1`,
@@ -443,6 +461,10 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
   const email = String(user.email ?? "").trim().toLowerCase();
   if (!email) {
     sendJson(res, 400, { message: "The dashboard session does not include an email address" });
+    return;
+  }
+  if (!requestedOrgId && await isPlatformAdmin(user, req)) {
+    sendJson(res, 200, { member: null, platformAdmin: true });
     return;
   }
   const metadata = user.user_metadata ?? {};
@@ -602,6 +624,15 @@ async function syncOrganizationDashboardMembers(orgId: string, req: VercelReques
 }
 
 async function listTeamMembers(currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
+  if (await isPlatformAdmin(currentUser, req)) {
+    const rows = await supabaseRest(
+      "team_members?select=*&order=created_at.desc",
+      { method: "GET" },
+      req,
+    ) as Array<Record<string, unknown>>;
+    sendJson(res, 200, rows.map(toCamelValue));
+    return;
+  }
   const orgId = await resolveUserOrgId(currentUser, req);
   if (!orgId) {
     sendJson(res, 400, { message: "Your dashboard session is missing an organization ID" });

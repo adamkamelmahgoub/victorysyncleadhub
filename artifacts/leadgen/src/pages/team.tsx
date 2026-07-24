@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Users, UserPlus, Shield, MoreHorizontal, Mail,
+  Users, UserPlus, Shield, Mail,
   CheckCircle, Clock, XCircle, Trash2, Edit3, Search, Crown, Copy,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
@@ -64,7 +64,6 @@ export default function Team() {
   const [showInvite, setShowInvite] = useState(false);
   const [editMember, setEditMember] = useState<TeamMember | null>(null);
   const [form, setForm] = useState({ name: "", email: "", role: "member" as TeamMember["role"], clientAccountId: null as string | null, pagePermissions: [...ALL_PAGE_PERMISSION_KEYS] });
-  const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [createdInvite, setCreatedInvite] = useState<InviteResponse["invite"] | null>(null);
 
   const { data: membersResponse = [], isLoading, error: membersError } = useQuery<TeamMember[]>({
@@ -96,12 +95,12 @@ export default function Team() {
   const update = useMutation({
     mutationFn: ({ id, ...body }: Partial<TeamMember> & { id: string }) =>
       apiFetch(`/team/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["team"] }); setEditMember(null); setOpenMenu(null); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["team"] }); setEditMember(null); },
   });
 
   const remove = useMutation({
     mutationFn: (id: string) => apiFetch(`/team/${id}`, { method: "DELETE" }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["team"] }); setOpenMenu(null); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["team"] }); },
   });
   const resend = useMutation({
     mutationFn: (id: string) => apiFetch(`/team/${id}/resend`, { method: "POST" }) as Promise<InviteResponse["invite"]>,
@@ -161,7 +160,7 @@ export default function Team() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
+        <div className="bg-white rounded-xl border border-border shadow-sm overflow-x-auto">
           {membersError && (
             <div className="border-b border-red-200 bg-red-50 px-5 py-3 text-sm text-red-700">
               Team synchronization failed: {membersError instanceof Error ? membersError.message : String(membersError)}
@@ -222,7 +221,7 @@ export default function Team() {
                       {new Date(m.createdAt).toLocaleDateString()}
                     </td>
                     <td className="px-5 py-3.5">
-                      <div className="flex items-center justify-end gap-1 relative">
+                      <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
                         {m.status === "invited" && (
                           <button
                             onClick={() => resend.mutate(m.id)}
@@ -232,44 +231,19 @@ export default function Team() {
                             <Mail className="w-3 h-3" /> Resend
                           </button>
                         )}
-                        <button
-                          onClick={() => setOpenMenu(openMenu === m.id ? null : m.id)}
-                          className="p-1.5 rounded hover:bg-muted text-muted-foreground"
-                        >
-                          <MoreHorizontal className="w-4 h-4" />
+                        <button onClick={() => setEditMember(m)} className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-muted">
+                          <Edit3 className="w-3.5 h-3.5" /> Edit
                         </button>
-                        {openMenu === m.id && (
-                          <div className="absolute right-0 top-8 z-20 bg-white border border-border rounded-xl shadow-lg py-1 w-44">
-                            <button
-                              onClick={() => { setEditMember(m); setOpenMenu(null); }}
-                              className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2"
-                            >
-                              <Edit3 className="w-3.5 h-3.5 text-muted-foreground" /> Edit Role
-                            </button>
-                            {m.status !== "deactivated" ? (
-                              <button
-                                onClick={() => update.mutate({ id: m.id, status: "deactivated" })}
-                                className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2 text-amber-600"
-                              >
-                                <XCircle className="w-3.5 h-3.5" /> Deactivate
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => update.mutate({ id: m.id, status: "active" })}
-                                className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2 text-green-600"
-                              >
-                                <CheckCircle className="w-3.5 h-3.5" /> Reactivate
-                              </button>
-                            )}
-                            <div className="border-t border-border my-1" />
-                            <button
-                              onClick={() => remove.mutate(m.id)}
-                              className="w-full text-left px-3 py-2 text-sm hover:bg-red-50 flex items-center gap-2 text-red-500"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" /> Remove
-                            </button>
-                          </div>
-                        )}
+                        <button
+                          onClick={() => update.mutate({ id: m.id, status: m.status === "deactivated" ? "active" : "deactivated" })}
+                          className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs ${m.status === "deactivated" ? "border-green-200 text-green-700 hover:bg-green-50" : "border-amber-200 text-amber-700 hover:bg-amber-50"}`}
+                        >
+                          {m.status === "deactivated" ? <CheckCircle className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
+                          {m.status === "deactivated" ? "Activate" : "Deactivate"}
+                        </button>
+                        <button onClick={() => remove.mutate(m.id)} className="inline-flex items-center gap-1 rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50">
+                          <Trash2 className="w-3.5 h-3.5" /> Remove
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -494,8 +468,6 @@ export default function Team() {
           </div>
         </div>
       )}
-
-      {openMenu !== null && <div className="fixed inset-0 z-10" onClick={() => setOpenMenu(null)} />}
 
     </>
   );
