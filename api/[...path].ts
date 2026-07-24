@@ -372,6 +372,30 @@ async function resolveUserOrgId(user: AuthenticatedUser, req: VercelRequest) {
   return (await resolveDashboardMembership(user, req)).org_id ?? null;
 }
 
+async function ensureOrganization(orgId: string, user: AuthenticatedUser | null, req: VercelRequest) {
+  const rows = await supabaseRest(
+    `organizations?id=eq.${encodeURIComponent(orgId)}&select=id&limit=1`,
+    { method: "GET" },
+    req,
+  ) as Array<{ id?: string }>;
+  if (rows.length) return;
+
+  const metadata = user?.user_metadata ?? {};
+  const organization = metadata.organization;
+  const nestedName = organization && typeof organization === "object" && "name" in organization
+    ? (organization as { name?: unknown }).name
+    : null;
+  const requestedName = metadata.organization_name ?? metadata.org_name ?? metadata.company_name ?? nestedName;
+  const name = typeof requestedName === "string" && requestedName.trim()
+    ? requestedName.trim()
+    : `VictorySync Organization ${orgId.slice(0, 8)}`;
+  await supabaseRest("organizations", {
+    method: "POST",
+    body: JSON.stringify({ id: orgId, name }),
+    headers: { prefer: "resolution=ignore-duplicates,return=representation" },
+  }, req);
+}
+
 function apiPermissionForPath(path: string) {
   const routes: Array<[RegExp, string]> = [
     [/^\/api\/(?:sub-accounts|white-label)/, "client-accounts"],
@@ -460,6 +484,7 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
       sendJson(res, 400, { message: "The VictorySync dashboard session is missing an organization ID" });
       return;
     }
+    await ensureOrganization(orgId, user, req);
     const anyMembers = await supabaseRest(
       `team_members?org_id=eq.${encodeURIComponent(orgId)}&select=id&limit=1`,
       { method: "GET" },
@@ -510,6 +535,7 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
 
 async function syncOrganizationDashboardMembers(orgId: string, req: VercelRequest) {
   if (!supabaseUrl || !supabaseServiceRoleKey) return;
+  await ensureOrganization(orgId, null, req);
   let memberships: Array<Record<string, unknown>> = [];
   for (const table of ["org_users", "org_members"]) {
     try {
