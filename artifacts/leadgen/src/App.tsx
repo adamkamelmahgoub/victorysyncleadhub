@@ -8,6 +8,10 @@ import Dashboard from "@/pages/dashboard";
 import Scraper from "@/pages/scraper";
 import EmailAccounts from "@/pages/email-accounts";
 import Pipeline from "@/pages/pipeline";
+import Companies from "@/pages/companies";
+import CompanyDetail from "@/pages/company-detail";
+import TrialQueue from "@/pages/trial-queue";
+import CompanyKpis from "@/pages/company-kpis";
 import Sequences from "@/pages/sequences";
 import SequenceEditor from "@/pages/sequence-editor";
 import Leads from "@/pages/leads";
@@ -62,6 +66,14 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={VictorySyncHome} />
+      <Route path="/companies" component={Companies} />
+      <Route path="/companies/:id" component={CompanyDetail} />
+      <Route path="/trial-queue" component={TrialQueue} />
+      <Route path="/company-kpis" component={CompanyKpis} />
+      <Route path="/leadgen/companies" component={Companies} />
+      <Route path="/leadgen/companies/:id" component={CompanyDetail} />
+      <Route path="/leadgen/trial-queue" component={TrialQueue} />
+      <Route path="/leadgen/company-kpis" component={CompanyKpis} />
       <Route path="/leadgen" component={Dashboard} />
       <Route path="/leadgen/leads" component={Leads} />
       <Route path="/leadgen/leads/:id" component={LeadDetail} />
