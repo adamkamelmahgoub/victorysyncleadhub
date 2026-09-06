@@ -5,7 +5,7 @@ import {
   Megaphone, Zap, Layers, Globe, BarChart3, Star, Settings,
   Search, Mail, Share2, UserPlus, Plug, Upload, Filter,
   ChevronDown, Bell, Webhook, FileText, Building2, Target,
-  CalendarClock, TrendingUp, Gift, Rocket, Key, BookOpen,
+  CalendarClock, TrendingUp, Gift, Rocket, Key, BookOpen, Menu, X,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
@@ -21,6 +21,9 @@ const NAV: NavEntry[] = [
   { href: "/training", label: "Agent Training", icon: BookOpen },
   null,
   { section: "CRM" },
+  { href: "/companies", label: "Company Pipeline", icon: Building2 },
+  { href: "/trial-queue", label: "Trial Queue", icon: CalendarClock },
+  { href: "/company-kpis", label: "Daily Performance", icon: BarChart3 },
   { href: "/leads", label: "Contacts", icon: Users },
   { href: "/lead-import", label: "Import Contacts", icon: Upload },
   { href: "/segments", label: "Segments", icon: Filter },
@@ -56,17 +59,19 @@ const NAV: NavEntry[] = [
   { href: "/affiliates", label: "Affiliates", icon: Gift },
 ];
 
-function GHLLogo() {
+function VictorySyncLogo() {
   return (
-    <svg viewBox="0 0 32 32" fill="none" className="w-8 h-8 flex-shrink-0">
-      <rect width="32" height="32" rx="8" fill="#F97316" />
-      <path d="M16 8C11.582 8 8 11.582 8 16s3.582 8 8 8c2.387 0 4.536-.97 6.092-2.535l-2.828-2.829A4 4 0 1 1 16 12v4h4v-2h2.899A7.96 7.96 0 0 0 24 16c0-4.418-3.582-8-8-8z" fill="white" />
+    <svg viewBox="0 0 32 32" fill="none" className="w-8 h-8 flex-shrink-0" role="img" aria-label="Victory Sync">
+      <rect width="32" height="32" rx="8" fill="#FF3C00" />
+      <path d="m7 10 8 14L25 8h-6l-4 7-3-5H7Z" fill="white" />
     </svg>
   );
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
+  const [mobileNav, setMobileNav] = React.useState(false);
+  React.useEffect(() => { setMobileNav(false); }, [location]);
   const { user, role, clientAccountId, pagePermissions, signOut } = useAuth();
   const userEmail = user?.email ?? "Signed in user";
   const initials = userEmail
@@ -84,14 +89,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden">
+      {mobileNav && <button aria-label="Close navigation" className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setMobileNav(false)} />}
       {/* ── Dark Sidebar ── */}
       <aside
-        className="w-52 flex-shrink-0 flex flex-col overflow-hidden"
+        id="main-navigation"
+        className={`w-52 flex-shrink-0 flex-col overflow-hidden md:relative md:flex ${mobileNav ? "fixed inset-y-0 left-0 z-50 flex" : "hidden"}`}
         style={{ background: "hsl(var(--sidebar))", borderRight: "1px solid hsl(var(--sidebar-border))" }}
       >
         {/* Logo */}
         <div className="h-14 flex items-center px-4 gap-2.5 flex-shrink-0" style={{ borderBottom: "1px solid hsl(var(--sidebar-border))" }}>
-          <GHLLogo />
+          <VictorySyncLogo />
           <div>
             <div className="font-bold text-white text-sm leading-none">VictorySync</div>
             <div className="text-[9px] leading-none mt-0.5 font-medium tracking-widest" style={{ color: "hsl(215 20% 50%)" }}>PLATFORM</div>
@@ -134,7 +141,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   className="group flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all mb-0.5 relative"
                   style={
                     active
-                      ? { background: "hsl(25 95% 53% / 0.18)", color: "#FB923C", borderLeft: "2px solid #F97316", paddingLeft: "8px" }
+                      ? { background: "hsl(14 100% 50% / 0.18)", color: "#ff987a", borderLeft: "2px solid #FF3C00", paddingLeft: "8px" }
                       : { color: "hsl(var(--sidebar-foreground))", borderLeft: "2px solid transparent", paddingLeft: "8px" }
                   }
                   onMouseEnter={(e) => {
@@ -168,7 +175,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {canAccessPath("/settings", pagePermissions) && <Link href="/settings">
             <div
               className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer mb-1"
-              style={isActive("/settings") ? { background: "hsl(25 95% 53% / 0.18)", color: "#FB923C" } : { color: "hsl(var(--sidebar-foreground))" }}
+              style={isActive("/settings") ? { background: "hsl(14 100% 50% / 0.18)", color: "#ff987a" } : { color: "hsl(var(--sidebar-foreground))" }}
             >
               <Settings className="w-3.5 h-3.5 flex-shrink-0" />
               Settings
@@ -177,19 +184,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {canAccessPath("/billing-integration", pagePermissions) && <Link href="/billing-integration">
             <div
               className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer mb-1"
-              style={isActive("/billing-integration") ? { background: "hsl(25 95% 53% / 0.18)", color: "#FB923C" } : { color: "hsl(var(--sidebar-foreground))" }}
+              style={isActive("/billing-integration") ? { background: "hsl(14 100% 50% / 0.18)", color: "#ff987a" } : { color: "hsl(var(--sidebar-foreground))" }}
             >
               <Key className="w-3.5 h-3.5 flex-shrink-0" />
               API & SSO
             </div>
           </Link>}
           <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg mt-1">
-            <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ background: "#F97316" }}>
+            <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ background: "#FF3C00" }}>
               {initials}
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-xs font-medium text-white truncate">{userEmail}</div>
-              <div className="text-[10px] capitalize" style={{ color: "#FB923C" }}>
+              <div className="text-[10px] capitalize" style={{ color: "#ff987a" }}>
                 {role}{role === "agent" && clientAccountId ? ` · Client ${clientAccountId}` : ""}
               </div>
               <button
@@ -208,15 +215,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {/* ── Main ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-background">
         {/* Top bar */}
-        <header className="h-14 border-b border-border bg-white flex items-center px-5 gap-4 flex-shrink-0 shadow-sm">
-          <div className="flex-1 relative">
+        <header className="h-14 border-b border-border bg-white flex items-center px-3 sm:px-5 gap-3 flex-shrink-0 shadow-sm">
+          <button aria-label={mobileNav ? "Close menu" : "Open menu"} aria-expanded={mobileNav} aria-controls="main-navigation" className="rounded-md p-2 md:hidden" onClick={() => setMobileNav(value => !value)}>{mobileNav ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}</button>
+          <div className="flex-1 relative hidden md:block">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               placeholder="Search contacts, campaigns..."
-              className="w-72 pl-9 pr-3 py-1.5 text-sm bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary/30 text-foreground placeholder:text-muted-foreground"
+              className="w-full max-w-72 pl-9 pr-3 py-1.5 text-sm bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary/30 text-foreground placeholder:text-muted-foreground"
             />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2">
             <button className="relative p-2 rounded-lg hover:bg-muted text-muted-foreground transition-colors">
               <Bell className="w-4 h-4" />
               <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-primary rounded-full" />
@@ -235,7 +243,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Page */}
-        <main className="flex-1 overflow-y-auto p-5">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-5">
           {children}
         </main>
       </div>

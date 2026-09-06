@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { companyCrmRequest } from "../artifacts/api-server/src/lib/company-crm.js";
 
 type VercelRequest = {
   method?: string;
@@ -2402,6 +2403,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const currentUser = await authenticateRequest(req);
+    if (/^\/api\/(companies|company-crm)(\/|$)/.test(path)) {
+      const result = await companyCrmRequest(method, req.url ?? path, getHeader(req, "authorization") ?? "", currentUser, () => readJson(req));
+      sendJson(res, result.status, result.data);
+      return;
+    }
     if (method === "POST" && path === "/api/auth/sync-session") {
       await syncDashboardTeamMember(currentUser, req, res);
       return;

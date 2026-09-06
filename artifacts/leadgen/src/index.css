@@ -78,8 +78,8 @@
   --popover-foreground: 222 47% 11%;
   --popover-border: 214 32% 90%;
 
-  /* GHL Orange primary */
-  --primary: 25 95% 53%;
+  /* Victory Sync orange-red; a deeper action shade keeps white text legible. */
+  --primary: 14 100% 40%;
   --primary-foreground: 0 0% 100%;
 
   --secondary: 220 16% 93%;
@@ -88,17 +88,17 @@
   --muted: 220 14% 94%;
   --muted-foreground: 215 16% 47%;
 
-  --accent: 25 95% 95%;
-  --accent-foreground: 25 95% 40%;
+  --accent: 14 100% 96%;
+  --accent-foreground: 14 100% 36%;
 
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
 
   --border: 214 32% 90%;
   --input: 214 32% 90%;
-  --ring: 25 95% 53%;
+  --ring: 14 100% 50%;
 
-  --chart-1: 25 95% 53%;
+  --chart-1: 14 100% 45%;
   --chart-2: 221 83% 53%;
   --chart-3: 142 71% 45%;
   --chart-4: 38 92% 50%;
@@ -108,11 +108,11 @@
   --sidebar: 220 40% 13%;
   --sidebar-foreground: 215 20% 85%;
   --sidebar-border: 220 35% 20%;
-  --sidebar-primary: 25 95% 53%;
+  --sidebar-primary: 14 100% 50%;
   --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 220 35% 20%;
   --sidebar-accent-foreground: 0 0% 100%;
-  --sidebar-ring: 25 95% 53%;
+  --sidebar-ring: 14 100% 50%;
 
   --app-font-sans: 'Inter', sans-serif;
   --app-font-mono: 'JetBrains Mono', monospace;

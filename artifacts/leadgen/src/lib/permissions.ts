@@ -6,7 +6,7 @@ export const PAGE_PERMISSIONS = [
   { key: "imports", label: "Import Contacts", paths: ["/lead-import"] },
   { key: "segments", label: "Segments", paths: ["/segments"] },
   { key: "conversations", label: "Conversations", paths: ["/conversations"] },
-  { key: "pipeline", label: "Deals / Pipeline", paths: ["/pipeline"] },
+  { key: "pipeline", label: "Company CRM & Pipelines", paths: ["/pipeline", "/companies", "/trial-queue", "/company-kpis"] },
   { key: "prospecting", label: "Prospecting & Lead Finder", paths: ["/prospect-search", "/scraper"] },
   { key: "calendar", label: "Calendars & Scheduler", paths: ["/calendars", "/meeting-scheduler"] },
   { key: "sequences", label: "Sequences", paths: ["/sequences", "/sequence-analytics"] },

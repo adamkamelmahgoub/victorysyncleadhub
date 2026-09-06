@@ -13,9 +13,9 @@ import { useAuth } from "@/lib/auth";
 
 const modules = [
   {
-    href: "/leads",
-    title: "Contacts & CRM",
-    description: "Manage contacts, prospects, conversations, pipeline, and contact activity.",
+    href: "/companies",
+    title: "Company CRM & Trials",
+    description: "Track prospect companies, schedule inbound and outbound trials, and log every call and lead.",
     icon: Megaphone,
     stat: "CRM",
   },
@@ -64,14 +64,14 @@ export default function VictorySyncHome() {
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:flex">
-            <Link href="/leads">
+            <Link href="/companies">
               <button className="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90">
-                Open Contacts
+                Open Company CRM
               </button>
             </Link>
-            <Link href="/campaigns">
+            <Link href="/trial-queue">
               <button className="inline-flex items-center justify-center rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted">
-                Open Campaigns
+                View Trial Queue
               </button>
             </Link>
           </div>
