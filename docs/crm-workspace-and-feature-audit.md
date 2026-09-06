@@ -40,12 +40,12 @@ These gaps require separate workflows and, in many cases, connected providers. N
 
 ## Database and deployment
 
-Apply `supabase/migrations/20260905_company_trials.sql` first if it has not already been applied, then **`supabase/migrations/20260906_company_workspace.sql`**. Do not rerun an already-applied migration or historical destructive cleanup scripts. Both migrations were executed against disposable PostgreSQL in tests; the second preserves company rows and adds fields, task/file tables, and a private storage bucket with policies.
+Apply `supabase/migrations/20260905_company_trials.sql` first if it has not already been applied, then **`supabase/migrations/20260906_company_workspace.sql`**. The workspace migration can be rerun after a duplicate-column error: it skips existing columns, tables, indexes, constraints, triggers and policies without deleting records. Existing column definitions are preserved. Do not rerun the base migration or historical destructive cleanup scripts. Both migrations were executed against disposable PostgreSQL in tests; the second preserves company rows and adds fields, task/file tables, and a private storage bucket with policies.
 
 No live database migration was executed from this environment: it has no verified Supabase migration connection. The new API reports missing schema as a setup error rather than claiming a save succeeded. Existing company trial overlap protection, Supabase authentication and pipeline permissions remain in use.
 
 ## Validation
 
-- `pnpm test:crm`: six suites covering date calculations, expanded inputs, attribution, API paging/authorization and both real SQL migrations in PGlite. SQL tests exercise preservation of company/contact rows, tasks, files, private storage policies, viewer restrictions and trial/KPI invariants.
+- `pnpm test:crm`: seven tests covering date calculations, expanded inputs, attribution, API paging/authorization and both real SQL migrations in PGlite. SQL tests exercise fresh installation, an existing populated email column, repeated workspace migration runs, preservation of company/contact rows, tasks, files, private storage policies, viewer restrictions and trial/KPI invariants.
 - Frontend and Vercel API typechecks; production frontend/server builds.
 - Chromium desktop/mobile check with mocked auth/API/storage: multi-tab creation with people/tags/properties, trial/price edits, task creation/completion, file upload, filters, saved view, CSV export, board/table switch and mobile navigation. No live customer records or messages were created during these checks.
