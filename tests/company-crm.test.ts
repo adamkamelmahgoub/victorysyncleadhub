@@ -5,7 +5,54 @@ import {
   validDate,
   validateActivity,
   validateCompany,
+  validateTask,
 } from "../artifacts/api-server/src/lib/company-model.ts";
+test("expanded company fields validate contacts, URLs, properties and follow-ups", () => {
+  const input = {
+    name: "Trade Co",
+    email: "owner@example.com",
+    website: "https://example.com",
+    tags: ["HVAC", " HVAC "],
+    contacts: [
+      { name: "Owner", role: "GM", phone: "555", email: "owner@example.com" },
+    ],
+    custom_fields: { Territory: "West" },
+    proposed_monthly_price: 1250,
+    expected_daily_leads: 25,
+    currency: "USD",
+    next_follow_up_at: "2026-09-10T10:00:00Z",
+  };
+  assert.deepEqual(validateCompany(input).tags, ["HVAC"]);
+  assert.throws(
+    () => validateCompany({ ...input, website: "javascript:alert(1)" }),
+    /Website/,
+  );
+  assert.throws(
+    () =>
+      validateCompany({
+        ...input,
+        contacts: [{ name: "", role: "", phone: "", email: "" }],
+      }),
+    /name/,
+  );
+  assert.throws(
+    () => validateCompany({ ...input, proposed_monthly_price: -1 }),
+    /price/i,
+  );
+  assert.throws(
+    () => validateCompany({ ...input, next_follow_up_at: "tomorrow" }),
+    /valid/,
+  );
+  assert.deepEqual(
+    validateTask({ status: "completed", created_by: "forged" }, true),
+    { status: "completed" },
+  );
+  assert.throws(() => validateTask({ title: "", kind: "task" }), /required/);
+  assert.throws(
+    () => validateTask({ title: "Call", due_at: "yesterday" }),
+    /due/,
+  );
+});
 import { companyCrmRequest } from "../artifacts/api-server/src/lib/company-crm.ts";
 
 test("three-day trials include the start day and cross weekends, years and leap days", () => {

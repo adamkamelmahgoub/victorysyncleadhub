@@ -44,7 +44,7 @@ export default function CompanyKpiPage() {
   return (
     <div className="space-y-5">
       <CrmHeader
-        title="The work. The response. The result."
+        title="Daily performance"
         description="Daily calls and leads, response speed, appointments, and the trials that need your attention."
       />
       <div className="flex flex-wrap items-end gap-4 rounded-xl border bg-white p-4">
@@ -81,7 +81,7 @@ export default function CompanyKpiPage() {
         <CrmError error={query.error} retry={() => void query.refetch()} />
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="flex flex-wrap gap-x-8 gap-y-4 border-y bg-white px-4 py-4">
             {[
               {
                 title: "Outbound dials",
@@ -116,14 +116,11 @@ export default function CompanyKpiPage() {
                 detail: "Companies in Trial Completed",
               },
             ].map((metric) => (
-              <article
-                key={metric.title}
-                className="rounded-xl border bg-white p-5"
-              >
+              <article key={metric.title} className="min-w-36 flex-1">
                 <h2 className="text-sm text-muted-foreground">
                   {metric.title}
                 </h2>
-                <p className="mt-3 text-3xl font-semibold tracking-tight">
+                <p className="mt-2 text-2xl font-semibold tracking-tight">
                   {metric.value}
                 </p>
                 <p className="mt-2 text-xs text-muted-foreground">

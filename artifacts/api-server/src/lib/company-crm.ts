@@ -2,6 +2,7 @@ import {
   validDate,
   validateActivity,
   validateCompany,
+  validateTask,
 } from "./company-model.js";
 
 type User = { id: string; user_metadata?: Record<string, unknown> };
@@ -62,10 +63,14 @@ export async function companyCrmRequest(
           409,
           "This inbound trial overlaps another booked or active trial. Choose a different start date in the trial queue.",
         );
-      if (["42P01", "PGRST205", "PGRST202"].includes(data.code ?? ""))
+      if (
+        ["42P01", "42703", "PGRST204", "PGRST205", "PGRST202"].includes(
+          data.code ?? "",
+        )
+      )
         throw new CrmError(
           503,
-          "Company CRM needs the 20260905_company_trials.sql migration applied to Supabase.",
+          "Company CRM needs its database migrations applied: 20260905_company_trials.sql, then 20260906_company_workspace.sql.",
         );
       if (data.code === "23514")
         throw new CrmError(
@@ -81,6 +86,17 @@ export async function companyCrmRequest(
     return data as T;
   }
   try {
+    if (path === "/api/company-crm/tasks" && method === "GET") {
+      const rows: unknown[] = [];
+      for (let offset = 0; ; offset += 500) {
+        const page = await rest(
+          `company_tasks?select=*&order=due_at.asc.nullslast,created_at.desc,id.desc&limit=500&offset=${offset}`,
+        );
+        rows.push(...page);
+        if (page.length < 500) break;
+      }
+      return { status: 200, data: rows };
+    }
     if (path === "/api/company-crm/kpis" && method === "GET") {
       const from = parsed.searchParams.get("from");
       const to = parsed.searchParams.get("to");
@@ -133,16 +149,90 @@ export async function companyCrmRequest(
       return { status: 201, data: rows[0] };
     }
     const match = path.match(
-      /^\/api\/companies\/([0-9a-f-]{36})(\/activities)?$/i,
+      /^\/api\/companies\/([0-9a-f-]{36})(\/(?:activities|tasks|files))?(?:\/([0-9a-f-]{36}))?$/i,
     );
     if (!match)
       return { status: 404, data: { error: "Company route not found." } };
-    const [, id, activities] = match;
+    const [, id, child, childId] = match;
+    const activities = child === "/activities";
     const rows = await rest(`companies?id=eq.${id}&select=*&limit=1`);
     if (!rows.length)
       return { status: 404, data: { error: "Company not found." } };
-    if (!activities && method === "GET") return { status: 200, data: rows[0] };
-    if (!activities && method === "PATCH") {
+    if (!child && childId)
+      return { status: 404, data: { error: "Company route not found." } };
+    if (child === "/tasks" && method === "POST" && !childId) {
+      const data = validateTask(await readBody());
+      const saved = await rest("company_tasks", {
+        method: "POST",
+        body: JSON.stringify({ ...data, company_id: id, created_by: user.id }),
+      });
+      return { status: 201, data: saved[0] };
+    }
+    if (child === "/tasks" && method === "PATCH" && childId) {
+      const data = validateTask(await readBody(), true);
+      const saved = await rest(
+        `company_tasks?id=eq.${childId}&company_id=eq.${id}`,
+        { method: "PATCH", body: JSON.stringify(data) },
+      );
+      return saved.length
+        ? { status: 200, data: saved[0] }
+        : { status: 404, data: { error: "Task not found." } };
+    }
+    if (
+      (child === "/tasks" || child === "/files") &&
+      method === "GET" &&
+      !childId
+    ) {
+      const offset = Number(parsed.searchParams.get("offset") ?? 0);
+      if (!Number.isSafeInteger(offset) || offset < 0)
+        throw new CrmError(400, "Invalid page.");
+      const table = child === "/tasks" ? "company_tasks" : "company_files";
+      const items = await rest(
+        `${table}?company_id=eq.${id}&select=*&order=created_at.desc,id.desc&limit=50&offset=${offset}`,
+      );
+      return {
+        status: 200,
+        data: { items, nextOffset: items.length === 50 ? offset + 50 : null },
+      };
+    }
+    if (child === "/files" && method === "POST" && !childId) {
+      const input = (await readBody()) as Record<string, unknown>;
+      if (
+        !input ||
+        typeof input !== "object" ||
+        typeof input.file_name !== "string" ||
+        !input.file_name.trim() ||
+        input.file_name.length > 255 ||
+        typeof input.storage_path !== "string" ||
+        !input.storage_path.startsWith(`${id}/`) ||
+        input.storage_path.includes("..") ||
+        input.storage_path.length > 500 ||
+        typeof input.mime_type !== "string" ||
+        input.mime_type.length > 150 ||
+        typeof input.size_bytes !== "number" ||
+        !Number.isInteger(input.size_bytes) ||
+        input.size_bytes < 1 ||
+        input.size_bytes > 10485760
+      )
+        throw new CrmError(
+          400,
+          "Invalid file. Maximum attachment size is 10 MB.",
+        );
+      const saved = await rest("company_files", {
+        method: "POST",
+        body: JSON.stringify({
+          company_id: id,
+          file_name: input.file_name,
+          storage_path: input.storage_path,
+          mime_type: input.mime_type,
+          size_bytes: input.size_bytes,
+          uploaded_by: user.id,
+        }),
+      });
+      return { status: 201, data: saved[0] };
+    }
+    if (!child && method === "GET") return { status: 200, data: rows[0] };
+    if (!child && method === "PATCH") {
       const data = validateCompany(await readBody(), true);
       const saved = await rest(`companies?id=eq.${id}`, {
         method: "PATCH",
@@ -150,7 +240,7 @@ export async function companyCrmRequest(
       });
       return { status: 200, data: saved[0] };
     }
-    if (activities && method === "GET") {
+    if (activities && !childId && method === "GET") {
       const offset = Number(parsed.searchParams.get("offset") ?? 0);
       if (!Number.isSafeInteger(offset) || offset < 0)
         throw new CrmError(400, "Invalid activity page.");
@@ -162,7 +252,7 @@ export async function companyCrmRequest(
         data: { items, nextOffset: items.length === 50 ? offset + 50 : null },
       };
     }
-    if (activities && method === "POST") {
+    if (activities && !childId && method === "POST") {
       const data = validateActivity(await readBody(), user.id);
       const saved = await rest("company_activities", {
         method: "POST",

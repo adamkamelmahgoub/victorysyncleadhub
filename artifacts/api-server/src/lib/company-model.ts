@@ -21,6 +21,12 @@ export const CALL_OUTCOMES = [
 ] as const;
 export type CompanyStage = (typeof COMPANY_STAGES)[number];
 export type Direction = "inbound" | "outbound";
+export interface CompanyContact {
+  name: string;
+  role: string;
+  email: string;
+  phone: string;
+}
 export interface Company {
   id: string;
   name: string;
@@ -39,6 +45,25 @@ export interface Company {
   trial_capacity_slot: string | null;
   created_at: string;
   updated_at: string;
+  email?: string;
+  website?: string;
+  address?: string;
+  postal_code?: string;
+  country?: string;
+  tags?: string[];
+  contacts?: CompanyContact[];
+  custom_fields?: Record<string, string>;
+  next_action?: string;
+  next_follow_up_at?: string | null;
+  coverage_hours?: string;
+  coverage_timezone?: string;
+  expected_daily_leads?: number | null;
+  trial_success_criteria?: string;
+  trial_results?: string;
+  proposed_monthly_price?: number | null;
+  currency?: string;
+  close_call_at?: string | null;
+  close_notes?: string;
 }
 export interface CompanyActivity {
   id: string;
@@ -49,6 +74,71 @@ export interface CompanyActivity {
   notes: string;
   occurred_at: string;
   logged_by: string;
+}
+export interface CompanyTask {
+  id: string;
+  company_id: string;
+  title: string;
+  kind: "task" | "callback" | "email" | "meeting" | "close_call";
+  status: "pending" | "in_progress" | "completed";
+  priority: "low" | "normal" | "high";
+  due_at: string | null;
+  assignee: string;
+  notes: string;
+  created_by: string;
+  created_at: string;
+}
+export interface CompanyFile {
+  id: string;
+  company_id: string;
+  file_name: string;
+  storage_path: string;
+  mime_type: string;
+  size_bytes: number;
+  created_at: string;
+  uploaded_by: string;
+}
+export function validateTask(
+  input: unknown,
+  partial = false,
+): Record<string, unknown> {
+  if (!input || typeof input !== "object" || Array.isArray(input))
+    throw new Error("Expected task fields.");
+  const body = input as Record<string, unknown>;
+  const result: Record<string, unknown> = {};
+  for (const key of ["title", "assignee", "notes"])
+    if (key in body) {
+      if (
+        typeof body[key] !== "string" ||
+        body[key].length > (key === "notes" ? 10000 : 500)
+      )
+        throw new Error(`Invalid task ${key}.`);
+      result[key] = body[key].trim();
+    }
+  if ((!partial || "title" in body) && !result.title)
+    throw new Error("Task title is required.");
+  for (const [key, values] of Object.entries({
+    kind: ["task", "callback", "email", "meeting", "close_call"],
+    status: ["pending", "in_progress", "completed"],
+    priority: ["low", "normal", "high"],
+  }))
+    if (key in body) {
+      if (!values.includes(String(body[key])))
+        throw new Error(`Invalid task ${key}.`);
+      result[key] = body[key];
+    }
+  if ("due_at" in body) {
+    const value = body.due_at;
+    if (
+      value !== null &&
+      (typeof value !== "string" ||
+        !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value) ||
+        Number.isNaN(Date.parse(value)))
+    )
+      throw new Error("Choose a valid task due time.");
+    result.due_at = value;
+  }
+  return result;
 }
 export interface CompanyKpis {
   daily: {
@@ -104,11 +194,31 @@ export function validateCompany(
     "contact_name",
     "fit_notes",
     "source",
+    "email",
+    "website",
+    "address",
+    "postal_code",
+    "country",
+    "next_action",
+    "coverage_hours",
+    "coverage_timezone",
+    "trial_success_criteria",
+    "trial_results",
+    "currency",
+    "close_notes",
   ]) {
     if (field in body) {
       if (
         typeof body[field] !== "string" ||
-        body[field].length > (field === "fit_notes" ? 10000 : 500)
+        body[field].length >
+          ([
+            "fit_notes",
+            "trial_results",
+            "trial_success_criteria",
+            "close_notes",
+          ].includes(field)
+            ? 10000
+            : 500)
       )
         throw new Error(`Invalid ${label(field)}.`);
       result[field] = body[field].trim();
@@ -116,6 +226,119 @@ export function validateCompany(
   }
   if ((!partial || "name" in body) && !result.name)
     throw new Error("Company name is required.");
+  if (
+    typeof result.email === "string" &&
+    result.email &&
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(result.email)
+  )
+    throw new Error("Enter a valid company email.");
+  if (typeof result.website === "string" && result.website) {
+    let url: URL;
+    try {
+      url = new URL(result.website);
+    } catch {
+      throw new Error("Website must start with https:// or http://.");
+    }
+    if (!["http:", "https:"].includes(url.protocol))
+      throw new Error("Website must use https:// or http://.");
+  }
+  if ("tags" in body) {
+    if (
+      !Array.isArray(body.tags) ||
+      body.tags.length > 30 ||
+      body.tags.some((tag) => typeof tag !== "string" || tag.trim().length > 60)
+    )
+      throw new Error("Use up to 30 tags, each under 60 characters.");
+    result.tags = [
+      ...new Set(body.tags.map((tag: string) => tag.trim()).filter(Boolean)),
+    ];
+  }
+  if ("contacts" in body) {
+    if (!Array.isArray(body.contacts) || body.contacts.length > 30)
+      throw new Error("Use up to 30 company contacts.");
+    result.contacts = body.contacts.map((contact) => {
+      if (!contact || typeof contact !== "object" || Array.isArray(contact))
+        throw new Error("Invalid company contact.");
+      const row: Record<string, string> = {};
+      for (const key of ["name", "role", "email", "phone"]) {
+        if (typeof contact[key] !== "string" || contact[key].length > 500)
+          throw new Error(`Invalid contact ${key}.`);
+        row[key] = contact[key].trim();
+      }
+      if (!row.name) throw new Error("Each contact needs a name.");
+      if (row.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email))
+        throw new Error("Enter a valid contact email.");
+      return row;
+    });
+  }
+  if ("custom_fields" in body) {
+    const fields = body.custom_fields;
+    if (
+      !fields ||
+      typeof fields !== "object" ||
+      Array.isArray(fields) ||
+      Object.keys(fields).length > 30
+    )
+      throw new Error("Use up to 30 custom fields.");
+    const entries = Object.entries(fields);
+    if (
+      entries.some(
+        ([key, value]) =>
+          !key.trim() ||
+          key.length > 60 ||
+          ["__proto__", "constructor", "prototype"].includes(key.trim()) ||
+          typeof value !== "string" ||
+          value.length > 2000,
+      )
+    )
+      throw new Error(
+        "Custom fields need a name (up to 60 characters) and a text value (up to 2,000 characters).",
+      );
+    result.custom_fields = Object.fromEntries(
+      entries.map(([key, value]) => [key.trim(), (value as string).trim()]),
+    );
+  }
+  for (const field of ["next_follow_up_at", "close_call_at"]) {
+    if (field in body) {
+      const value = body[field];
+      if (
+        value !== null &&
+        (typeof value !== "string" ||
+          !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value) ||
+          Number.isNaN(Date.parse(value)))
+      )
+        throw new Error(`Choose a valid ${label(field)}.`);
+      result[field] = value;
+    }
+  }
+  for (const field of ["expected_daily_leads", "proposed_monthly_price"]) {
+    if (field in body) {
+      const value = body[field];
+      if (
+        value !== null &&
+        (typeof value !== "number" ||
+          !Number.isFinite(value) ||
+          value < 0 ||
+          (field === "expected_daily_leads" &&
+            (!Number.isInteger(value) || value > 2147483647)))
+      )
+        throw new Error(`Invalid ${label(field)}.`);
+      result[field] = value;
+    }
+  }
+  if (result.currency && !/^[A-Z]{3}$/.test(String(result.currency)))
+    throw new Error("Currency must be a three-letter code, such as USD.");
+  if (result.coverage_timezone) {
+    try {
+      new Intl.DateTimeFormat("en", {
+        timeZone: String(result.coverage_timezone),
+      });
+    } catch {
+      throw new Error(
+        "Enter a valid coverage timezone, such as America/New_York.",
+      );
+    }
+  }
   if ("stage" in body) {
     if (!COMPANY_STAGES.includes(body.stage as CompanyStage))
       throw new Error("Invalid company stage.");

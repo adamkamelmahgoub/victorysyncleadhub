@@ -27,7 +27,7 @@ The new tables use UUID keys independent of the older ID mismatch. Existing tabl
 - `trial_completed` means awaiting a close decision until manually moved onward. Logging an outcome does not silently change the company's stage. There is no automatic client-account provisioning.
 - An unknown inbound response time is null and excluded from averages; an immediate response is zero and included. Decimal minutes are supported. Response time is invalid on outbound activity. Every activity row counts as one dial or handled inbound lead.
 - KPI date filters use the browser's timezone, displayed above the report. Active/completed trial counts reflect current stages, regardless of the activity date filter. PostgreSQL aggregates the entire report window; activity-log pagination does not truncate totals.
-- Branding uses the repository favicon's `#FF3C00` orange-red, navy surfaces, white cards, a darker accessible action color and a new simple V monogram. No official brand guide or logo asset beyond the plain favicon was supplied.
+- Branding was subsequently verified against the live VictorySync website and corrected to blue, white, slate and the actual logo. See [the workspace redesign and feature audit](crm-workspace-and-feature-audit.md) for the expanded fields, tasks, attachments, current layout and additional migration.
 
 ## Deploy
 

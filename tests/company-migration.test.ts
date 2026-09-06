@@ -28,6 +28,37 @@ test("migration preserves existing data and enforces trials, attribution, RLS an
     assert.deepEqual((await db.query("select * from leads")).rows, [
       { id: 42, name: "Existing contact" },
     ]);
+    await db.exec(`create schema storage;
+      create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
+      create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text,owner_id text);
+      alter table storage.objects enable row level security;
+      grant usage on schema storage to authenticated;
+      grant select,insert,delete on storage.objects to authenticated;
+      insert into companies(name) values ('Before workspace migration');`);
+    await db.exec(
+      await readFile(
+        new URL(
+          "../supabase/migrations/20260906_company_workspace.sql",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    );
+    assert.deepEqual(
+      (
+        await db.query(
+          "select name,tags,contacts,email from companies where name='Before workspace migration'",
+        )
+      ).rows,
+      [
+        {
+          name: "Before workspace migration",
+          tags: [],
+          contacts: [],
+          email: "",
+        },
+      ],
+    );
     async function setUser(metadata: Record<string, unknown>) {
       await db.query("select set_config('request.jwt.claims', $1, false)", [
         JSON.stringify({ sub: user, user_metadata: metadata }),
@@ -50,6 +81,44 @@ test("migration preserves existing data and enforces trials, attribution, RLS an
     const {
       rows: [company],
     } = await insert("First inbound", "2026-09-10");
+    const task = (
+      await db.query<{ id: string }>(
+        "insert into company_tasks(company_id,title,kind,due_at) values($1,'Close call','close_call','2026-09-15T12:00:00Z') returning id",
+        [company.id],
+      )
+    ).rows[0];
+    await db.query("update company_tasks set status='completed' where id=$1", [
+      task.id,
+    ]);
+    await assert.rejects(
+      db.query("update company_tasks set created_by=$1 where id=$2", [
+        other,
+        task.id,
+      ]),
+      (e: any) => e.code === "42501",
+    );
+    await assert.rejects(
+      db.query(
+        "insert into company_tasks(company_id,title,created_by) values($1,'Forged',$2)",
+        [company.id, other],
+      ),
+      (e: any) => e.code === "42501",
+    );
+    await db.query(
+      "insert into company_files(company_id,file_name,storage_path,mime_type,size_bytes) values($1,'test.pdf',$2,'application/pdf',100)",
+      [company.id, `${company.id}/test.pdf`],
+    );
+    await assert.rejects(
+      db.query(
+        "insert into company_files(company_id,file_name,storage_path,mime_type,size_bytes) values($1,'wrong.pdf',$2,'application/pdf',100)",
+        [company.id, `${other}/wrong.pdf`],
+      ),
+      (e: any) => e.code === "23514",
+    );
+    await db.query(
+      "insert into storage.objects(bucket_id,name,owner_id) values('company-files',$1,$2)",
+      [`${company.id}/test.pdf`, user],
+    );
     await assert.rejects(
       insert("Overlap", "2026-09-14"),
       (e: any) => e.code === "23P01",
@@ -152,6 +221,20 @@ test("migration preserves existing data and enforces trials, attribution, RLS an
       ],
     );
     await setUser({ role: "viewer" });
+    await assert.rejects(
+      db.query(
+        "insert into company_tasks(company_id,title) values($1,'Viewer task')",
+        [company.id],
+      ),
+      (e: any) => e.code === "42501",
+    );
+    await assert.rejects(
+      db.query(
+        "insert into storage.objects(bucket_id,name,owner_id) values('company-files',$1,$2)",
+        [`${company.id}/viewer.pdf`, user],
+      ),
+      (e: any) => e.code === "42501",
+    );
     assert.ok((await db.query("select * from companies")).rows.length > 0);
     await assert.rejects(
       db.exec("insert into companies(name) values ('Viewer write')"),
@@ -168,6 +251,18 @@ test("migration preserves existing data and enforces trials, attribution, RLS an
     ]) {
       await setUser(metadata);
       assert.equal((await db.query("select * from companies")).rows.length, 0);
+      assert.equal(
+        (await db.query("select * from company_tasks")).rows.length,
+        0,
+      );
+      assert.equal(
+        (await db.query("select * from company_files")).rows.length,
+        0,
+      );
+      assert.equal(
+        (await db.query("select * from storage.objects")).rows.length,
+        0,
+      );
       assert.equal(
         (await db.query("select * from company_activities")).rows.length,
         0,

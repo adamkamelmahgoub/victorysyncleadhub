@@ -10,6 +10,9 @@ import { ArrowLeft, Clock3, PhoneIncoming, PhoneOutgoing } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { CompanyEditor } from "@/components/company-editor";
+import { CompanyTasks, CompanyFiles } from "@/components/company-work";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { CrmHeader, CrmError, StageBadge } from "@/components/company-crm";
 import {
   CALL_OUTCOMES,
@@ -28,243 +31,7 @@ import { useAuth } from "@/lib/auth";
 
 const selectClass =
   "mt-1 h-10 w-full rounded-md border bg-white px-3 text-sm disabled:opacity-60";
-function CompanyForm({
-  company,
-  readOnly,
-}: {
-  company: Company;
-  readOnly: boolean;
-}) {
-  const [draft, setDraft] = useState(company);
-  const [saved, setSaved] = useState(false);
-  const qc = useQueryClient();
-  const companies = useCompanies();
-  const update = <K extends keyof Company>(key: K, value: Company[K]) => {
-    setSaved(false);
-    setDraft((current) => ({ ...current, [key]: value }));
-  };
-  let endDate: string | null = null;
-  let dateError = "";
-  if (draft.trial_start_date) {
-    try {
-      endDate = trialEndDate(draft.trial_start_date);
-    } catch (error) {
-      dateError = (error as Error).message;
-    }
-  }
-  const conflicts = (companies.data ?? []).filter(
-    (other) =>
-      other.id !== company.id &&
-      other.trial_type === "inbound" &&
-      ["trial_booked", "trial_active"].includes(other.stage) &&
-      other.trial_start_date &&
-      other.trial_end_date &&
-      draft.trial_start_date &&
-      endDate &&
-      other.trial_start_date <= endDate &&
-      other.trial_end_date >= draft.trial_start_date,
-  );
-  const reservesInbound =
-    draft.trial_type === "inbound" &&
-    ["trial_booked", "trial_active"].includes(draft.stage);
-  const save = useMutation({
-    mutationFn: () =>
-      apiFetch(`/api/companies/${company.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          ...draft,
-          trial_end_date: endDate,
-          trial_capacity_slot: draft.trial_start_date
-            ? draft.trial_type === "inbound"
-              ? "solo-inbound"
-              : "outbound"
-            : null,
-        }),
-      }),
-    onSuccess: () => {
-      setSaved(true);
-      void qc.invalidateQueries({ queryKey: ["company-crm"] });
-    },
-  });
-  return (
-    <form
-      className="space-y-6 rounded-xl border bg-white p-5"
-      onSubmit={(e) => {
-        e.preventDefault();
-        setSaved(false);
-        save.mutate();
-      }}
-    >
-      <fieldset disabled={readOnly || save.isPending} className="space-y-5">
-        <legend className="mb-4 text-lg font-semibold">
-          Company & trial details
-        </legend>
-        <div className="grid gap-4 sm:grid-cols-2">
-          {(
-            [
-              "name",
-              "phone",
-              "city",
-              "state",
-              "industry",
-              "contact_name",
-              "source",
-            ] as const
-          ).map((field) => (
-            <label key={field} className="text-sm font-medium">
-              {field === "contact_name" ? "Owner / GM name" : label(field)}
-              <Input
-                className="mt-1"
-                required={field === "name"}
-                maxLength={500}
-                value={draft[field]}
-                onChange={(e) => update(field, e.target.value)}
-              />
-            </label>
-          ))}
-          <label className="text-sm font-medium">
-            Stage
-            <select
-              aria-label="Stage"
-              className={selectClass}
-              value={draft.stage}
-              onChange={(e) =>
-                update("stage", e.target.value as Company["stage"])
-              }
-            >
-              {COMPANY_STAGES.map((stage) => (
-                <option key={stage} value={stage}>
-                  {label(stage)}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <label className="block text-sm font-medium">
-          Fit notes
-          <Textarea
-            className="mt-1"
-            rows={3}
-            maxLength={10000}
-            value={draft.fit_notes}
-            onChange={(e) => update("fit_notes", e.target.value)}
-          />
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={draft.needs_verification}
-            onChange={(e) => update("needs_verification", e.target.checked)}
-          />
-          Company needs verification
-        </label>
-        <div className="border-t pt-5">
-          <h3 className="font-semibold">Three-business-day trial</h3>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Monday–Friday, including the start day. Holidays are not excluded.
-            Move stages manually as the trial progresses.
-          </p>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="text-sm font-medium">
-            Trial type
-            <select
-              aria-label="Trial type"
-              className={selectClass}
-              value={draft.trial_type ?? ""}
-              required={Boolean(draft.trial_start_date)}
-              onChange={(e) =>
-                update(
-                  "trial_type",
-                  (e.target.value || null) as Direction | null,
-                )
-              }
-            >
-              <option value="">Not selected</option>
-              <option value="inbound">
-                Inbound · live call / lead coverage
-              </option>
-              <option value="outbound">Outbound · cold calling</option>
-            </select>
-          </label>
-          <label className="text-sm font-medium">
-            Trial start date
-            <Input
-              className="mt-1"
-              type="date"
-              value={draft.trial_start_date ?? ""}
-              required={[
-                "trial_booked",
-                "trial_active",
-                "trial_completed",
-              ].includes(draft.stage)}
-              onChange={(e) =>
-                update("trial_start_date", e.target.value || null)
-              }
-            />
-          </label>
-          <div className="text-sm">
-            <p className="font-medium">Trial end date</p>
-            <p className="mt-2">{displayDate(endDate)}</p>
-          </div>
-          <div className="text-sm">
-            <p className="font-medium">Capacity slot</p>
-            <p className="mt-2">
-              {draft.trial_type === "inbound"
-                ? "solo-inbound · one live trial at a time"
-                : draft.trial_type === "outbound"
-                  ? "outbound · separate from inbound capacity"
-                  : "Choose a trial type"}
-            </p>
-          </div>
-        </div>
-        <Link
-          href="/trial-queue"
-          className="inline-block text-sm font-semibold text-primary underline"
-        >
-          Check the trial queue
-        </Link>
-        {dateError && (
-          <p role="alert" className="text-sm text-red-700">
-            {dateError}
-          </p>
-        )}
-        {reservesInbound && conflicts.length > 0 && (
-          <div
-            role="alert"
-            className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900"
-          >
-            This window overlaps{" "}
-            {conflicts.map((other) => other.name).join(", ")}. Choose a
-            different start date.
-          </div>
-        )}
-        {save.error && (
-          <p role="alert" className="text-sm text-red-700">
-            {save.error.message}
-          </p>
-        )}
-        {!readOnly && (
-          <Button
-            type="submit"
-            disabled={
-              Boolean(dateError) || (reservesInbound && conflicts.length > 0)
-            }
-          >
-            {save.isPending ? "Saving…" : "Save company"}
-          </Button>
-        )}
-      </fieldset>
-      {saved && (
-        <p role="status" className="text-sm text-emerald-700">
-          Company saved.
-        </p>
-      )}
-    </form>
-  );
-}
-
-function ActivityLog({
+export function ActivityLog({
   company,
   readOnly,
 }: {
@@ -532,14 +299,32 @@ export default function CompanyDetail() {
         }
       />
       <StageBadge stage={company.stage} />
-      <div className="grid items-start gap-5 xl:grid-cols-2">
-        <CompanyForm
-          key={company.id}
-          company={company}
-          readOnly={role === "viewer"}
-        />
-        <ActivityLog company={company} readOnly={role === "viewer"} />
-      </div>
+      <Tabs
+        defaultValue="details"
+        key={company.id}
+        className="rounded-lg border bg-white p-5"
+      >
+        <TabsList className="mb-5">
+          <TabsTrigger value="details">Company details</TabsTrigger>
+          <TabsTrigger value="activity">Activity</TabsTrigger>
+          <TabsTrigger value="tasks">Tasks</TabsTrigger>
+          <TabsTrigger value="files">Files</TabsTrigger>
+        </TabsList>
+        <TabsContent value="details">
+          <div className="max-w-3xl">
+            <CompanyEditor company={company} readOnly={role === "viewer"} />
+          </div>
+        </TabsContent>
+        <TabsContent value="activity">
+          <ActivityLog company={company} readOnly={role === "viewer"} />
+        </TabsContent>
+        <TabsContent value="tasks">
+          <CompanyTasks companyId={company.id} readOnly={role === "viewer"} />
+        </TabsContent>
+        <TabsContent value="files">
+          <CompanyFiles companyId={company.id} readOnly={role === "viewer"} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

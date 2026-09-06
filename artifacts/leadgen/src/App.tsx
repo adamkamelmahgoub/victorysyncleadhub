@@ -12,6 +12,7 @@ import Companies from "@/pages/companies";
 import CompanyDetail from "@/pages/company-detail";
 import TrialQueue from "@/pages/trial-queue";
 import CompanyKpis from "@/pages/company-kpis";
+import CompanyTasks from "@/pages/company-tasks";
 import Sequences from "@/pages/sequences";
 import SequenceEditor from "@/pages/sequence-editor";
 import Leads from "@/pages/leads";
@@ -65,11 +66,13 @@ const queryClient = new QueryClient({
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={VictorySyncHome} />
+      <Route path="/" component={Companies} />
       <Route path="/companies" component={Companies} />
       <Route path="/companies/:id" component={CompanyDetail} />
       <Route path="/trial-queue" component={TrialQueue} />
       <Route path="/company-kpis" component={CompanyKpis} />
+      <Route path="/crm-tasks" component={CompanyTasks} />
+      <Route path="/leadgen/crm-tasks" component={CompanyTasks} />
       <Route path="/leadgen/companies" component={Companies} />
       <Route path="/leadgen/companies/:id" component={CompanyDetail} />
       <Route path="/leadgen/trial-queue" component={TrialQueue} />
@@ -104,7 +107,7 @@ function Router() {
       <Route path="/leadgen/getting-started" component={Onboarding} />
       <Route path="/leadgen/training" component={AgentTraining} />
 
-      <Route path="/dashboard" component={VictorySyncHome} />
+      <Route path="/dashboard" component={Companies} />
       <Route path="/leads" component={Leads} />
       <Route path="/leads/:id" component={LeadDetail} />
       <Route path="/conversations" component={Conversations} />

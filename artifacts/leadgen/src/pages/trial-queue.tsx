@@ -51,7 +51,7 @@ export default function TrialQueue() {
   return (
     <div className="space-y-5">
       <CrmHeader
-        title="A clear view of what’s committed."
+        title="Trial schedule"
         description="Booked and active trials, in start-date order. One live inbound trial at a time."
       />
       <section className="rounded-xl border bg-white p-5">

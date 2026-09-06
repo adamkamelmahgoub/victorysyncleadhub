@@ -17,30 +17,33 @@ export function CrmHeader({
   action?: ReactNode;
 }) {
   const [location] = useLocation();
-  const path = location.replace(/^\/leadgen/, "");
+  const normalized = location.replace(/^\/leadgen/, "");
+  const path =
+    normalized === "/" || normalized === "/dashboard"
+      ? "/companies"
+      : normalized;
   return (
-    <div className="space-y-5">
-      <header className="relative overflow-hidden rounded-2xl bg-[#101c30] p-6 text-white sm:p-8">
-        <div
-          className="absolute -right-12 -top-16 h-60 w-60 rounded-full border-[36px] border-[#ff3c00]/10"
-          aria-hidden="true"
-        />
-        <div className="relative flex flex-wrap items-center justify-between gap-5">
+    <div className="space-y-4">
+      <header className="py-1">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-[#ff987a]">
-              Victory Sync / Company CRM
+            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
+              Victory Sync CRM
             </p>
-            <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+            <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
               {description}
             </p>
           </div>
           {action}
         </div>
       </header>
-      <nav aria-label="Company CRM" className="flex flex-wrap gap-2">
+      <nav
+        aria-label="Company CRM"
+        className="flex gap-5 overflow-x-auto border-b"
+      >
         {[
-          { href: "/companies", label: "Company pipeline", icon: Building2 },
+          { href: "/companies", label: "Companies", icon: Building2 },
           { href: "/trial-queue", label: "Trial queue", icon: CalendarClock },
           {
             href: "/company-kpis",
@@ -51,7 +54,7 @@ export function CrmHeader({
           <Link
             key={item.href}
             href={item.href}
-            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium ${path.startsWith(item.href) ? "bg-primary text-white" : "border bg-white hover:bg-muted"}`}
+            className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-1 pb-3 pt-1 text-sm font-medium ${path.startsWith(item.href) ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
             aria-current={path.startsWith(item.href) ? "page" : undefined}
           >
             <item.icon className="h-4 w-4" />

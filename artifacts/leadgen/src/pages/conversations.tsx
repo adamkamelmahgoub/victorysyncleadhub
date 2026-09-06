@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useListLeads } from "@workspace/api-client-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import {
   Search, Send, Mail, Phone, MoreHorizontal, RefreshCw,
@@ -41,7 +41,16 @@ export default function Conversations() {
   const [search, setSearch] = useState("");
   const [reply, setReply] = useState("");
   const [replySubject, setReplySubject] = useState("Follow up");
-  const [sentMessages, setSentMessages] = useState<Record<number, { body: string; time: string }[]>>({});
+  const [sendNotice, setSendNotice] = useState("");
+  const qc = useQueryClient();
+  const send = useMutation({
+    mutationFn: (data: { leadId: number; subject: string; body: string }) => apiFetch('/api/email/send', { method: 'POST', body: JSON.stringify(data) }),
+    onSuccess: (result, sent) => {
+      setReply(current => current === sent.body ? '' : current);
+      setSendNotice(result.message ?? 'Email request saved. Check its status in the thread.');
+      void qc.invalidateQueries({ queryKey: ['email-logs'] });
+    },
+  });
 
   const selected = leads.find((l) => l.id === selectedId);
 
@@ -79,12 +88,9 @@ export default function Conversations() {
   });
 
   function sendReply() {
-    if (!reply.trim() || !selectedId) return;
-    setSentMessages((prev) => ({
-      ...prev,
-      [selectedId]: [...(prev[selectedId] ?? []), { body: reply.trim(), time: new Date().toISOString() }],
-    }));
-    setReply("");
+    if (!reply.trim() || !replySubject.trim() || !selectedId || send.isPending) return;
+    setSendNotice('');
+    send.mutate({ leadId: selectedId, subject: replySubject.trim(), body: reply });
   }
 
   const CHANNELS: Channel[] = ["all", "email", "sms", "facebook", "instagram", "whatsapp"];
@@ -154,9 +160,9 @@ export default function Conversations() {
           <div className="flex-1 overflow-y-auto">
             {filtered.map((lead, i) => {
               const isSelected = selectedId === lead.id;
-              const hasSent = (sentMessages[lead.id]?.length ?? 0) > 0;
-              const lastMsg = sentMessages[lead.id]?.at(-1);
-              const hasUnread = i < 3;
+              const lastMsg = emailLogs?.filter(log => log.leadId === lead.id).at(-1);
+              const hasSent = lastMsg?.status === 'sent';
+              const hasUnread = false;
               return (
                 <button
                   key={lead.id}
@@ -173,12 +179,12 @@ export default function Conversations() {
                           {lead.firstName} {lead.lastName}
                         </span>
                         <span className="text-[10px] text-muted-foreground flex-shrink-0 ml-1">
-                          {hasSent ? "now" : `${i + 1}h`}
+                          {lastMsg?.sentAt ? formatDistanceToNow(new Date(lastMsg.sentAt), { addSuffix: true }) : ''}
                         </span>
                       </div>
                       <div className="text-[11px] text-muted-foreground truncate">{lead.company ?? lead.email}</div>
                       <div className="text-[11px] text-muted-foreground truncate mt-0.5">
-                        {hasSent ? lastMsg?.body : i % 3 === 0 ? "Thanks for reaching out!" : i % 3 === 1 ? "Can we schedule a call?" : "No reply yet"}
+                        {lastMsg?.body ?? "Open activity history"}
                       </div>
                     </div>
                   </div>
@@ -232,7 +238,7 @@ export default function Conversations() {
                   <div className="max-w-lg">
                     <div className="bg-primary text-white rounded-2xl rounded-tr-sm px-4 py-2.5">
                       {log.subject && <div className="text-xs font-semibold mb-1 opacity-80">{log.subject}</div>}
-                      <p className="text-sm">{log.body ?? "(email sent)"}</p>
+                      <p className="text-sm">{log.body ?? "(no message body)"}</p>
                     </div>
                     <div className="flex items-center justify-end gap-1 mt-1 mr-1">
                       <Clock className="w-3 h-3 text-muted-foreground" />
@@ -254,24 +260,12 @@ export default function Conversations() {
                 </div>
               ))}
 
-              {/* New sent messages */}
-              {(sentMessages[selected.id] ?? []).map((msg, i) => (
-                <div key={i} className="flex gap-3 justify-end">
-                  <div className="max-w-lg">
-                    <div className="bg-primary text-white rounded-2xl rounded-tr-sm px-4 py-2.5">
-                      <p className="text-sm">{msg.body}</p>
-                    </div>
-                    <div className="flex items-center justify-end gap-1 mt-1">
-                      <span className="text-[10px] text-muted-foreground">Just now · Sent</span>
-                    </div>
-                  </div>
-                  <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-white flex-shrink-0">VS</div>
-                </div>
-              ))}
             </div>
 
             {/* Reply box */}
             <div className="bg-white border-t border-border px-5 py-3 flex-shrink-0">
+              {sendNotice && <p role="status" className="mb-2 text-xs text-slate-600">{sendNotice}</p>}
+              {send.error && <p role="alert" className="mb-2 text-xs text-red-700">{send.error.message}</p>}
               <div className="flex gap-2 mb-2">
                 {(["email", "sms"] as const).map((ch) => {
                   const cfg = CHANNEL_CONFIG[ch];
@@ -319,10 +313,10 @@ export default function Conversations() {
                   </div>
                   <button
                     onClick={sendReply}
-                    disabled={!reply.trim()}
+                    disabled={!reply.trim() || !replySubject.trim() || send.isPending}
                     className="flex items-center gap-1.5 px-4 py-1.5 bg-primary text-white text-xs font-medium rounded-lg hover:bg-primary/90 disabled:opacity-40 transition-colors"
                   >
-                    <Send className="w-3 h-3" /> Send
+                    <Send className="w-3 h-3" /> {send.isPending ? 'Saving…' : 'Queue email'}
                   </button>
                 </div>
               </div>
