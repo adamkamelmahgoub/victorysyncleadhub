@@ -100,8 +100,10 @@ export interface LeadListResponse {
   limit: number;
 }
 
+export type LeadImportRow = Partial<LeadInput>;
+
 export interface LeadImportInput {
-  leads: LeadInput[];
+  leads: LeadImportRow[];
   campaignId?: number;
 }
 

@@ -740,6 +740,42 @@ components:
           additionalProperties:
             type: string
 
+    LeadImportRow:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        company:
+          type: string
+        title:
+          type: string
+        source:
+          type: string
+        status:
+          type: string
+        disposition:
+          type: string
+        contactAttempts:
+          type: integer
+        score:
+          type: integer
+        campaignId:
+          type: integer
+        tags:
+          type: array
+          items:
+            type: string
+        customFields:
+          type: object
+          additionalProperties:
+            type: string
+
     LeadUpdate:
       type: object
       properties:
@@ -808,7 +844,7 @@ components:
         leads:
           type: array
           items:
-            $ref: "#/components/schemas/LeadInput"
+            $ref: "#/components/schemas/LeadImportRow"
         campaignId:
           type: integer
 

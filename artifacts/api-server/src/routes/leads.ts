@@ -145,7 +145,7 @@ router.post("/leads/import", async (req, res): Promise<void> => {
     try {
       const [inserted] = await db
         .insert(leadsTable)
-        .values({ ...lead, campaignId: campaignId ?? lead.campaignId, clientAccountId: clientScope(res) })
+        .values({ ...lead, firstName: lead.firstName ?? "", lastName: lead.lastName ?? "", email: lead.email ?? "", campaignId: campaignId ?? lead.campaignId, clientAccountId: clientScope(res) })
         .returning();
       await db.insert(activitiesTable).values({
         leadId: inserted.id,

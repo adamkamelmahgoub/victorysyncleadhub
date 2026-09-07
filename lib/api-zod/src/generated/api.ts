@@ -114,9 +114,9 @@ export const CreateLeadResponse = zod.object({
 
 export const ImportLeadsBody = zod.object({
   "leads": zod.array(zod.object({
-  "firstName": zod.string().min(1),
-  "lastName": zod.string().min(1),
-  "email": zod.string().min(1),
+  "firstName": zod.string().optional(),
+  "lastName": zod.string().optional(),
+  "email": zod.string().optional(),
   "phone": zod.string().optional(),
   "company": zod.string().optional(),
   "title": zod.string().optional(),

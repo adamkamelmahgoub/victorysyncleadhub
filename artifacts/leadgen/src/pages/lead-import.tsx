@@ -6,16 +6,16 @@ import { Link } from "wouter";
 import { parseXlsx } from "@/lib/xlsx";
 
 const LEAD_FIELDS = [
-  { key: "firstName", label: "First Name", required: false },
-  { key: "lastName", label: "Last Name", required: false },
-  { key: "email", label: "Email", required: true },
-  { key: "phone", label: "Phone", required: false },
-  { key: "company", label: "Company", required: false },
-  { key: "title", label: "Job Title", required: false },
-  { key: "source", label: "Source", required: false },
-  { key: "status", label: "Status", required: false },
-  { key: "disposition", label: "Disposition", required: false },
-  { key: "contactAttempts", label: "Times Contacted", required: false },
+  { key: "firstName", label: "First Name" },
+  { key: "lastName", label: "Last Name" },
+  { key: "email", label: "Email" },
+  { key: "phone", label: "Phone" },
+  { key: "company", label: "Company" },
+  { key: "title", label: "Job Title" },
+  { key: "source", label: "Source" },
+  { key: "status", label: "Status" },
+  { key: "disposition", label: "Disposition" },
+  { key: "contactAttempts", label: "Times Contacted" },
 ];
 
 function parseCSV(text: string): { headers: string[]; rows: string[][] } {
@@ -50,27 +50,10 @@ export default function LeadImport() {
 
   const importMutation = useMutation({
     mutationFn: async (leads: object[]) => {
-      try {
-        return await apiFetch("/api/leads/import", {
-          method: "POST",
-          body: JSON.stringify({ leads }),
-        });
-      } catch (error) {
-        if (!(error instanceof Error) || !/\b404\b/.test(error.message)) throw error;
-        const errors: string[] = [];
-        let imported = 0;
-        for (let index = 0; index < leads.length; index += 5) {
-          const batch = leads.slice(index, index + 5);
-          const results = await Promise.allSettled(
-            batch.map((lead) => apiFetch("/api/leads", { method: "POST", body: JSON.stringify(lead) })),
-          );
-          results.forEach((result, batchIndex) => {
-            if (result.status === "fulfilled") imported += 1;
-            else errors.push(`Row ${index + batchIndex + 2}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
-          });
-        }
-        return { imported, failed: leads.length - imported, total: leads.length, errors };
-      }
+      return await apiFetch("/api/leads/import", {
+        method: "POST",
+        body: JSON.stringify({ leads }),
+      });
     },
     onSuccess: (data) => { setResult(data); setStep("done"); },
   });
@@ -101,6 +84,7 @@ export default function LeadImport() {
   }
 
   function finishParsing(p: { headers: string[]; rows: string[][] }) {
+      p = { ...p, rows: p.rows.filter((row) => row.some((cell) => cell.trim())) };
       if (!p.headers.length) throw new Error("The file does not contain a header row.");
       if (!p.rows.length) throw new Error("The file does not contain any contact rows.");
       setParsed(p);
@@ -138,12 +122,6 @@ export default function LeadImport() {
         .filter((field) => field.name.trim() && field.column)
         .map((field) => [field.name.trim(), row[parsed.headers.indexOf(field.column)] ?? ""]),
     );
-    const email = String(lead.email ?? "").trim();
-    if (email) {
-      const nameParts = email.split("@")[0]!.split(/[._+-]+/).filter(Boolean);
-      if (!String(lead.firstName ?? "").trim()) lead.firstName = nameParts[0] || "Unknown";
-      if (!String(lead.lastName ?? "").trim()) lead.lastName = nameParts.slice(1).join(" ") || "Unknown";
-    }
     return lead;
   }
 
@@ -154,12 +132,7 @@ export default function LeadImport() {
 
   function doImport() {
     if (!parsed) return;
-    const leads = parsed.rows.map(mapRow).filter((lead) => lead.email);
-    if (leads.length === 0) {
-      setResult({ imported: 0, failed: parsed.rows.length, errors: ["No rows contained an email address. Check the Email column mapping."] });
-      setStep("done");
-      return;
-    }
+    const leads = parsed.rows.map(mapRow);
     importMutation.mutate(leads);
   }
 
@@ -227,12 +200,12 @@ export default function LeadImport() {
               </div>
             </div>
             <div className="p-6 space-y-4">
-              <p className="text-sm text-muted-foreground">Map your CSV columns to VictorySync fields:</p>
+              <p className="text-sm text-muted-foreground">Map the columns you want to import. All fields are optional; missing values stay blank.</p>
               <div className="space-y-3">
                 {LEAD_FIELDS.map((f) => (
                   <div key={f.key} className="flex items-center gap-4">
                     <div className="w-32 text-sm font-medium text-foreground flex-shrink-0">
-                      {f.label}{f.required && <span className="text-red-400 ml-0.5">*</span>}
+                      {f.label}
                     </div>
                     <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                     <select
@@ -294,7 +267,6 @@ export default function LeadImport() {
               <button onClick={() => setStep("upload")} className="px-4 py-2 text-sm font-medium border border-border rounded-lg text-muted-foreground hover:bg-muted">Back</button>
               <button
                 onClick={() => setStep("preview")}
-                disabled={!mapping.email}
                 className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-40"
               >
                 Preview Import
