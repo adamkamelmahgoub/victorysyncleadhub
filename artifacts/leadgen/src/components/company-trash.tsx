@@ -10,6 +10,7 @@ import {
 } from "./ui/dialog";
 import { apiFetch } from "@/lib/api";
 import { CrmError } from "./company-crm";
+import { deleteCompanyBatches } from "@/lib/delete-company-batches";
 
 type RecordName = { id: string; name: string };
 export function DeleteCompanies({
@@ -22,13 +23,19 @@ export function DeleteCompanies({
   bulk?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [targets, setTargets] = useState<RecordName[]>([]);
+  const [processed, setProcessed] = useState(0);
   const qc = useQueryClient();
+  const close = () => { setOpen(false); void qc.invalidateQueries(); };
   const mutation = useMutation({
-    mutationFn: () =>
-      apiFetch("/api/companies", {
+    mutationFn: () => deleteCompanyBatches(
+      targets.slice(processed).map(company => company.id),
+      ids => apiFetch("/api/companies", {
         method: "DELETE",
-        body: JSON.stringify({ ids: companies.map((company) => company.id) }),
+        body: JSON.stringify({ ids }),
       }),
+      count => setProcessed(processed + count),
+    ),
     onSuccess: () => {
       setOpen(false);
       onDeleted?.();
@@ -41,30 +48,29 @@ export function DeleteCompanies({
         size="sm"
         variant="outline"
         className="text-red-700"
-        disabled={!companies.length || companies.length > 100}
+        disabled={!companies.length}
         onClick={() => {
           mutation.reset();
+          setTargets([...companies]);
+          setProcessed(0);
           setOpen(true);
         }}
       >
         {bulk ? "Delete selected" : "Delete company"}
       </Button>
-      {companies.length > 100 && (
-        <span className="text-xs">Delete up to 100 at a time.</span>
-      )}
       <Dialog
         open={open}
         onOpenChange={(value) => {
-          if (!mutation.isPending) setOpen(value);
+          if (!mutation.isPending && !value) close();
         }}
       >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
               Move{" "}
-              {companies.length === 1
-                ? companies[0]?.name
-                : `${companies.length} companies`}{" "}
+              {targets.length === 1
+                ? targets[0]?.name
+                : `${targets.length} companies`}{" "}
               to Trash?
             </DialogTitle>
             <DialogDescription>
@@ -73,32 +79,34 @@ export function DeleteCompanies({
               restored from Trash. Any booked trial capacity will be released.
             </DialogDescription>
           </DialogHeader>
-          {companies.length > 1 && (
+          {targets.length > 1 && (
             <ul className="max-h-40 overflow-auto text-sm">
-              {companies.map((company) => (
+              {targets.slice(0, 100).map((company) => (
                 <li key={company.id}>{company.name}</li>
               ))}
+              {targets.length > 100 && <li>And {targets.length - 100} more selected companies.</li>}
             </ul>
           )}
+          {(mutation.isPending || processed > 0) && <p role="status" className="text-sm">{processed} of {targets.length} companies processed. Keep this page open until finished.</p>}
           {mutation.error && (
             <p role="alert" className="text-sm text-red-700">
-              {mutation.error.message}
+              Stopped after {processed} of {targets.length} companies. Earlier batches were moved to Trash. The last batch may have saved; retrying it is safe. {mutation.error.message}
             </p>
           )}
           <div className="flex justify-end gap-2">
             <Button
               variant="outline"
               disabled={mutation.isPending}
-              onClick={() => setOpen(false)}
+              onClick={close}
             >
-              Cancel
+              {mutation.error ? "Close and refresh" : "Cancel"}
             </Button>
             <Button
               variant="destructive"
               disabled={mutation.isPending}
               onClick={() => mutation.mutate()}
             >
-              {mutation.isPending ? "Moving…" : "Move to Trash"}
+              {mutation.isPending ? "Moving…" : mutation.error ? "Retry remaining" : "Move to Trash"}
             </Button>
           </div>
         </DialogContent>
