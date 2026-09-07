@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Upload, FileText, CheckCircle, AlertCircle, X, Download, ChevronRight, Plus } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { Link } from "wouter";
+import { PERSON_FIELDS, detectDecisionMakers, mapDecisionMakers, type PersonMapping } from "@/lib/decision-maker-import";
 import { parseCSV } from "@/lib/csv";
 import { parseXlsx } from "@/lib/xlsx";
 
@@ -35,9 +36,10 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
   const fields = companyMode ? COMPANY_FIELDS : LEAD_FIELDS;
   const noun = companyMode ? "companies" : "contacts";
   const queryClient = useQueryClient();
+  const [personMappings, setPersonMappings] = useState<PersonMapping[]>([{}]);
   const [progress, setProgress] = useState(0);
   function downloadTemplate() {
-    const blob = new Blob([fields.map(field => field.label).join(",") + "\n"], { type: "text/csv" });
+    const blob = new Blob([[...fields.map(field => field.label), ...(companyMode ? ["Decision Maker 1 Name", "Decision Maker 1 Role", "Decision Maker 1 Email", "Decision Maker 1 Phone", "Decision Maker 2 Name", "Decision Maker 2 Role", "Decision Maker 2 Email", "Decision Maker 2 Phone"] : [])].join(",") + "\n"], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = companyMode ? "companies-template.csv" : "leads-template.csv"; a.click();
     URL.revokeObjectURL(url);
@@ -118,6 +120,7 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
       });
       setMapping(autoMap);
       setCustomMappings([]);
+      setPersonMappings(companyMode ? detectDecisionMakers(p.headers) : [{}]);
       setStep("map");
   }
 
@@ -145,7 +148,7 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
         .filter((field) => field.name.trim() && field.column)
         .map((field) => [field.name.trim(), row[parsed.headers.indexOf(field.column)] ?? ""]),
     );
-    if (companyMode) { lead.custom_fields = lead.customFields; delete lead.customFields; }
+    if (companyMode) { lead.custom_fields = lead.customFields; delete lead.customFields; lead.contacts = mapDecisionMakers(parsed.headers, row, personMappings); }
     return lead;
   }
 
@@ -244,6 +247,11 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
                   </div>
                 ))}
               </div>
+              {companyMode && <section className="border-t border-border pt-4 space-y-4" aria-label="Decision-maker column mapping">
+                <div className="flex items-center justify-between gap-3"><div><h2 className="text-sm font-semibold">Decision-makers</h2><p className="text-xs text-muted-foreground">Map each person's columns to save them under the company's People tab. All fields are optional. People without names are labeled Unnamed contact and flagged for verification. Empty people are skipped.</p></div><button type="button" disabled={personMappings.length >= 30} onClick={() => setPersonMappings(groups => [...groups, {}])} className="shrink-0 rounded-md border px-3 py-2 text-xs disabled:opacity-40">Add decision-maker</button></div>
+                <p className="text-xs text-muted-foreground">Each spreadsheet row creates one company. Add a mapping group for each decision-maker on that row. Generic Email and Phone columns default to company fields; map them here if they belong to a person.</p>
+                {personMappings.map((personMapping, index) => <fieldset key={index} className="rounded-lg border p-3 space-y-3"><legend className="px-1 text-sm font-medium">Decision-maker {index + 1}</legend><div className="grid gap-3 sm:grid-cols-2">{PERSON_FIELDS.map(([key, title]) => <label key={key} className="text-xs font-medium">{title}<select aria-label={`Decision-maker ${index + 1} ${title}`} value={personMapping[key] ?? ""} onChange={event => setPersonMappings(groups => groups.map((group, item) => item === index ? { ...group, [key]: event.target.value } : group))} className="mt-1 block w-full min-w-0 rounded-md border bg-white px-2 py-2"><option value="">Skip this field</option>{parsed.headers.map(header => <option key={header} value={header}>{header}</option>)}</select></label>)}</div><button type="button" aria-label={`Remove decision-maker ${index + 1}`} onClick={() => setPersonMappings(groups => groups.filter((_, item) => item !== index))} className="text-xs text-muted-foreground hover:text-red-600">Remove decision-maker</button></fieldset>)}
+              </section>}
               <div className="border-t border-border pt-4">
                 <div className="flex items-center justify-between mb-3">
                   <div>
@@ -313,6 +321,7 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
                     {fields.filter((f) => mapping[f.key]).map((f) => (
                       <th key={f.key} className="text-left text-xs font-semibold text-muted-foreground px-4 py-2">{f.label}</th>
                     ))}
+                    {companyMode && <th className="text-left text-xs font-semibold text-muted-foreground px-4 py-2">Decision-makers</th>}
                     {customMappings.filter((field) => field.name.trim() && field.column).map((field) => (
                       <th key={field.id} className="text-left text-xs font-semibold text-muted-foreground px-4 py-2">{field.name.trim()}</th>
                     ))}
@@ -324,6 +333,7 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
                       {fields.filter((f) => mapping[f.key]).map((f) => (
                         <td key={f.key} className="px-4 py-2 text-xs text-foreground">{String(lead[f.key] || "") || <span className="text-muted-foreground">—</span>}</td>
                       ))}
+                      {companyMode && <td className="px-4 py-2 text-xs min-w-52">{(lead.contacts as Array<{ name: string; role: string; email: string; phone: string }>).map((person, index) => <div key={index} className="mb-2"><span className="font-medium">{person.name || "Unnamed contact"}</span>{[person.role, person.email, person.phone].filter(Boolean).map((value, item) => <div key={item} className="text-muted-foreground">{value}</div>)}</div>)}</td>}
                       {customMappings.filter((field) => field.name.trim() && field.column).map((field) => (
                         <td key={field.id} className="px-4 py-2 text-xs text-foreground">
                           {String(((companyMode ? lead.custom_fields : lead.customFields) as Record<string, string>)[field.name.trim()] || "") || <span className="text-muted-foreground">—</span>}
@@ -377,7 +387,7 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
                 {companyMode ? "View Companies" : "View Contacts"}
               </Link>
               <button
-                onClick={() => { setStep("upload"); setParsed(null); setMapping({}); setCustomMappings([]); setResult(null); setFileName(""); }}
+                onClick={() => { setStep("upload"); setParsed(null); setMapping({}); setCustomMappings([]); setPersonMappings([{}]); setResult(null); setFileName(""); }}
                 className="px-4 py-2 text-sm font-medium border border-border rounded-lg text-muted-foreground hover:bg-muted"
               >
                 Import More

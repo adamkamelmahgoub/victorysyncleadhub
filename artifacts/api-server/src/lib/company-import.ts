@@ -39,5 +39,30 @@ export function companyImportRow(input: unknown) {
     row.trial_end_date = trialEndDate(row.trial_start_date);
   if (row.trial_type === "inbound") row.trial_capacity_slot ??= "solo-inbound";
   if (row.trial_type === "outbound") row.trial_capacity_slot ??= "outbound";
+  if ("contacts" in row) {
+    if (!Array.isArray(row.contacts) || row.contacts.length > 30)
+      throw new Error("Use up to 30 decision-makers per company.");
+    row.contacts = row.contacts
+      .map((input) => {
+        if (!input || typeof input !== "object" || Array.isArray(input))
+          throw new Error("Invalid decision-maker fields.");
+        const contact: Record<string, string> = {};
+        for (const key of ["name", "role", "email", "phone"]) {
+          const value = input[key] ?? "";
+          if (typeof value !== "string")
+            throw new Error(`Invalid decision-maker ${key}.`);
+          contact[key] = value.trim();
+        }
+        return contact;
+      })
+      .filter((contact) => Object.values(contact).some(Boolean))
+      .map((contact) => {
+        if (!contact.name) {
+          contact.name = "Unnamed contact";
+          row.needs_verification = true;
+        } else if (!row.contact_name) row.contact_name = contact.name;
+        return contact;
+      });
+  }
   return validateCompany(row);
 }
