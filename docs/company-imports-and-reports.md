@@ -1,0 +1,11 @@
+# Company imports and reports
+
+Companies → Import companies accepts CSV or XLSX (first sheet, up to 10 MB), with column mapping and custom fields. All fields are optional. Missing names become **Unnamed company** and are flagged for verification. Unspecified stages default to `new`. Imports create new rows; they do not update or deduplicate existing companies. Empty spreadsheet rows are skipped. Quoted CSV commas, escaped quotes and multiline cells are supported.
+
+Trial dates use YYYY-MM-DD; a missing end date is calculated as three business days. Inbound capacity remains `solo-inbound`, enforced by the existing database overlap constraint. Follow-up/close-call timestamps need a timezone. Row validation/database errors are reported individually, so other valid rows can import. Batches contain 20 records, with five inserts at a time. If the connection fails, the page stops and asks you to inspect the last batch before retrying; its outcome may be uncertain.
+
+CRM Analytics previously requested production endpoints that were only implemented by the development Express server. The Vercel API now implements overview, status, source, campaign, timeline, top-lead and attribution endpoints, explicitly paging through Supabase results and retaining the existing client-account scope. Contact imports count as records; missing sources and unassigned campaigns remain visible. The Companies report reads the company pipeline separately. Reports display fetch errors and offer retries instead of presenting failures as empty charts.
+
+Daily Performance counts company activity logs and trial stages, not imported records. Sequence Analytics reads recorded sequence counters; imports alone do not produce sends, opens or replies. Revenue Attribution now reports contact source/conversion counts for all time or a selected period, with no 500-record truncation. The hard-coded $4,800-per-conversion estimate was removed because contacts do not contain recorded deal/payment amounts.
+
+No additional migration is needed beyond the existing company CRM migrations. Local checks cover import mapping/parsing, optional fields, trial overlap errors, attribution, authorization, pagination, report failures, and desktop browser flows with mocked Supabase/API responses. No live customer records were created during verification.

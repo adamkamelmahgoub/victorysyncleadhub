@@ -4,6 +4,7 @@ import {
   validateCompany,
   validateTask,
 } from "./company-model.js";
+import { companyImportRow } from "./company-import.js";
 
 type User = { id: string; user_metadata?: Record<string, unknown> };
 type Result = { status: number; data: unknown };
@@ -86,6 +87,25 @@ export async function companyCrmRequest(
     return data as T;
   }
   try {
+    if (path === "/api/companies/import" && method === "POST") {
+      const body = await readBody() as { companies?: unknown[] };
+      if (!Array.isArray(body?.companies) || !body.companies.length || body.companies.length > 20)
+        throw new CrmError(400, "Send between 1 and 20 companies per batch.");
+      const errors: string[] = [];
+      let imported = 0;
+      // Small batches keep requests within serverless time limits. SQL still guards trial overlap.
+      for (let start = 0; start < body.companies.length; start += 5) {
+        const results = await Promise.allSettled(body.companies.slice(start, start + 5).map(async input => {
+          const data = companyImportRow(input);
+          await rest("companies", { method: "POST", body: JSON.stringify(data) });
+        }));
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") imported++;
+          else errors.push(`Record ${start + index + 1}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+        });
+      }
+      return { status: 200, data: { imported, failed: body.companies.length - imported, total: body.companies.length, errors } };
+    }
     if (path === "/api/company-crm/tasks" && method === "GET") {
       const rows: unknown[] = [];
       for (let offset = 0; ; offset += 500) {

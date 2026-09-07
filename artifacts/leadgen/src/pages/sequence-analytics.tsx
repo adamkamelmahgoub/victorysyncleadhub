@@ -1,3 +1,4 @@
+import { CrmError } from "@/components/company-crm";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { Mail, Eye, MessageSquare, Users, ChevronDown, ChevronUp } from "lucide-react";
@@ -78,9 +79,9 @@ function SequenceCard({ seq }: { seq: Sequence }) {
 }
 
 export default function SequenceAnalytics() {
-  const { data: sequencesResponse = [] } = useQuery<Sequence[]>({ queryKey: ["sequences-analytics"], queryFn: () => apiFetch("/sequences") });
+  const query = useQuery<Sequence[]>({ queryKey: ["sequences-analytics"], queryFn: () => apiFetch("/sequences") });
   const [sortBy, setSortBy] = useState("openRate");
-  const sequences = asArray<Sequence>(sequencesResponse);
+  const sequences = asArray<Sequence>(query.data ?? []);
 
   const totalEnrolled = sequences.reduce((s, q) => s + num(q.totalEnrolled), 0);
   const totalSent = sequences.reduce((s, q) => s + num(q.totalSent), 0);
@@ -93,10 +94,12 @@ export default function SequenceAnalytics() {
     return num(b.totalEnrolled) - num(a.totalEnrolled);
   });
 
+  if (query.error) return <CrmError error={query.error} retry={() => void query.refetch()} />;
+  if (query.isPending) return <p role="status">Loading sequence reports?</p>;
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
-        <div><h1 className="text-2xl font-bold">Sequence Analytics</h1><p className="text-muted-foreground text-sm">Performance breakdown for all email sequences</p></div>
+        <div><h1 className="text-2xl font-bold">Sequence Analytics</h1><p className="text-muted-foreground text-sm">Recorded sequence activity. Importing contacts does not send email or generate opens and replies.</p></div>
         <Select value={sortBy} onValueChange={setSortBy}>
           <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
           <SelectContent>

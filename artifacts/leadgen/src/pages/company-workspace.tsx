@@ -233,6 +233,7 @@ export default function CompanyWorkspace() {
               <Download className="h-3.5 w-3.5" />
               Export
             </Button>
+            {!readOnly && <Link href="/company-import" className="rounded-md border px-3 py-2 text-xs font-medium hover:bg-slate-50">Import companies</Link>}
             {!readOnly && (
               <Button size="sm" onClick={() => setCreate(true)}>
                 <Plus className="h-4 w-4" />

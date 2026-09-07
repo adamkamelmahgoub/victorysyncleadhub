@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { leadReports } from "../artifacts/api-server/src/lib/lead-reports.js";
 import { companyCrmRequest } from "../artifacts/api-server/src/lib/company-crm.js";
 
 type VercelRequest = {
@@ -1762,6 +1763,35 @@ async function saveContactGroup(req: VercelRequest, res: VercelResponse) {
   sendJson(res, 200, toCamelValue(group));
 }
 
+async function analyticsReport(path: string, user: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
+  const report = path.split("/").pop()!;
+  if (!["overview", "by-status", "by-source", "lead-sources", "by-campaign", "timeline", "top-leads", "attribution"].includes(report)) {
+    sendJson(res, 404, { error: "Report not found" }); return;
+  }
+  const clientAccountId = user.user_metadata?.client_account_id ?? user.app_metadata?.client_account_id;
+  const scope = clientAccountId ? "&client_account_id=eq." + encodeURIComponent(String(clientAccountId)) : "";
+  async function allRows(resource: string) {
+    const rows: any[] = [];
+    for (let offset = 0; ; offset += 500) {
+      const page = await supabaseRest(resource + "&order=id.asc&limit=500&offset=" + offset, { method: "GET" }, req) as any[];
+      rows.push(...page); if (page.length < 500) break;
+    }
+    return rows;
+  }
+  let leads = await allRows("leads?select=" + (report === "top-leads" ? "*" : "id,status,source,score,created_at,campaign_id") + scope);
+  if (report === "top-leads") {
+    sendJson(res, 200, leads.sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 10).map(leadFromRow)); return;
+  }
+  if (report === "attribution") {
+    const days = new URL(req.url ?? "", "https://local.invalid").searchParams.get("days") ?? "all";
+    if (!["all", "7", "30", "90"].includes(days)) { sendJson(res, 400, { error: "Choose all time, 7, 30 or 90 days." }); return; }
+    if (days !== "all") { const cutoff = Date.now() - Number(days) * 86400000; leads = leads.filter(lead => Date.parse(lead.created_at) >= cutoff); }
+  }
+  const campaigns = ["by-campaign", "attribution"].includes(report) ? await allRows("campaigns?select=id,name") : [];
+  const reports = leadReports(leads, campaigns);
+  sendJson(res, 200, reports[report as keyof typeof reports]);
+}
+
 async function importLeads(req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as { leads?: LeadInput[]; campaignId?: number };
   const incoming = Array.isArray(body.leads) ? body.leads : [];
@@ -2425,6 +2455,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (role !== "owner" && Array.isArray(pagePermissions) && requiredPermission && !pagePermissions.includes(requiredPermission)) {
       sendJson(res, 403, { message: `Access to ${requiredPermission} is disabled for this account` });
       return;
+    }
+
+    if (method === "GET" && path.startsWith("/api/analytics/")) {
+      await analyticsReport(path, currentUser, req, res); return;
     }
 
     if (method === "GET" && path === "/api/leads") {

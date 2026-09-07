@@ -95,7 +95,8 @@ function Router() {
       <Route path="/leadgen/scraper" component={Scraper} />
       <Route path="/leadgen/email-accounts" component={EmailAccounts} />
       <Route path="/leadgen/integrations" component={Integrations} />
-      <Route path="/leadgen/lead-import" component={LeadImport} />
+      <Route path="/leadgen/company-import" component={() => <LeadImport companyMode />} />
+      <Route path="/leadgen/lead-import" component={() => <LeadImport />} />
       <Route path="/leadgen/social-planner" component={SocialPlanner} />
       <Route path="/leadgen/segments" component={Segments} />
       <Route path="/leadgen/webhooks" component={Webhooks} />
@@ -127,7 +128,8 @@ function Router() {
       <Route path="/settings" component={Settings} />
       <Route path="/team" component={Team} />
       <Route path="/integrations" component={Integrations} />
-      <Route path="/lead-import" component={LeadImport} />
+      <Route path="/company-import" component={() => <LeadImport companyMode />} />
+      <Route path="/lead-import" component={() => <LeadImport />} />
       <Route path="/social-planner" component={SocialPlanner} />
       <Route path="/segments" component={Segments} />
       <Route path="/webhooks" component={Webhooks} />

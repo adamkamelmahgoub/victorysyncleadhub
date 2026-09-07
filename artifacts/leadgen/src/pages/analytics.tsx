@@ -1,3 +1,6 @@
+import { useState } from "react";
+import { CompanyReport } from "@/components/company-report";
+import { CrmError } from "@/components/company-crm";
 import {
   useGetAnalyticsOverview,
   useGetAnalyticsByStatus,
@@ -16,7 +19,7 @@ import { TrendingUp, Users, CheckCircle2, Zap, Target } from "lucide-react";
 import { asArray, type ArrayElement } from "@/lib/data-shape";
 
 const STATUS_COLORS: Record<string, string> = {
-  new: "hsl(185 100% 50%)",
+  new: "#2563eb",
   contacted: "hsl(280 85% 60%)",
   qualified: "hsl(40 90% 60%)",
   proposal: "hsl(140 70% 50%)",
@@ -24,22 +27,32 @@ const STATUS_COLORS: Record<string, string> = {
   lost: "hsl(350 85% 60%)",
 };
 const PIE_COLORS = [
-  "hsl(185 100% 50%)", "hsl(280 85% 60%)", "hsl(40 90% 60%)",
+  "#2563eb", "hsl(280 85% 60%)", "hsl(40 90% 60%)",
   "hsl(140 70% 50%)", "hsl(350 85% 60%)", "hsl(220 70% 60%)",
 ];
 
 const tooltipStyle = {
-  contentStyle: { background: "hsl(224 45% 12%)", border: "1px solid hsl(224 40% 18%)", borderRadius: 6, fontSize: 12 },
-  labelStyle: { color: "hsl(210 40% 98%)" },
-  itemStyle: { color: "hsl(185 100% 50%)" },
+  contentStyle: { background: "#ffffff", border: "1px solid hsl(224 40% 18%)", borderRadius: 6, fontSize: 12 },
+  labelStyle: { color: "#0f172a" },
+  itemStyle: { color: "#2563eb" },
 };
 
 export default function Analytics() {
-  const { data: overview, isLoading: oLoading } = useGetAnalyticsOverview();
-  const { data: byStatus } = useGetAnalyticsByStatus();
-  const { data: bySource } = useGetAnalyticsBySource();
-  const { data: byCampaign } = useGetAnalyticsByCampaign();
-  const { data: timeline } = useGetAnalyticsTimeline();
+  const [dataset, setDataset] = useState("contacts");
+  return <div className="space-y-5"><div><h1 className="text-2xl font-bold">CRM Analytics</h1><p className="text-sm text-muted-foreground">Reports from your saved contacts and prospect companies.</p></div><div className="flex gap-2" role="tablist" aria-label="Report data"><button role="tab" aria-selected={dataset === "contacts"} className={"rounded-md px-4 py-2 text-sm " + (dataset === "contacts" ? "bg-blue-50 text-primary" : "text-muted-foreground")} onClick={() => setDataset("contacts")}>Contacts</button><button role="tab" aria-selected={dataset === "companies"} className={"rounded-md px-4 py-2 text-sm " + (dataset === "companies" ? "bg-blue-50 text-primary" : "text-muted-foreground")} onClick={() => setDataset("companies")}>Companies</button></div>{dataset === "contacts" ? <ContactAnalytics /> : <CompanyReport />}</div>;
+}
+
+function ContactAnalytics() {
+  const overviewQuery = useGetAnalyticsOverview();
+  const { data: overview, isLoading: oLoading } = overviewQuery;
+  const byStatusQuery = useGetAnalyticsByStatus();
+  const { data: byStatus } = byStatusQuery;
+  const bySourceQuery = useGetAnalyticsBySource();
+  const { data: bySource } = bySourceQuery;
+  const byCampaignQuery = useGetAnalyticsByCampaign();
+  const { data: byCampaign } = byCampaignQuery;
+  const timelineQuery = useGetAnalyticsTimeline();
+  const { data: timeline } = timelineQuery;
   const statusRows = asArray<ArrayElement<NonNullable<typeof byStatus>>>(byStatus);
   const sourceRows = asArray<ArrayElement<NonNullable<typeof bySource>>>(bySource);
   const campaignRows = asArray<ArrayElement<NonNullable<typeof byCampaign>>>(byCampaign);
@@ -69,23 +82,28 @@ export default function Analytics() {
       converted: c.convertedCount,
     }));
 
+  const queries = [overviewQuery, byStatusQuery, bySourceQuery, byCampaignQuery, timelineQuery];
+  const failed = queries.find(query => query.error);
+  if (failed?.error) return <CrmError error={failed.error} retry={() => { queries.forEach(query => void query.refetch()); }} />;
+  if (queries.some(query => query.isPending)) return <p role="status">Loading contact reports?</p>;
+
   return (
 
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Analytics</h1>
-          <p className="text-sm text-muted-foreground mt-1">Pipeline performance and lead insights</p>
+          <h2 className="text-lg font-semibold text-foreground">Contact reports</h2>
+          <p className="text-sm text-muted-foreground mt-1">All saved contacts, including imports. Daily volume uses UTC and the last 30 days. Company records are shown in the Companies report.</p>
         </div>
 
         {/* KPI row */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="flex flex-wrap gap-x-10 gap-y-4 border-y py-4">
           {[
             { label: "Total Leads", value: oLoading ? null : overview?.totalLeads, icon: Users },
             { label: "Converted", value: oLoading ? null : overview?.convertedLeads, icon: CheckCircle2 },
             { label: "Conv. Rate", value: oLoading ? null : `${overview?.conversionRate ?? 0}%`, icon: TrendingUp },
             { label: "Avg Score", value: oLoading ? null : overview?.averageScore?.toFixed(1), icon: Target },
           ].map(({ label, value, icon: Icon }) => (
-            <Card key={label} className="p-5 border border-border bg-card">
+            <div key={label}>
               <div className="flex items-start justify-between">
                 <div>
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">{label}</p>
@@ -97,7 +115,7 @@ export default function Analytics() {
                   <Icon className="w-5 h-5 text-primary" />
                 </div>
               </div>
-            </Card>
+            </div>
           ))}
         </div>
 
@@ -115,14 +133,14 @@ export default function Analytics() {
               <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="timelineGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(185 100% 50%)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="hsl(185 100% 50%)" stopOpacity={0} />
+                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(215 20% 65%)" }} tickLine={false} axisLine={false} interval={4} />
                 <YAxis tick={{ fontSize: 11, fill: "hsl(215 20% 65%)" }} tickLine={false} axisLine={false} allowDecimals={false} />
                 <Tooltip {...tooltipStyle} />
-                <Area type="monotone" dataKey="leads" stroke="hsl(185 100% 50%)" strokeWidth={2} fill="url(#timelineGrad)" />
+                <Area type="monotone" dataKey="leads" stroke="#2563eb" strokeWidth={2} fill="url(#timelineGrad)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -188,7 +206,7 @@ export default function Analytics() {
                     <XAxis type="number" tick={{ fontSize: 10, fill: "hsl(215 20% 65%)" }} tickLine={false} axisLine={false} />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: "hsl(215 20% 65%)" }} tickLine={false} axisLine={false} width={75} />
                     <Tooltip {...tooltipStyle} />
-                    <Bar dataKey="leads" fill="hsl(185 100% 50%)" radius={[0, 2, 2, 0]} />
+                    <Bar dataKey="leads" fill="#2563eb" radius={[0, 2, 2, 0]} />
                     <Bar dataKey="converted" fill="hsl(140 70% 45%)" radius={[0, 2, 2, 0]} />
                     <Legend wrapperStyle={{ fontSize: 11, color: "hsl(215 20% 65%)" }} />
                   </BarChart>

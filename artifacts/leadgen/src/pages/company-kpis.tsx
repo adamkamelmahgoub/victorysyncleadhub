@@ -47,6 +47,7 @@ export default function CompanyKpiPage() {
         title="Daily performance"
         description="Daily calls and leads, response speed, appointments, and the trials that need your attention."
       />
+      <p className="text-sm text-muted-foreground">This report counts logged calls and inbound leads handled, not imported records. <Link href="/analytics" className="text-primary underline">Open CRM Analytics</Link> for contact and company totals.</p>
       <div className="flex flex-wrap items-end gap-4 rounded-xl border bg-white p-4">
         <label className="text-sm font-medium">
           From

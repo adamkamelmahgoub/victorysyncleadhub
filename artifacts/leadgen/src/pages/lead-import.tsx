@@ -1,8 +1,9 @@
 import { useState, useRef } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Upload, FileText, CheckCircle, AlertCircle, X, Download, ChevronRight, Plus } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { Link } from "wouter";
+import { parseCSV } from "@/lib/csv";
 import { parseXlsx } from "@/lib/xlsx";
 
 const LEAD_FIELDS = [
@@ -18,26 +19,29 @@ const LEAD_FIELDS = [
   { key: "contactAttempts", label: "Times Contacted" },
 ];
 
-function parseCSV(text: string): { headers: string[]; rows: string[][] } {
-  const lines = text.trim().split(/\r?\n/);
-  if (lines.length === 0) return { headers: [], rows: [] };
-  const headers = (lines[0] ?? "").split(",").map((h) => h.trim().replace(/^"|"$/g, ""));
-  const rows = lines.slice(1).map((line) =>
-    line.split(",").map((cell) => cell.trim().replace(/^"|"$/g, ""))
-  );
-  return { headers, rows };
-}
+const COMPANY_FIELDS = [
+  ["name", "Company Name"], ["phone", "Phone"], ["email", "Email"], ["website", "Website"],
+  ["city", "City"], ["state", "State"], ["industry", "Industry"], ["contact_name", "Contact Name"],
+  ["fit_notes", "Fit Notes"], ["source", "Source"], ["stage", "Stage"], ["needs_verification", "Needs Verification"],
+  ["address", "Address"], ["postal_code", "Postal Code"], ["country", "Country"], ["tags", "Tags"],
+  ["trial_type", "Trial Type"], ["trial_start_date", "Trial Start Date"], ["trial_end_date", "Trial End Date"],
+  ["trial_capacity_slot", "Trial Capacity Slot"], ["coverage_hours", "Coverage Hours"], ["coverage_timezone", "Coverage Timezone"],
+  ["expected_daily_leads", "Expected Daily Leads"], ["trial_success_criteria", "Trial Success Criteria"], ["trial_results", "Trial Results"],
+  ["proposed_monthly_price", "Proposed Monthly Price"], ["currency", "Currency"], ["next_action", "Next Action"],
+  ["next_follow_up_at", "Next Follow Up At"], ["close_call_at", "Close Call At"], ["close_notes", "Close Notes"],
+].map(([key, label]) => ({ key, label }));
 
-function downloadTemplate() {
-  const csv = "First Name,Last Name,Email,Phone,Company,Job Title,Source,Status,Disposition,Times Contacted\n";
-  const blob = new Blob([csv], { type: "text/csv" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "leads-template.csv";
-  a.click();
-}
-
-export default function LeadImport() {
+export default function LeadImport({ companyMode = false }: { companyMode?: boolean }) {
+  const fields = companyMode ? COMPANY_FIELDS : LEAD_FIELDS;
+  const noun = companyMode ? "companies" : "contacts";
+  const queryClient = useQueryClient();
+  const [progress, setProgress] = useState(0);
+  function downloadTemplate() {
+    const blob = new Blob([fields.map(field => field.label).join(",") + "\n"], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = companyMode ? "companies-template.csv" : "leads-template.csv"; a.click();
+    URL.revokeObjectURL(url);
+  }
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<"upload" | "map" | "preview" | "done">("upload");
   const [parsed, setParsed] = useState<{ headers: string[]; rows: string[][] } | null>(null);
@@ -50,12 +54,29 @@ export default function LeadImport() {
 
   const importMutation = useMutation({
     mutationFn: async (leads: object[]) => {
+      if (companyMode) {
+        const totals = { imported: 0, failed: 0, errors: [] as string[] };
+        setProgress(0);
+        for (let offset = 0; offset < leads.length; offset += 20) {
+          try {
+            const batch = await apiFetch("/api/companies/import", { method: "POST", body: JSON.stringify({ companies: leads.slice(offset, offset + 20) }) });
+            totals.imported += batch.imported; totals.failed += batch.failed;
+            totals.errors.push(...batch.errors.map((error: string) => error.replace(/^Record (\d+):/, (_, n) => "Record " + (Number(n) + offset) + ":")));
+            setProgress(Math.min(offset + 20, leads.length));
+          } catch (error) {
+            totals.failed += leads.length - offset;
+            totals.errors.push("Import stopped at record " + (offset + 1) + ". Check Companies before retrying: the last batch may have saved. " + String(error));
+            break;
+          }
+        }
+        return totals;
+      }
       return await apiFetch("/api/leads/import", {
         method: "POST",
         body: JSON.stringify({ leads }),
       });
     },
-    onSuccess: (data) => { setResult(data); setStep("done"); },
+    onSuccess: (data) => { setResult(data); setStep("done"); void queryClient.invalidateQueries(); },
   });
 
   async function handleFile(file: File) {
@@ -86,11 +107,13 @@ export default function LeadImport() {
   function finishParsing(p: { headers: string[]; rows: string[][] }) {
       p = { ...p, rows: p.rows.filter((row) => row.some((cell) => cell.trim())) };
       if (!p.headers.length) throw new Error("The file does not contain a header row.");
-      if (!p.rows.length) throw new Error("The file does not contain any contact rows.");
+      if (!p.rows.length) throw new Error("The file does not contain any data rows.");
       setParsed(p);
       const autoMap: Record<string, string> = {};
-      LEAD_FIELDS.forEach((f) => {
-        const match = p.headers.find((h) => h.toLowerCase().replace(/\s+/g, "").includes(f.key.toLowerCase()) || f.label.toLowerCase().includes(h.toLowerCase()));
+      fields.forEach((f) => {
+        const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const aliases = [f.key, f.label, ...(companyMode && f.key === "name" ? ["company", "business name", "business"] : [])].map(normalize);
+        const match = p.headers.find(h => h.trim() && aliases.includes(normalize(h)));
         if (match) autoMap[f.key] = match;
       });
       setMapping(autoMap);
@@ -108,7 +131,7 @@ export default function LeadImport() {
   function mapRow(row: string[]) {
     if (!parsed) return {};
     const lead: Record<string, unknown> = {};
-    LEAD_FIELDS.forEach((field) => {
+    fields.forEach((field) => {
       const column = mapping[field.key];
       if (!column) return;
       const index = parsed.headers.indexOf(column);
@@ -122,6 +145,7 @@ export default function LeadImport() {
         .filter((field) => field.name.trim() && field.column)
         .map((field) => [field.name.trim(), row[parsed.headers.indexOf(field.column)] ?? ""]),
     );
+    if (companyMode) { lead.custom_fields = lead.customFields; delete lead.customFields; }
     return lead;
   }
 
@@ -143,10 +167,11 @@ export default function LeadImport() {
 
       <div className="max-w-3xl mx-auto space-y-6">
         <div>
-          <h1 className="text-xl font-bold text-foreground">Import Leads</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Upload a CSV or XLSX file to bulk-import contacts into VictorySync</p>
+          <h1 className="text-xl font-bold text-foreground">{companyMode ? "Import Companies" : "Import Leads"}</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Upload a CSV or XLSX file to bulk-import {noun} into VictorySync</p>
         </div>
 
+        {companyMode && <p className="text-sm text-muted-foreground">Imports create new companies. All fields are optional. Missing names become ?Unnamed company? and are flagged for verification. Use YYYY-MM-DD for trial dates and timestamps with a timezone for follow-ups. Tags can be separated by commas or semicolons. Existing records are never overwritten.</p>}
         {/* Steps */}
         <div className="flex items-center gap-2">
           {STEPS.map((s, i) => (
@@ -202,7 +227,7 @@ export default function LeadImport() {
             <div className="p-6 space-y-4">
               <p className="text-sm text-muted-foreground">Map the columns you want to import. All fields are optional; missing values stay blank.</p>
               <div className="space-y-3">
-                {LEAD_FIELDS.map((f) => (
+                {fields.map((f) => (
                   <div key={f.key} className="flex items-center gap-4">
                     <div className="w-32 text-sm font-medium text-foreground flex-shrink-0">
                       {f.label}
@@ -279,13 +304,13 @@ export default function LeadImport() {
           <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-border">
               <div className="font-semibold text-foreground text-sm">Preview (first 5 rows)</div>
-              <div className="text-xs text-muted-foreground mt-0.5">{parsed.rows.length} total contacts will be imported</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{parsed.rows.length} {noun} will be imported</div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    {LEAD_FIELDS.filter((f) => mapping[f.key]).map((f) => (
+                    {fields.filter((f) => mapping[f.key]).map((f) => (
                       <th key={f.key} className="text-left text-xs font-semibold text-muted-foreground px-4 py-2">{f.label}</th>
                     ))}
                     {customMappings.filter((field) => field.name.trim() && field.column).map((field) => (
@@ -296,12 +321,12 @@ export default function LeadImport() {
                 <tbody>
                   {getPreviewLeads().map((lead, i) => (
                     <tr key={i} className="border-b border-border/50 hover:bg-muted/20">
-                      {LEAD_FIELDS.filter((f) => mapping[f.key]).map((f) => (
+                      {fields.filter((f) => mapping[f.key]).map((f) => (
                         <td key={f.key} className="px-4 py-2 text-xs text-foreground">{String(lead[f.key] || "") || <span className="text-muted-foreground">—</span>}</td>
                       ))}
                       {customMappings.filter((field) => field.name.trim() && field.column).map((field) => (
                         <td key={field.id} className="px-4 py-2 text-xs text-foreground">
-                          {String((lead.customFields as Record<string, string>)[field.name.trim()] || "") || <span className="text-muted-foreground">—</span>}
+                          {String(((companyMode ? lead.custom_fields : lead.customFields) as Record<string, string>)[field.name.trim()] || "") || <span className="text-muted-foreground">—</span>}
                         </td>
                       ))}
                     </tr>
@@ -322,7 +347,7 @@ export default function LeadImport() {
                 disabled={importMutation.isPending}
                 className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-40"
               >
-                {importMutation.isPending ? "Importing..." : `Import ${parsed.rows.length} Contacts`}
+                {importMutation.isPending ? `Importing... ${companyMode ? progress + "/" + parsed.rows.length : ""}` : `Import ${parsed.rows.length} ${companyMode ? "Companies" : "Contacts"}`}
               </button>
             </div>
           </div>
@@ -333,14 +358,14 @@ export default function LeadImport() {
             <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${result.failed === 0 ? "bg-green-100" : "bg-amber-100"}`}>
               {result.failed === 0 ? <CheckCircle className="w-8 h-8 text-green-600" /> : <AlertCircle className="w-8 h-8 text-amber-600" />}
             </div>
-            <h2 className="text-lg font-bold text-foreground mb-1">Import Complete!</h2>
+            <h2 className="text-lg font-bold text-foreground mb-1">{result.failed ? "Import finished with issues" : "Import Complete!"}</h2>
             <p className="text-sm text-muted-foreground mb-6">
-              Successfully imported <span className="font-semibold text-green-600">{result.imported}</span> contacts
-              {result.failed > 0 && <>, <span className="font-semibold text-red-500">{result.failed}</span> failed</>}
+              Successfully imported <span className="font-semibold text-green-600">{result.imported}</span> {noun}
+              {result.failed > 0 && <>, <span className="font-semibold text-red-500">{result.failed}</span> failed or unconfirmed</>}
             </p>
             {result.errors.length > 0 && (
               <div className="text-left bg-red-50 border border-red-200 rounded-lg p-3 mb-4 max-h-32 overflow-y-auto">
-                {result.errors.slice(0, 5).map((e, i) => (
+                {result.errors.map((e, i) => (
                   <div key={i} className="text-xs text-red-600 flex items-start gap-1.5 mb-1">
                     <X className="w-3 h-3 mt-0.5 flex-shrink-0" />{e}
                   </div>
@@ -348,8 +373,8 @@ export default function LeadImport() {
               </div>
             )}
             <div className="flex gap-3 justify-center">
-              <Link href="/leads" className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90">
-                View Contacts
+              <Link href={companyMode ? "/companies" : "/leads"} className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90">
+                {companyMode ? "View Companies" : "View Contacts"}
               </Link>
               <button
                 onClick={() => { setStep("upload"); setParsed(null); setMapping({}); setCustomMappings([]); setResult(null); setFileName(""); }}
