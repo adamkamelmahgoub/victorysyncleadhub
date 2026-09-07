@@ -1,3 +1,4 @@
+import { DeleteCompanies, CompanyTrash } from "@/components/company-trash";
 import { useEffect, useMemo, useState } from "react";
 import { useSearch } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -233,6 +234,7 @@ export default function CompanyWorkspace() {
               <Download className="h-3.5 w-3.5" />
               Export
             </Button>
+            {!readOnly && <CompanyTrash />}
             {!readOnly && <Link href="/company-import" className="rounded-md border px-3 py-2 text-xs font-medium hover:bg-slate-50">Import companies</Link>}
             {!readOnly && (
               <Button size="sm" onClick={() => setCreate(true)}>
@@ -388,6 +390,7 @@ export default function CompanyWorkspace() {
           {visibleSelected.length > 0 && !readOnly && (
             <div className="ml-auto flex items-center gap-2">
               <span className="text-xs">{visibleSelected.length} selected</span>
+              <DeleteCompanies bulk companies={rows.filter(row => visibleSelected.includes(row.id))} onDeleted={() => { setSelected([]); setActive(null); }} />
               <select
                 aria-label="Bulk stage"
                 className="max-w-36 rounded border bg-white px-2 py-1 text-xs"
@@ -695,6 +698,7 @@ export default function CompanyWorkspace() {
               </Link>
             )}
           </SheetHeader>
+          {company && !readOnly && <div className="mb-4"><DeleteCompanies companies={[company]} onDeleted={() => { setActive(null); setSelected([]); }} /></div>}
           {company && (
             <Tabs defaultValue="details" key={company.id}>
               <TabsList className="mb-5">

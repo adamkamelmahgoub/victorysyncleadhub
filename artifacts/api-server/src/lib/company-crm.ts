@@ -71,7 +71,9 @@ export async function companyCrmRequest(
       )
         throw new CrmError(
           503,
-          "Company CRM needs its database migrations applied: 20260905_company_trials.sql, then 20260906_company_workspace.sql.",
+          resource.includes("crm_set_company_trash") || resource.includes("crm_deleted_companies")
+            ? "Company deletion needs the database migration 20260907_company_trash.sql applied."
+            : "Company CRM needs its database migrations applied: 20260905_company_trials.sql, then 20260906_company_workspace.sql.",
         );
       if (data.code === "23514")
         throw new CrmError(
@@ -87,6 +89,22 @@ export async function companyCrmRequest(
     return data as T;
   }
   try {
+    if (path === "/api/company-crm/trash" && method === "GET") {
+      const rows: unknown[] = [];
+      for (let offset = 0; ; offset += 500) {
+        const page = await rest(`rpc/crm_deleted_companies?limit=500&offset=${offset}`, { method: "POST", body: "{}" });
+        rows.push(...page);
+        if (page.length < 500) break;
+      }
+      return { status: 200, data: rows };
+    }
+    if ((path === "/api/companies" && method === "DELETE") || (path === "/api/company-crm/trash/restore" && method === "POST")) {
+      const body = await readBody() as { ids?: unknown[] };
+      if (!Array.isArray(body?.ids) || !body.ids.length || body.ids.length > 100 || body.ids.some(id => typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)))
+        throw new CrmError(400, "Choose between 1 and 100 valid companies.");
+      const rows = await rest("rpc/crm_set_company_trash", { method: "POST", body: JSON.stringify({ company_ids: [...new Set(body.ids)], restore: method === "POST" }) });
+      return { status: 200, data: { changed: rows.length } };
+    }
     if (path === "/api/companies/import" && method === "POST") {
       const body = await readBody() as { companies?: unknown[] };
       if (!Array.isArray(body?.companies) || !body.companies.length || body.companies.length > 20)

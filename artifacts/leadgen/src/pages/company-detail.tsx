@@ -1,5 +1,6 @@
+import { DeleteCompanies } from "@/components/company-trash";
 import { useState } from "react";
-import { Link, useRoute } from "wouter";
+import { Link, useRoute, useLocation } from "wouter";
 import {
   useInfiniteQuery,
   useMutation,
@@ -263,6 +264,7 @@ export function ActivityLog({
 }
 
 export default function CompanyDetail() {
+  const [, navigate] = useLocation();
   const [, params] = useRoute("/companies/:id");
   const [, legacyParams] = useRoute("/leadgen/companies/:id");
   const id = params?.id ?? legacyParams?.id;
@@ -298,7 +300,7 @@ export default function CompanyDetail() {
           "Company details, trial delivery, and every conversation."
         }
       />
-      <StageBadge stage={company.stage} />
+      <div className="flex items-center justify-between"><StageBadge stage={company.stage} />{role !== "viewer" && <DeleteCompanies companies={[company]} onDeleted={() => navigate("/companies")} />}</div>
       <Tabs
         defaultValue="details"
         key={company.id}
