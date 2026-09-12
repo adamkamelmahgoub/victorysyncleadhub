@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, numeric, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, jsonb, numeric, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
 import {sendingDomainsTable} from './sending-domains';
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -21,6 +21,14 @@ export const emailAccountsTable = pgTable("email_accounts", {
   emailEngineEnabled: boolean('email_engine_enabled').notNull().default(false),
   rotationCredit: numeric('rotation_credit').notNull().default('0'),
   nextSendAfter: timestamp('next_send_after', {withTimezone:true}).notNull().defaultNow(),
+  inboundProvider: text('inbound_provider').notNull().default('disabled'),
+  inboundCredentials: text('inbound_credentials'),
+  inboxConfiguredAt: timestamp('inbox_configured_at', {withTimezone:true}),
+  inboxCheckedAt: timestamp('inbox_checked_at', {withTimezone:true}),
+  inboxCursor: jsonb('inbox_cursor').notNull().default({}),
+  inboxPollAfter: timestamp('inbox_poll_after', {withTimezone:true}).notNull().defaultNow(),
+  inboxPollToken: uuid('inbox_poll_token'),
+  inboxLockedAt: timestamp('inbox_locked_at', {withTimezone:true}),
   isDefault: boolean("is_default").notNull().default(false),
   dailyLimit: integer("daily_limit").notNull().default(100),
   sentToday: integer("sent_today").notNull().default(0),

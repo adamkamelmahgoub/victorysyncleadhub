@@ -17,7 +17,7 @@ export const PAGE_PERMISSIONS = [
   { key: "forms", label: "Sites / Forms", paths: ["/forms"] },
   { key: "integrations", label: "Integrations & Webhooks", paths: ["/integrations", "/webhooks"] },
   { key: "reputation", label: "Reputation", paths: ["/reputation"] },
-  { key: "reporting", label: "Reports & Attribution", paths: ["/analytics", "/revenue-attribution"] },
+  { key: "reporting", label: "Reports & Attribution", paths: ["/outreach-weekly", "/analytics", "/revenue-attribution"] },
   { key: "affiliates", label: "Affiliates", paths: ["/affiliates"] },
   { key: "settings", label: "Settings & API / SSO", paths: ["/settings", "/billing-integration"] },
 ] as const;

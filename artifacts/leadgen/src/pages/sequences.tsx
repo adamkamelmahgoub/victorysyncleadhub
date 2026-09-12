@@ -1,208 +1,33 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { useToast } from "@/hooks/use-toast";
-import { Link } from "wouter";
-import { Plus, Mail, Users, BarChart3, PlayCircle, PauseCircle, Trash2, ArrowRight } from "lucide-react";
-import { apiFetch } from "@/lib/api";
-import { asArray } from "@/lib/data-shape";
+import {useState} from 'react';
+import {useQuery,useMutation,useQueryClient} from '@tanstack/react-query';
+import {Link} from 'wouter';
+import {apiFetch} from '@/lib/api';
+import {useToast} from '@/hooks/use-toast';
 
-type Sequence = {
-  id: number;
-  name: string;
-  status: string;
-  totalEnrolled: number;
-  totalSent: number;
-  totalOpened: number;
-  totalReplied: number;
-  createdAt: string;
-};
-
-export default function SequencesPage() {
-  const [sequences, setSequences] = useState<Sequence[]>([]);
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [saving, setSaving] = useState(false);
-  const { toast } = useToast();
-
-  const load = useCallback(async () => {
-    const result = await apiFetch("/api/sequences");
-    setSequences(asArray<Sequence>(result));
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  async function handleCreate() {
-    if (!name.trim()) return;
-    setSaving(true);
-    try {
-      await apiFetch("/api/sequences", {
-        method: "POST",
-        body: JSON.stringify({ name: name.trim(), status: "draft" }),
-      });
-      toast({ title: "Sequence created" });
-      setOpen(false);
-      setName("");
-      load();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleToggleStatus(seq: Sequence) {
-    const newStatus = seq.status === "active" ? "paused" : "active";
-    await apiFetch(`/api/sequences/${seq.id}`, {
-      method: "PUT",
-      body: JSON.stringify({ status: newStatus }),
-    });
-    load();
-  }
-
-  async function handleDelete(id: number) {
-    if (!confirm("Delete this sequence and all its enrollments?")) return;
-    await apiFetch(`/api/sequences/${id}`, { method: "DELETE" });
-    load();
-    toast({ title: "Sequence deleted" });
-  }
-
-  function openRate(seq: Sequence) {
-    if (!seq.totalSent) return "—";
-    return `${Math.round((seq.totalOpened / seq.totalSent) * 100)}%`;
-  }
-  function replyRate(seq: Sequence) {
-    if (!seq.totalSent) return "—";
-    return `${Math.round((seq.totalReplied / seq.totalSent) * 100)}%`;
-  }
-
-  return (
-
-      <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Sequences</h1>
-            <p className="text-muted-foreground mt-1">Automated multi-step email outreach campaigns</p>
-          </div>
-          <Button onClick={() => setOpen(true)} className="bg-primary text-primary-foreground hover:bg-primary/90">
-            <Plus className="w-4 h-4 mr-2" /> New Sequence
-          </Button>
-        </div>
-
-        {sequences.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card p-12 flex flex-col items-center gap-4 text-center">
-            <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
-              <Mail className="w-7 h-7 text-primary" />
-            </div>
-            <div>
-              <div className="font-semibold text-foreground text-lg">No sequences yet</div>
-              <div className="text-muted-foreground text-sm mt-1">
-                Create a sequence to automate multi-step email outreach
-              </div>
-            </div>
-            <Button onClick={() => setOpen(true)} className="bg-primary text-primary-foreground">
-              <Plus className="w-4 h-4 mr-2" /> Create First Sequence
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {sequences.map((seq) => (
-              <div key={seq.id} className="rounded-xl border border-border bg-card p-5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div>
-                      <div className="flex items-center gap-3">
-                        <span className="font-semibold text-foreground">{seq.name}</span>
-                        <Badge
-                          className={
-                            seq.status === "active"
-                              ? "bg-green-500/20 text-green-400 border-green-500/30"
-                              : seq.status === "paused"
-                              ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/30"
-                              : "bg-muted text-muted-foreground border-border"
-                          }
-                        >
-                          {seq.status}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-5 mt-2 text-sm text-muted-foreground">
-                        <div className="flex items-center gap-1.5">
-                          <Users className="w-3.5 h-3.5" />
-                          <span>{seq.totalEnrolled} enrolled</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <Mail className="w-3.5 h-3.5" />
-                          <span>{seq.totalSent} sent</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <BarChart3 className="w-3.5 h-3.5" />
-                          <span>{openRate(seq)} open · {replyRate(seq)} reply</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleToggleStatus(seq)}
-                      className="text-muted-foreground hover:text-foreground"
-                    >
-                      {seq.status === "active" ? (
-                        <PauseCircle className="w-4 h-4" />
-                      ) : (
-                        <PlayCircle className="w-4 h-4" />
-                      )}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleDelete(seq.id)}
-                      className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                    <Link href={`/sequences/${seq.id}`}>
-                      <Button size="sm" variant="outline" className="border-border text-foreground gap-1.5">
-                        Edit <ArrowRight className="w-3.5 h-3.5" />
-                      </Button>
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent className="bg-card border-border">
-            <DialogHeader>
-              <DialogTitle className="text-foreground">New Sequence</DialogTitle>
-            </DialogHeader>
-            <Input
-              className="bg-background border-border text-foreground"
-              placeholder="e.g. Cold Outreach - SaaS Founders"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-            />
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setOpen(false)} className="border-border text-foreground">
-                Cancel
-              </Button>
-              <Button onClick={handleCreate} disabled={saving || !name.trim()} className="bg-primary text-primary-foreground">
-                {saving ? "Creating…" : "Create"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-  );
+const input='w-full rounded border border-border bg-background px-3 py-2 text-sm';
+const button='rounded border border-border px-3 py-2 text-sm hover:bg-muted disabled:opacity-50';
+type Sequence={id:string|number;name:string;status:string;total_enrolled:number};
+type Inbox={id:string|number;email:string;provider:string;checked_at:string|null;poll_after:string};
+export default function SequencesPage(){
+ const cache=useQueryClient(),{toast}=useToast();const [name,setName]=useState('');
+ const {data:sequences=[],error}=useQuery<Sequence[]>({queryKey:['sequences'],queryFn:()=>apiFetch('/sequences')});
+ const {data:inboxes=[]}=useQuery<Inbox[]>({queryKey:['sequence-inboxes'],queryFn:()=>apiFetch('/email/inboxes'),refetchInterval:30000});
+ const [config,setConfig]=useState({id:'',provider:'imap',host:'',user:'',password:'',apiKey:'',folder:'INBOX'});
+ const mutation=useMutation({mutationFn:({path,method='POST',body={}}:{path:string;method?:string;body?:unknown})=>apiFetch(path,{method,body:JSON.stringify(body)}),onSuccess:()=>{cache.invalidateQueries({queryKey:['sequences']});cache.invalidateQueries({queryKey:['sequence-inboxes']});}});
+ return <main className="mx-auto max-w-5xl p-6 space-y-6">
+  <header><h1 className="text-2xl font-semibold">Sequences</h1><p className="text-sm text-muted-foreground">One cadence per contact. Replies and call outcomes stop email follow-ups.</p></header>
+  {error&&<p role="alert" className="text-red-600">{error.message}</p>}
+  <form className="flex gap-2" onSubmit={async e=>{e.preventDefault();await mutation.mutateAsync({path:'/sequences',body:{name}});setName('');}}><input className={input} aria-label="Sequence name" required value={name} onChange={e=>setName(e.target.value)} placeholder="New sequence name"/><button className={button} disabled={mutation.isPending}>Create draft</button></form>
+  <section className="rounded border bg-card overflow-auto"><table className="w-full text-sm text-left"><thead><tr className="border-b"><th className="p-3">Sequence</th><th>Status</th><th>Enrollments</th><th/></tr></thead><tbody>{sequences.map(s=><tr className="border-b" key={s.id}><td className="p-3"><Link className="text-primary underline" href={`/sequences/${s.id}`}>{s.name}</Link></td><td>{s.status}</td><td>{s.total_enrolled??0}</td><td className="p-2"><button className={button} disabled={mutation.isPending} onClick={()=>mutation.mutate({path:`/sequences/${s.id}`,method:'PUT',body:{status:s.status==='active'?'paused':'active'}})}>{s.status==='active'?'Pause':'Activate'}</button></td></tr>)}</tbody></table></section>
+  <section className="rounded border bg-card p-4 space-y-4"><h2 className="font-semibold">Reply monitoring</h2><p className="text-sm text-muted-foreground">Connect the inbox that receives replies to each sender address. Sequences require a successful check within the last 10 minutes.</p>
+   <div className="overflow-auto"><table className="w-full text-sm text-left"><thead><tr><th>Sender</th><th>Inbox</th><th>Last successful check</th></tr></thead><tbody>{inboxes.map(i=><tr key={i.id}><td className="py-2">{i.email}</td><td>{i.provider}</td><td>{i.checked_at?new Date(i.checked_at).toLocaleString():'Not checked — sending held'}</td></tr>)}</tbody></table></div>
+   {!inboxes.length&&<p className="text-sm">First connect a sender in <Link className="underline" href="/email-accounts">Outreach Mailboxes</Link>.</p>}
+   {inboxes.length>0&&<form className="grid gap-3 md:grid-cols-2" onSubmit={async e=>{e.preventDefault();await mutation.mutateAsync({path:`/email/inboxes/${config.id}`,method:'PUT',body:config});setConfig({...config,password:'',apiKey:''});toast({title:'Reply inbox configured',description:'Run an inbox check and configure recurring polling before enrollment.'});}}>
+    <label className="text-xs">Sender<select className={input} required value={config.id} onChange={e=>setConfig({...config,id:e.target.value})}><option value="">Choose sender</option>{inboxes.map(i=><option key={i.id} value={i.id}>{i.email}</option>)}</select></label>
+    <label className="text-xs">Receiving service<select className={input} value={config.provider} onChange={e=>setConfig({...config,provider:e.target.value,password:'',apiKey:''})}><option value="imap">IMAP inbox</option><option value="resend">Resend receiving API</option></select></label>
+    {config.provider==='imap'?<><label className="text-xs">IMAP host<input className={input} required value={config.host} onChange={e=>setConfig({...config,host:e.target.value})} placeholder="imap.example.com"/></label><label className="text-xs">Username<input className={input} required value={config.user} onChange={e=>setConfig({...config,user:e.target.value})}/></label><label className="text-xs">Password / app password<input className={input} required type="password" autoComplete="new-password" value={config.password} onChange={e=>setConfig({...config,password:e.target.value})}/></label><label className="text-xs">Folder<input className={input} required value={config.folder} onChange={e=>setConfig({...config,folder:e.target.value})}/></label></>:<label className="text-xs">Resend receiving API key<input className={input} required type="password" autoComplete="new-password" value={config.apiKey} onChange={e=>setConfig({...config,apiKey:e.target.value})}/></label>}
+    <div className="md:col-span-2 flex gap-2"><button className={button} disabled={mutation.isPending}>Save inbox</button><button type="button" className={button} disabled={mutation.isPending} onClick={async()=>{const r=await mutation.mutateAsync({path:'/email/inboxes/poll'});toast({title:r.error?'Inbox check failed':'Inbox check finished',description:r.error??`${r.polled} inbox checked; ${r.messages??0} messages processed.`});}}>Check next due inbox</button></div>
+   </form>}
+  </section>
+ </main>;
 }

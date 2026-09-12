@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
 import Scraper from "@/pages/scraper";
+import OutreachWeekly from '@/pages/outreach-weekly';
 import EmailAccounts from "@/pages/email-accounts";
 import Pipeline from "@/pages/pipeline";
 import Companies from "@/pages/companies";
@@ -127,6 +128,8 @@ function Router() {
       <Route path="/forms/:id" component={FormEditor} />
       <Route path="/analytics" component={Analytics} />
       <Route path="/scraper" component={Scraper} />
+      <Route path="/outreach-weekly" component={OutreachWeekly} />
+      <Route path="/leadgen/outreach-weekly" component={OutreachWeekly} />
       <Route path="/email-accounts" component={EmailAccounts} />
       <Route path="/settings" component={Settings} />
       <Route path="/team" component={Team} />

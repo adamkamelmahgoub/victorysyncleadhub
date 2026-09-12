@@ -1,0 +1,32 @@
+begin;
+-- Stop all workers before rollback. Export sequence and inbox history first.
+drop trigger outreach_sequence_guard on public.sequence_enrollments;
+drop trigger outreach_sequence_state_changed on public.sequence_enrollments;
+drop trigger outreach_sequence_lead_changed on public.leads;
+drop trigger outreach_sequence_mailbox_changed on public.email_accounts;
+drop trigger outreach_sequence_task_changed on public.contact_tasks;
+drop trigger outreach_sequence_job_changed on public.outreach_email_jobs;
+drop function public.outreach_sequence_task_changed(),public.outreach_sequence_job_changed();
+drop function public.outreach_sequence_mailbox_changed(),public.outreach_sequence_release(uuid,uuid);
+drop function public.outreach_email_claim(),public.outreach_email_dispatch_check(uuid,uuid),public.outreach_email_finish(uuid,uuid,text,text),public.outreach_log_call(text,public.outreach_disposition,timestamptz,text,uuid,text,text);
+alter function public.outreach_email_claim_phase2() rename to outreach_email_claim;
+alter function public.outreach_email_dispatch_check_phase2(uuid,uuid) rename to outreach_email_dispatch_check;
+alter function public.outreach_email_finish_phase2(uuid,uuid,text,text) rename to outreach_email_finish;
+alter function public.outreach_log_call_phase1(text,public.outreach_disposition,timestamptz,text,uuid,text,text) rename to outreach_log_call;
+do $$ declare r record;begin for r in select definition from public.outreach_phase3_restore loop execute r.definition;end loop;end $$;
+drop function public.outreach_sequence_admin(text,jsonb,text,text),public.outreach_sequence_choose_mailbox(),public.outreach_sequence_guard(),public.outreach_sequence_state_changed(),public.outreach_sequence_lead_changed(),public.outreach_sequence_template(text,jsonb),public.outreach_sequence_advance(text,timestamptz),public.outreach_sequence_inbound(text,text,text,text,text,timestamptz,boolean,timestamptz),public.outreach_sequence_tick();
+delete from public.contact_tasks where outreach_enrollment_id is not null;
+delete from public.sequence_enrollments where sequence_id::text in (select sequence_id from public.outreach_phase3_seed);
+delete from public.sequence_steps where sequence_id::text in (select sequence_id from public.outreach_phase3_seed);
+delete from public.sequences where id::text in (select sequence_id from public.outreach_phase3_seed);
+drop index public.outreach_one_cadence_per_lead;
+alter table public.sequence_enrollments drop constraint outreach_enrollment_status_check;
+-- Keep ended enrollments ended; do not resurrect replies/suppression on rollback.
+update public.sequence_enrollments set status='stopped',next_send_at=null where status='paused';
+alter table public.sequence_enrollments drop column pause_reason,drop column resume_at,drop column stopped_reason;
+alter table public.sequence_steps drop column channel;
+alter table public.contact_tasks drop column outreach_enrollment_id,drop column outreach_job_id,drop column outreach_step_number,drop column outreach_status;
+alter table public.outreach_email_jobs drop column sequence_step_number,drop column rfc_message_id;
+alter table public.email_accounts drop column inbound_provider,drop column inbound_credentials,drop column inbox_configured_at,drop column inbox_checked_at,drop column inbox_cursor,drop column inbox_poll_after,drop column inbox_poll_token,drop column inbox_locked_at;
+drop table public.outreach_phase3_restore,public.outreach_phase3_legacy_enrollments,public.outreach_phase3_seed,public.outreach_inbound_messages;
+commit;

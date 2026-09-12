@@ -19,6 +19,8 @@ type Lead = {
   timezone: string;
   attempt_count: number;
   next_action_at: string;
+  queue_due_at?: string;
+  email_context?: string | null;
   avg_job_value: string | null;
   missed_calls_per_week: number | null;
   after_hours_coverage: string | null;
@@ -142,11 +144,12 @@ function CallCard({ lead }: { lead: Lead }) {
           </p>
         </div>
       </div>
-      {lead.attempt_count > 0 && (
+      {(lead.attempt_count > 0 || lead.email_context) && (
         <p className="text-xs text-muted-foreground">
-          Due {new Date(lead.next_action_at).toLocaleString()}
+          Due {new Date(lead.queue_due_at ?? lead.next_action_at).toLocaleString()}
         </p>
       )}
+      {lead.email_context && <details className="rounded border border-border p-3 text-sm"><summary className="cursor-pointer font-medium">Email to reference on this call</summary><p className="mt-2 whitespace-pre-wrap">{lead.email_context}</p></details>}
       <div className="flex flex-wrap gap-3">
         <label className="flex-1 min-w-48 text-xs">
           Optional notes

@@ -2,11 +2,12 @@ import {randomInt} from 'node:crypto';
 import {resolveTxt} from 'node:dns/promises';
 import {EmailInputError,keyring,encryptCredentials,publicEmailUrl,plainText,checkDirectLinks,unsubscribeToken,tokenHash,safeEqual,verifyEventSignature,verifyResendSignature} from './email-security.js';
 import {ZeroBounceVerifier,type VerificationProvider,type EmailTransport,type OutboundMessage} from './email-providers.js';
+import {SequenceService,isSequenceEndpoint,type InboxFactory} from './sequence-service.js';
 export type EmailRpc=(name:string,data:Record<string,unknown>)=>Promise<any>;
 export type EmailContext={path:string;method:string;body:any;raw:string;headers:Record<string,string>;actor?:string;scope?:string|null;authenticated:boolean};
 export type EmailReply={status:number;body:any;text?:boolean};
-export const isPublicEmailEndpoint=(path:string)=>/^\/email\/(unsubscribe|process|events\/(smtp|resend))$/.test(path);
-export const isEmailEndpoint=(path:string)=>/^\/email\/(settings|domains|mailboxes|verify|queue|process|events|unsubscribe|alerts|send)(\/|$)/.test(path)||/^\/email-accounts(\/|$)/.test(path);
+export const isPublicEmailEndpoint=(path:string)=>/^\/email\/(unsubscribe|process|poll|events\/(smtp|resend))$/.test(path);
+export const isEmailEndpoint=(path:string)=>isSequenceEndpoint(path)||/^\/email\/(metrics|settings|domains|mailboxes|verify|queue|process|events|unsubscribe|alerts|send)(\/|$)/.test(path)||/^\/email-accounts(\/|$)/.test(path);
 function domain(value:unknown) {const s=String(value??'').trim().toLowerCase();if(!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(s)) throw new EmailInputError('Enter a domain name without a URL or path');return s;}
 function mailboxInput(b:any) {
  const email=String(b.fromEmail??'').trim().toLowerCase();
@@ -19,7 +20,7 @@ function mailboxInput(b:any) {
  return {fromName:String(b.fromName).trim(),fromEmail:email,domainId:String(b.domainId??''),provider:b.provider,smtpHost:b.provider==='smtp'?String(b.smtpHost):'',smtpPort:Number(b.smtpPort??587),smtpUser:b.provider==='smtp'?String(b.smtpUser):'',dailyCap:Number(b.dailyCap??30),timezone:String(b.timezone??'America/New_York'),encryptedCredentials:encryptCredentials(b.provider==='smtp'?{password:secret}:{apiKey:secret,domainId:String(b.resendDomainId)},email)};
 }
 export class EmailService {
- constructor(private rpc:EmailRpc,private transport:(mailbox:Record<string,any>)=>EmailTransport,private verifier:VerificationProvider=new ZeroBounceVerifier(process.env.ZEROBOUNCE_API_KEY??''),private fetcher:typeof fetch=fetch,private delay:(ms:number)=>Promise<void>=ms=>new Promise(r=>setTimeout(r,ms))){}
+ constructor(private rpc:EmailRpc,private transport:(mailbox:Record<string,any>)=>EmailTransport,private verifier:VerificationProvider=new ZeroBounceVerifier(process.env.ZEROBOUNCE_API_KEY??''),private fetcher:typeof fetch=fetch,private delay:(ms:number)=>Promise<void>=ms=>new Promise(r=>setTimeout(r,ms)),private inboxFactory?:InboxFactory){}
  private admin(action:string,data:Record<string,unknown>={},c?:EmailContext) {return this.rpc('outreach_email_admin',{p_action:action,p_data:data,p_actor:c?.actor??'system',p_scope:c?.scope??null});}
  async process() {
   if(process.env.OUTREACH_EMAIL_ENABLED!=='true') return {sent:0,held:true};
@@ -36,7 +37,9 @@ export class EmailService {
    await sender.prepare?.(m.from_email);
    const unsubscribe=`${origin}/api/email/unsubscribe?token=${encodeURIComponent(j.unsubscribe_token)}`;
    const message:OutboundMessage={jobId:j.id,fromName:m.from_name,fromEmail:m.from_email,to:j.to_email,subject:j.subject,text:`${j.body}\n\nUnsubscribe: ${unsubscribe}`,messageId:`<${j.id}@${claim.domain}>`,headers:{'List-Unsubscribe':`<${unsubscribe}>`,'List-Unsubscribe-Post':'List-Unsubscribe=One-Click','X-Outreach-ID':j.id}};
+   if(claim.thread?.inReplyTo){message.headers['In-Reply-To']=claim.thread.inReplyTo;message.headers.References=claim.thread.references;}
    const allowed=await this.rpc('outreach_email_dispatch_check',{p_job:j.id,p_claim:j.claim_token});
+   if(!allowed&&claim.phase3){await this.rpc('outreach_sequence_release',{p_job:j.id,p_claim:j.claim_token});return {sent:0,held:true};}
    if(allowed && process.env.OUTREACH_EMAIL_ENABLED==='true') {dispatched=true;const result=await sender.send(message);messageId=result.messageId;outcome='sent';}
   } catch {outcome=dispatched?'unknown':'failed';}
   // A failed acknowledgement must never cause the provider send to be retried.
@@ -44,6 +47,7 @@ export class EmailService {
   return {sent:outcome==='sent'?1:0,state:outcome};
  }
  async handle(c:EmailContext):Promise<EmailReply> {
+  if(isSequenceEndpoint(c.path))return new SequenceService(this.rpc,this.inboxFactory).handle(c);
   const p=c.path,b=c.body??{};const ok=(body:any,status=200)=>({status,body});
   if(!isEmailEndpoint(p)) return ok({error:'Not found'},404);
   if(p==='/email/unsubscribe' && ['GET','POST'].includes(c.method)) {
@@ -70,6 +74,20 @@ export class EmailService {
    await this.rpc('outreach_email_event',{p_provider:provider,p_event:eventId,p_job:jobId,p_message:messageId,p_type:type});return ok({received:true});
   }
   if(!c.authenticated) return ok({error:'Unauthorized'},401);
+  const metrics=p.match(/^\/email\/metrics\/(\d{4}-\d{2}-\d{2}|call-outcome|reply-outcome)$/);
+  if(metrics) {
+   const action=metrics[1];let data:Record<string,unknown>;
+   if(c.method==='GET' && /^\d{4}-/.test(action)) {
+    const date=new Date(`${action}T00:00:00Z`);if(!Number.isFinite(date.getTime())||date.toISOString().slice(0,10)!==action) throw new EmailInputError('Choose a valid week start');data={week:action};
+   } else if(c.method==='POST' && action==='call-outcome') {
+    if(typeof b.connected!=='boolean'||typeof b.conversation!=='boolean'||b.conversation&&!b.connected) throw new EmailInputError('A conversation must also be a connected call');
+    if(b.meetingHeldAt && !Number.isFinite(Date.parse(b.meetingHeldAt))) throw new EmailInputError('Invalid meeting held time');
+    data={id:String(b.id),connected:b.connected,conversation:b.conversation,meetingHeldAt:b.meetingHeldAt||null};
+   } else if(c.method==='POST' && action==='reply-outcome') {
+    if(typeof b.positive!=='boolean') throw new EmailInputError('Choose a reply outcome');data={id:String(b.id),positive:b.positive};
+   } else return ok({error:'Method not allowed'},405);
+   return ok(await this.rpc('outreach_email_metrics',{p_action:action==='call-outcome'?'call_outcome':action==='reply-outcome'?'reply_outcome':'report',p_data:data,p_actor:c.actor??'operator',p_scope:c.scope??null}));
+  }
   if(p.startsWith('/email-accounts')) {
    if(p==='/email-accounts' && c.method==='GET') {const data=await this.admin('dashboard',{},c);return ok(data.mailboxes.map((m:any)=>({id:m.id,fromName:m.from_name,fromEmail:m.from_email,dailyLimit:m.daily_cap,sentToday:m.sent_today,status:m.status})));}
    return ok({error:'Manage mailboxes in the Outreach Mailboxes screen.'},410);
@@ -82,11 +100,19 @@ export class EmailService {
    return ok(await this.admin('settings',data,c));
   }
   if(p==='/email/domains' && c.method==='POST') {const selector=String(b.dkimSelector??'default');if(!/^[a-zA-Z0-9_-]+$/.test(selector)) throw new EmailInputError('Invalid DKIM selector');return ok(await this.admin('domain_create',{domain:domain(b.domain),isPrimary:b.isPrimary===true,dkimSelector:selector},c),201);}
+  const domainEdit=p.match(/^\/email\/domains\/([^/]+)$/);
+  if(domainEdit && ['PATCH','DELETE'].includes(c.method)) {
+   const data:Record<string,unknown>={id:domainEdit[1]};
+   if(b.allowPrimarySending!==undefined) {if(typeof b.allowPrimarySending!=='boolean') throw new EmailInputError('Invalid primary sending setting');data.allowPrimarySending=b.allowPrimarySending;}
+   if(b.dkimSelector!==undefined) {if(!/^[a-zA-Z0-9_-]+$/.test(b.dkimSelector)) throw new EmailInputError('Invalid DKIM selector');data.dkimSelector=b.dkimSelector;}
+   if(b.spfHost!==undefined) data.spfHost=domain(b.spfHost);
+   return ok(await this.rpc('outreach_email_domain_admin',{p_action:c.method==='DELETE'?'delete':'update',p_data:data,p_actor:c.actor??'operator'}));
+  }
   const verifyDomain=p.match(/^\/email\/domains\/([^/]+)\/verify$/);
   if(verifyDomain && c.method==='POST') {
    const d=await this.admin('domain_get',{id:verifyDomain[1]},c);if(!d) return ok({error:'Domain not found'},404);
    const txt=async(name:string)=>{try{return (await resolveTxt(name)).map(parts=>parts.join(''));}catch{return [];}};
-   const [spf,dkim,dmarc]=await Promise.all([txt(d.domain),txt(`${d.dkim_selector}._domainkey.${d.domain}`),txt(`_dmarc.${d.domain}`)]);
+   const [spf,dkim,dmarc]=await Promise.all([txt(d.spf_host??d.domain),txt(`${d.dkim_selector}._domainkey.${d.domain}`),txt(`_dmarc.${d.domain}`)]);
    const data={id:d.id,spf:spf.filter(x=>/^v=spf1\s/i.test(x)).length===1 && spf.some(x=>/\s[~-]all\s*$/i.test(x)),dkim:dkim.some(x=>/\bp\s*=\s*[a-zA-Z0-9+/]{20,}/.test(x)),dmarc:dmarc.filter(x=>/^v=DMARC1\s*;/i.test(x)).length===1 && dmarc.some(x=>/\bp\s*=\s*(none|quarantine|reject)(;|\s|$)/i.test(x))};
    return ok(await this.admin('domain_verify',data,c));
   }

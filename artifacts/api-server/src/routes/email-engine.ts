@@ -3,12 +3,13 @@ import {pool} from '@workspace/db';
 import {EmailService,isEmailEndpoint,isPublicEmailEndpoint,type EmailRpc} from '../../../../lib/email-service.js';
 import {EmailInputError} from '../../../../lib/email-security.js';
 import {mailboxTransport} from '../lib/email-transports.js';
+import {inboxAdapter} from '../lib/inbox-adapters.js';
 const rpc:EmailRpc=async(name,data)=>{
- if(!/^outreach_email_[a-z_]+$/.test(name)) throw new Error('Invalid email RPC');
+ if(!/^outreach_(email|sequence)_[a-z_]+$/.test(name)) throw new Error('Invalid email RPC');
  const keys=Object.keys(data);const args=keys.map((k,i)=>`${k} => $${i+1}`).join(',');
  const {rows}=await pool.query(`select public.${name}(${args}) as result`,Object.values(data));return rows[0].result;
 };
-const service=new EmailService(rpc,mailboxTransport);
+const service=new EmailService(rpc,mailboxTransport,undefined,undefined,undefined,inboxAdapter);
 export function emailEngineRouter(publicOnly=false):IRouter {
  const router=Router();
  router.use(async(req,res,next)=>{

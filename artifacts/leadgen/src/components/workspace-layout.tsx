@@ -65,6 +65,7 @@ const groups: { label: string; links: Item[] }[] = [
   {
     label: "Reports",
     links: [
+      { href: "/outreach-weekly", label: "Weekly outreach", icon: BarChart3 },
       { href: "/company-kpis", label: "Daily performance", icon: BarChart3 },
       { href: "/analytics", label: "CRM analytics", icon: BarChart3 },
       {

@@ -9,7 +9,7 @@ import {randomUUID,createHmac} from 'node:crypto';
 const {PGlite}=await import(process.env.PGLITE_MODULE||'@electric-sql/pglite');
 const compiled=await mkdtemp(join(tmpdir(),'outreach-email-model-'));
 await writeFile(join(compiled,'package.json'),'{"type":"module"}');
-for(const name of ['email-security','email-providers','email-service']) await writeFile(join(compiled,`${name}.js`),stripTypeScriptTypes(await readFile(new URL(`../../lib/${name}.ts`,import.meta.url),'utf8'),{mode:'transform'}));
+for(const name of ['email-security','email-providers','email-service','sequence-service']) await writeFile(join(compiled,`${name}.js`),stripTypeScriptTypes(await readFile(new URL(`../../lib/${name}.ts`,import.meta.url),'utf8'),{mode:'transform'}));
 const security=await import(pathToFileURL(join(compiled,'email-security.js')).href);
 const providers=await import(pathToFileURL(join(compiled,'email-providers.js')).href);
 const {EmailService}=await import(pathToFileURL(join(compiled,'email-service.js')).href);
