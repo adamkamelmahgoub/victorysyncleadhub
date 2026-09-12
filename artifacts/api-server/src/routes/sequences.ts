@@ -15,6 +15,11 @@ import nodemailer from "nodemailer";
 
 const router: IRouter = Router();
 
+// Live sending stays dark until Phase 2 provides the mandatory sender guardrails.
+router.post('/email/send', (_req,res) => {
+  res.status(409).json({error:'Email sending is paused until outreach email infrastructure is configured.'});
+});
+
 function interpolate(template: string, lead: Record<string, unknown>): string {
   return template
     .replace(/\{\{firstName\}\}/g, String(lead.firstName ?? ""))

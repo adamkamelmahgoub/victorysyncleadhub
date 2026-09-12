@@ -27,11 +27,13 @@ import prospectsRouter from "./prospects.js";
 import provisionRouter from "./provision.js";
 import onboardingRouter from "./onboarding.js";
 import authRouter from "./auth.js";
+import outreachRouter from "./outreach.js";
 
 const router: IRouter = Router();
 
 router.use(authRouter);
 router.use(healthRouter);
+router.use(outreachRouter);
 router.use(leadsRouter);
 router.use(campaignsRouter);
 router.use(formsRouter);

@@ -2,7 +2,7 @@ export const PAGE_PERMISSIONS = [
   { key: "home", label: "Home", paths: ["/", "/dashboard"] },
   { key: "client-accounts", label: "Client Accounts", paths: ["/sub-accounts"] },
   { key: "team", label: "Team & Invites", paths: ["/team"] },
-  { key: "contacts", label: "Contacts", paths: ["/leads"] },
+  { key: "contacts", label: "Contacts", paths: ["/leads", "/call-queue"] },
   { key: "imports", label: "Import Contacts", paths: ["/lead-import"] },
   { key: "segments", label: "Segments", paths: ["/segments"] },
   { key: "conversations", label: "Conversations", paths: ["/conversations"] },

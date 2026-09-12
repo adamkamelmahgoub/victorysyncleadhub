@@ -1,6 +1,11 @@
 import crypto from "node:crypto";
 import { leadReports } from "../artifacts/api-server/src/lib/lead-reports.js";
 import { companyCrmRequest } from "../artifacts/api-server/src/lib/company-crm.js";
+import { DISPOSITIONS, parseCall, parseOutreachUpdate } from '../lib/outreach.js';
+import { EmailService,isEmailEndpoint,isPublicEmailEndpoint } from '../lib/email-service.js';
+import { EmailInputError } from '../lib/email-security.js';
+import { mailboxTransport } from '../artifacts/api-server/src/lib/email-transports.js';
+export const config = { api: { bodyParser: false } };
 
 type VercelRequest = {
   method?: string;
@@ -421,7 +426,7 @@ function apiPermissionForPath(path: string) {
     [/^\/api\/(?:sub-accounts|white-label)/, "client-accounts"],
     [/^\/api\/team/, "team"],
     [/^\/api\/leads\/import/, "imports"],
-    [/^\/api\/(?:leads|activities|notes|tasks)/, "contacts"],
+    [/^\/api\/(?:leads|activities|notes|tasks|outreach)/, "contacts"],
     [/^\/api\/(?:segments|contact-groups)/, "segments"],
     [/^\/api\/email\/(?:send|logs)/, "conversations"],
     [/^\/api\/(?:pipelines|pipeline)/, "pipeline"],
@@ -429,7 +434,7 @@ function apiPermissionForPath(path: string) {
     [/^\/api\/meeting/, "calendar"],
     [/^\/api\/sequences/, "sequences"],
     [/^\/api\/campaigns/, "campaigns"],
-    [/^\/api\/(?:email-templates|email-accounts)/, "email"],
+    [/^\/api\/(?:email-templates|email-accounts|email(?:\/|$))/, "email"],
     [/^\/api\/social/, "social"],
     [/^\/api\/automation/, "automation"],
     [/^\/api\/forms/, "forms"],
@@ -1319,6 +1324,9 @@ async function createLead(req: VercelRequest, res: VercelResponse) {
 
 async function updateLead(id: string, req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as LeadInput;
+  if (body.disposition !== undefined || body.contactAttempts !== undefined) {
+    sendJson(res,409,{error:'Use atomic call logging to change disposition or attempts.'}); return;
+  }
   const update = leadUpdatePayload(body);
 
   const rows = (await supabaseRest(`leads?id=eq.${encodeURIComponent(id)}`, {
@@ -2063,6 +2071,7 @@ async function listLeadChildren(leadId: string, kind: keyof typeof leadChildTabl
 async function createLeadChild(leadId: string, kind: keyof typeof leadChildTables, req: VercelRequest, res: VercelResponse) {
   const table = leadChildTables[kind];
   const body = (await readJson(req)) as Record<string, unknown>;
+  if (kind === 'activities' && body.type === 'call') { sendJson(res,409,{error:'Log calls through the call queue to resolve the next action.'}); return; }
   const payload = stripUndefined({
     ...(toSnakeValue(body) as Record<string, unknown>),
     lead_id: leadId,
@@ -2410,6 +2419,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const path = pathFromUrl(req.url);
     const method = (req.method ?? "GET").toUpperCase();
+    const emailPath=path.replace(/^\/api/,'');
+    async function runEmail(authenticated:boolean,user?:AuthenticatedUser) {
+      try {
+        let raw='';let body:unknown={};
+        if(emailPath.startsWith('/email/events/')) {
+          if(typeof req.body==='string') raw=req.body;
+          else if(Buffer.isBuffer(req.body)) raw=req.body.toString('utf8');
+          else if(req.body!==undefined) throw new EmailInputError('Signed events require raw request bodies');
+          else raw=await new Promise<string>((resolve,reject)=>{const chunks:Buffer[]=[];req.on('data',x=>chunks.push(x));req.on('end',()=>resolve(Buffer.concat(chunks).toString('utf8')));req.on('error',reject);});
+          body=JSON.parse(raw);
+        } else if(emailPath==='/email/unsubscribe') body={token:new URL(req.url??'/', 'https://local.invalid').searchParams.get('token')};
+        else if(!['GET','HEAD'].includes(method)) body=await readJson(req);
+        const service=new EmailService((name,data)=>supabaseRest(`rpc/${name}`,{method:'POST',body:JSON.stringify(data)},req),mailboxTransport);
+        const reply=await service.handle({path:emailPath,method,body,raw,headers:Object.fromEntries(Object.entries(req.headers).map(([k,v])=>[k.toLowerCase(),Array.isArray(v)?v[0]??'':v??''])),actor:user?.id??'system',scope:user?.user_metadata?.role==='agent'?String(user.user_metadata.client_account_id??'__unassigned__'):null,authenticated});
+        res.setHeader('Cache-Control','no-store');if(reply.text){res.statusCode=reply.status;res.setHeader('content-type','text/plain; charset=utf-8');res.end(reply.body);}else sendJson(res,reply.status,reply.body);
+      }catch(error){sendJson(res,error instanceof EmailInputError?400:503,{error:error instanceof EmailInputError?error.message:'Email operation could not be completed. Check configuration and retry.'});}
+    }
+    if(isPublicEmailEndpoint(emailPath)) {await runEmail(false);return;}
 
     if (path === "/api/healthz") {
       sendJson(res, 200, {
@@ -2461,6 +2488,48 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await analyticsReport(path, currentUser, req, res); return;
     }
 
+    if(isEmailEndpoint(emailPath)) {await runEmail(true,currentUser);return;}
+    if (path === '/api/dispositions') {
+      if (method === 'GET') sendJson(res, 200, DISPOSITIONS.map((name,id)=>({id:id+1,name,color:'#f97316'})));
+      else sendJson(res, 405, {error:'Outreach dispositions are fixed'});
+      return;
+    }
+    if (path.startsWith('/api/outreach/') || /^\/api\/leads\/[^/]+\/(calls|outreach)$/.test(path)) {
+      const scope = role === 'agent' ? String(currentUser.user_metadata?.client_account_id ?? '__unassigned__') : null;
+      if (method === 'GET' && path === '/api/outreach/queue') {
+        const timezone = new URL(req.url ?? '/', 'https://local.invalid').searchParams.get('timezone');
+        sendJson(res,200,await supabaseRest('rpc/outreach_call_queue',{method:'POST',body:JSON.stringify({p_timezone:timezone,p_client:scope})},req));
+        return;
+      }
+      if (method === 'GET' && path === '/api/outreach/needs-timezone') {
+        if (scope === '__unassigned__') { sendJson(res,200,[]); return; }
+        const query = new URLSearchParams({select:'id,first_name,last_name,company,phone,custom_fields',timezone_confirmed:'eq.false',order:'created_at.asc,id.asc',limit:'100'});
+        if (scope) query.set('client_account_id',`eq.${scope}`);
+        sendJson(res,200,await supabaseRest(`outreach_eligible_leads?${query}`,{method:'GET'},req));
+        return;
+      }
+      const match = path.match(/^\/api\/leads\/([^/]+)\/(calls|outreach)$/);
+      if (match && method === 'POST' && match[2] === 'calls') {
+        try {
+          const data = parseCall(await readJson(req));
+          sendJson(res,201,await supabaseRest('rpc/outreach_log_call',{method:'POST',body:JSON.stringify({...data,p_lead_id:decodeURIComponent(match[1]),p_actor:currentUser.id,p_client:scope})},req));
+        } catch (error) { sendJson(res,400,{error:error instanceof Error ? error.message : 'Invalid call'}); }
+        return;
+      }
+      if (match && method === 'PATCH' && match[2] === 'outreach') {
+        try {
+          if (scope === '__unassigned__') { sendJson(res,404,{error:'Lead not found'}); return; }
+          const data = parseOutreachUpdate(await readJson(req));
+          const query = new URLSearchParams({id:`eq.${decodeURIComponent(match[1])}`});
+          if (scope) query.set('client_account_id',`eq.${scope}`);
+          const rows = await supabaseRest(`leads?${query}`,{method:'PATCH',body:JSON.stringify(data)},req) as unknown[];
+          sendJson(res,rows.length ? 200 : 404,rows[0] ?? {error:'Lead not found'});
+        } catch (error) { sendJson(res,400,{error:error instanceof Error ? error.message : 'Invalid update'}); }
+        return;
+      }
+      sendJson(res,405,{error:'Unsupported outreach operation'});
+      return;
+    }
     if (method === "GET" && path === "/api/leads") {
       await listLeads(currentUser, req, res);
       return;
@@ -2531,7 +2600,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (method === "POST" && path === "/api/email/send") {
-      await sendEmail(req, res);
+      sendJson(res,409,{error:'Email sending is paused until outreach email infrastructure is configured.'});
       return;
     }
 

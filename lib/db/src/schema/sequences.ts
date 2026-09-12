@@ -1,6 +1,7 @@
 import { pgTable, text, serial, integer, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import {emailAccountsTable} from './email-accounts';
 
 export const sequencesTable = pgTable("sequences", {
   id: serial("id").primaryKey(),
@@ -30,6 +31,7 @@ export const sequenceEnrollmentsTable = pgTable("sequence_enrollments", {
   id: serial("id").primaryKey(),
   sequenceId: integer("sequence_id").notNull(),
   leadId: integer("lead_id").notNull(),
+  assignedMailboxId: integer('assigned_mailbox_id').references(()=>emailAccountsTable.id),
   currentStep: integer("current_step").notNull().default(1),
   status: text("status").notNull().default("active"),
   nextSendAt: timestamp("next_send_at", { withTimezone: true }),

@@ -1,7 +1,8 @@
 import { Router, type IRouter } from "express";
 import { eq, ilike, and, gte, lte, or, desc, sql, inArray } from "drizzle-orm";
-import { db, leadsTable, campaignsTable, activitiesTable, dispositionsTable } from "@workspace/db";
+import { db, leadsTable, campaignsTable, activitiesTable } from "@workspace/db";
 import { z } from "zod";
+import { DISPOSITIONS } from '../../../../lib/outreach.js';
 import {
   ListLeadsQueryParams,
   CreateLeadBody,
@@ -15,6 +16,7 @@ import {
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+const outreachLeadInput = CreateLeadBody.extend({disposition:z.enum(DISPOSITIONS).optional()});
 
 function clientScope(res: { locals: Record<string, any> }) {
   const metadata = res.locals.user?.user_metadata;
@@ -102,7 +104,7 @@ router.get("/leads", async (req, res): Promise<void> => {
 });
 
 router.post("/leads", async (req, res): Promise<void> => {
-  const parsed = CreateLeadBody.safeParse(req.body);
+  const parsed = outreachLeadInput.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
@@ -130,7 +132,7 @@ router.post("/leads", async (req, res): Promise<void> => {
 });
 
 router.post("/leads/import", async (req, res): Promise<void> => {
-  const parsed = ImportLeadsBody.safeParse(req.body);
+  const parsed = ImportLeadsBody.extend({leads:z.array(outreachLeadInput)}).safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
@@ -171,14 +173,11 @@ router.delete("/leads", async (req, res): Promise<void> => {
 });
 
 router.get("/dispositions", async (_req, res): Promise<void> => {
-  res.json(await db.select().from(dispositionsTable).where(eq(dispositionsTable.isActive, true)).orderBy(dispositionsTable.name));
+  res.json(DISPOSITIONS.map((name,id)=>({id:id+1,name,color:'#f97316'})));
 });
 
 router.post("/dispositions", async (req, res): Promise<void> => {
-  const parsed = z.object({ name: z.string().trim().min(1).max(80), color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#f97316") }).safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
-  const [created] = await db.insert(dispositionsTable).values(parsed.data).returning();
-  res.status(201).json(created);
+  res.status(405).json({error:'Outreach dispositions are fixed'});
 });
 
 router.get("/leads/:id", async (req, res): Promise<void> => {
@@ -227,13 +226,16 @@ router.get("/leads/:id", async (req, res): Promise<void> => {
 });
 
 router.patch("/leads/:id", async (req, res): Promise<void> => {
+  if (req.body?.disposition !== undefined || req.body?.contactAttempts !== undefined) {
+    res.status(409).json({error:'Use atomic call logging to change disposition or attempts.'}); return;
+  }
   const params = UpdateLeadParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
 
-  const parsed = UpdateLeadBody.safeParse(req.body);
+  const parsed = UpdateLeadBody.extend({disposition:z.enum(DISPOSITIONS).optional()}).safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;

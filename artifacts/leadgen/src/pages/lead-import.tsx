@@ -13,6 +13,9 @@ const LEAD_FIELDS = [
   { key: "email", label: "Email" },
   { key: "phone", label: "Phone" },
   { key: "company", label: "Company" },
+  { key: "state", label: "State" },
+  { key: "city", label: "City" },
+  { key: "timezone", label: "IANA Timezone" },
   { key: "title", label: "Job Title" },
   { key: "source", label: "Source" },
   { key: "status", label: "Status" },
@@ -148,6 +151,12 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
         .filter((field) => field.name.trim() && field.column)
         .map((field) => [field.name.trim(), row[parsed.headers.indexOf(field.column)] ?? ""]),
     );
+    if (!companyMode) {
+      for (const key of ['state', 'city', 'timezone']) {
+        if (lead[key]) (lead.customFields as Record<string, unknown>)[key] = lead[key];
+        delete lead[key];
+      }
+    }
     if (companyMode) { lead.custom_fields = lead.customFields; delete lead.customFields; lead.contacts = mapDecisionMakers(parsed.headers, row, personMappings); }
     return lead;
   }

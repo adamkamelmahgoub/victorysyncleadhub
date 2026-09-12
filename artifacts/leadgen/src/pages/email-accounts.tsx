@@ -1,377 +1,62 @@
-import React, { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
-import { useToast } from "@/hooks/use-toast";
-import {
-  Mail,
-  Plus,
-  Trash2,
-  CheckCircle2,
-  Star,
-  Wifi,
-  WifiOff,
-  ChevronDown,
-  ChevronUp,
-  Send,
-} from "lucide-react";
-import { apiFetch } from "@/lib/api";
-import { asArray } from "@/lib/data-shape";
-
-type Account = {
-  id: number;
-  fromName: string;
-  fromEmail: string;
-  smtpHost: string;
-  smtpPort: number;
-  smtpUser: string;
-  isDefault: boolean;
-  dailyLimit: number;
-  sentToday: number;
-};
-
-const PRESETS: Record<string, { host: string; port: number }> = {
-  gmail: { host: "smtp.gmail.com", port: 587 },
-  outlook: { host: "smtp.office365.com", port: 587 },
-  yahoo: { host: "smtp.mail.yahoo.com", port: 587 },
-  custom: { host: "", port: 587 },
-};
-
-const PROVIDERS = [
-  {
-    key: "gmail",
-    label: "Gmail",
-    hint: "Use an App Password (not your regular password). Enable 2FA → Google Account → Security → App Passwords.",
-    color: "#EA4335",
-  },
-  {
-    key: "outlook",
-    label: "Outlook / Microsoft",
-    hint: "Use your Microsoft account password. Make sure SMTP AUTH is enabled in your M365 admin panel.",
-    color: "#0078D4",
-  },
-  {
-    key: "yahoo",
-    label: "Yahoo Mail",
-    hint: "Generate an App Password in Yahoo Account Security settings.",
-    color: "#6001D2",
-  },
-  { key: "custom", label: "Custom SMTP", hint: "Enter your SMTP server details manually.", color: "#00E5FF" },
-];
-
-function useAccounts() {
-  const [accounts, setAccounts] = React.useState<Account[]>([]);
-  const load = React.useCallback(async () => {
-    setAccounts(asArray<Account>(await apiFetch("/api/email-accounts")));
-  }, []);
-  React.useEffect(() => { load(); }, [load]);
-  return { accounts, reload: load };
-}
-
+import {useState} from 'react';
+import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
+import {apiFetch} from '@/lib/api';
+import {useToast} from '@/hooks/use-toast';
+type Domain={id:string;domain:string;is_primary:boolean;spf_verified:boolean;dkim_verified:boolean;dmarc_verified:boolean;status:string};
+type Mailbox={id:string|number;from_email:string;provider:string;status:string;daily_cap:number;effective_cap:number;sent_today:number;email_engine_enabled:boolean;bounce_rate_7d:number|string;complaint_rate_7d:number|string;warmup_started_at:string};
+type Settings={engine_enabled:boolean;global_daily_cap:number;primary_domains:string[];direct_link_domains:string[];reset_timezone:string};
+type Dashboard={settings:Settings;domains:Domain[];mailboxes:Mailbox[];alerts:Array<{id:number;mailbox_id:string;reason:string}>;deploymentEnabled:boolean};
+type Contact={id:string|number;firstName:string;lastName:string;email:string};
+const input='rounded border border-border bg-background px-3 py-2 text-sm w-full';
+const button='rounded border border-border px-3 py-2 text-sm hover:bg-muted disabled:opacity-50';
 export default function EmailAccountsPage() {
-  const { accounts, reload } = useAccounts();
-  const { toast } = useToast();
-  const [open, setOpen] = useState(false);
-  const [testing, setTesting] = useState<number | null>(null);
-  const [testResult, setTestResult] = useState<Record<number, { ok: boolean; msg: string }>>({});
-  const [preset, setPreset] = useState("gmail");
-  const [showHint, setShowHint] = useState(true);
-  const [form, setForm] = useState({
-    fromName: "",
-    fromEmail: "",
-    smtpHost: PRESETS.gmail.host,
-    smtpPort: PRESETS.gmail.port,
-    smtpUser: "",
-    smtpPassword: "",
-    isDefault: false,
-    dailyLimit: 100,
-  });
-  const [saving, setSaving] = useState(false);
-
-  function applyPreset(key: string) {
-    setPreset(key);
-    const p = PRESETS[key] ?? PRESETS.custom;
-    setForm((f) => ({ ...f, smtpHost: p.host, smtpPort: p.port }));
-  }
-
-  async function handleSave() {
-    setSaving(true);
-    try {
-      await apiFetch("/api/email-accounts", {
-        method: "POST",
-        body: JSON.stringify(form),
-      });
-      toast({ title: "Account connected" });
-      setOpen(false);
-      reload();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleDelete(id: number) {
-    await apiFetch(`/api/email-accounts/${id}`, { method: "DELETE" });
-    reload();
-  }
-
-  async function handleSetDefault(id: number) {
-    await apiFetch(`/api/email-accounts/${id}/set-default`, { method: "POST" });
-    reload();
-  }
-
-  async function handleTest(id: number) {
-    setTesting(id);
-    try {
-      const data = await apiFetch(`/api/email-accounts/${id}/test`, { method: "POST" }) as { success: boolean; message: string };
-      setTestResult((prev) => ({ ...prev, [id]: { ok: data.success, msg: data.message } }));
-    } finally {
-      setTesting(null);
-    }
-  }
-
-  const currentPreset = PROVIDERS.find((p) => p.key === preset);
-
-  return (
-
-      <div className="p-6 max-w-3xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Email Accounts</h1>
-            <p className="text-muted-foreground mt-1">Connect your sending accounts for cold outreach</p>
-          </div>
-          <Button onClick={() => setOpen(true)} className="bg-primary text-primary-foreground hover:bg-primary/90">
-            <Plus className="w-4 h-4 mr-2" /> Connect Account
-          </Button>
-        </div>
-
-        {/* Setup tips */}
-        {accounts.length === 0 && (
-          <div className="rounded-xl border border-border bg-card p-6 space-y-4">
-            <div className="flex items-center gap-3 text-primary">
-              <Mail className="w-6 h-6" />
-              <span className="font-semibold text-lg">Connect your first sending account</span>
-            </div>
-            <p className="text-muted-foreground text-sm leading-relaxed">
-              Connect Gmail, Outlook, or any SMTP-enabled email to start sending cold emails and sequences directly
-              from your own account — no third-party relay needed.
-            </p>
-            <div className="grid grid-cols-3 gap-3">
-              {PROVIDERS.slice(0, 3).map((p) => (
-                <button
-                  key={p.key}
-                  onClick={() => { applyPreset(p.key); setOpen(true); }}
-                  className="border border-border rounded-lg p-3 text-left hover:border-primary transition-colors"
-                >
-                  <div className="font-medium text-foreground text-sm">{p.label}</div>
-                  <div className="text-xs text-muted-foreground mt-1 truncate">{PRESETS[p.key].host}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Accounts list */}
-        {accounts.map((acct) => (
-          <div key={acct.id} className="rounded-xl border border-border bg-card p-5 space-y-3">
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                  <Mail className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-foreground">{acct.fromName}</span>
-                    {acct.isDefault && (
-                      <Badge className="bg-primary/20 text-primary border-primary/30 text-xs">Default</Badge>
-                    )}
-                  </div>
-                  <div className="text-sm text-muted-foreground">{acct.fromEmail}</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">{acct.smtpHost}:{acct.smtpPort}</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {testResult[acct.id] && (
-                  <div className={`flex items-center gap-1 text-xs ${testResult[acct.id].ok ? "text-green-400" : "text-red-400"}`}>
-                    {testResult[acct.id].ok ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-                    {testResult[acct.id].msg}
-                  </div>
-                )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleTest(acct.id)}
-                  disabled={testing === acct.id}
-                  className="border-border text-muted-foreground hover:text-foreground"
-                >
-                  {testing === acct.id ? "Testing…" : "Test"}
-                </Button>
-                {!acct.isDefault && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleSetDefault(acct.id)}
-                    className="border-border text-muted-foreground hover:text-foreground"
-                  >
-                    <Star className="w-3 h-3 mr-1" /> Set Default
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => handleDelete(acct.id)}
-                  className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-            <div className="flex items-center gap-4 text-xs text-muted-foreground pt-2 border-t border-border">
-              <div className="flex items-center gap-1">
-                <Send className="w-3 h-3" />
-                <span>{acct.sentToday} / {acct.dailyLimit} sent today</span>
-              </div>
-              <div className="flex-1 bg-muted rounded-full h-1">
-                <div
-                  className="bg-primary h-1 rounded-full"
-                  style={{ width: `${Math.min(100, (acct.sentToday / acct.dailyLimit) * 100)}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        ))}
-
-        {/* Connect dialog */}
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent className="bg-card border-border max-w-lg">
-            <DialogHeader>
-              <DialogTitle className="text-foreground">Connect Email Account</DialogTitle>
-            </DialogHeader>
-
-            {/* Provider picker */}
-            <div className="grid grid-cols-4 gap-2">
-              {PROVIDERS.map((p) => (
-                <button
-                  key={p.key}
-                  onClick={() => applyPreset(p.key)}
-                  className={`rounded-lg border p-2 text-xs font-medium transition-colors ${
-                    preset === p.key
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground hover:border-primary/50"
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Hint */}
-            {currentPreset && (
-              <button
-                onClick={() => setShowHint((h) => !h)}
-                className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-                <span className="text-left">{currentPreset.hint}</span>
-                {showHint ? <ChevronUp className="w-3 h-3 flex-shrink-0" /> : <ChevronDown className="w-3 h-3 flex-shrink-0" />}
-              </button>
-            )}
-
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-foreground text-xs">Your Name</Label>
-                  <Input
-                    className="bg-background border-border text-foreground"
-                    placeholder="John Smith"
-                    value={form.fromName}
-                    onChange={(e) => setForm((f) => ({ ...f, fromName: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-foreground text-xs">From Email</Label>
-                  <Input
-                    className="bg-background border-border text-foreground"
-                    placeholder="you@gmail.com"
-                    value={form.fromEmail}
-                    onChange={(e) => setForm((f) => ({ ...f, fromEmail: e.target.value }))}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2 space-y-1">
-                  <Label className="text-foreground text-xs">SMTP Host</Label>
-                  <Input
-                    className="bg-background border-border text-foreground"
-                    value={form.smtpHost}
-                    onChange={(e) => setForm((f) => ({ ...f, smtpHost: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-foreground text-xs">Port</Label>
-                  <Input
-                    className="bg-background border-border text-foreground"
-                    type="number"
-                    value={form.smtpPort}
-                    onChange={(e) => setForm((f) => ({ ...f, smtpPort: Number(e.target.value) }))}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-foreground text-xs">SMTP Username (usually your email)</Label>
-                <Input
-                  className="bg-background border-border text-foreground"
-                  placeholder="you@gmail.com"
-                  value={form.smtpUser}
-                  onChange={(e) => setForm((f) => ({ ...f, smtpUser: e.target.value }))}
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-foreground text-xs">
-                  {preset === "gmail" ? "App Password (not your Gmail password)" : "Password"}
-                </Label>
-                <Input
-                  className="bg-background border-border text-foreground"
-                  type="password"
-                  placeholder="••••••••••••"
-                  value={form.smtpPassword}
-                  onChange={(e) => setForm((f) => ({ ...f, smtpPassword: e.target.value }))}
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-foreground text-xs">Daily Send Limit</Label>
-                <Input
-                  className="bg-background border-border text-foreground"
-                  type="number"
-                  value={form.dailyLimit}
-                  onChange={(e) => setForm((f) => ({ ...f, dailyLimit: Number(e.target.value) }))}
-                />
-              </div>
-            </div>
-
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setOpen(false)} className="border-border text-foreground">
-                Cancel
-              </Button>
-              <Button onClick={handleSave} disabled={saving} className="bg-primary text-primary-foreground">
-                {saving ? "Connecting…" : "Connect Account"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-  );
+ const cache=useQueryClient();const {toast}=useToast();
+ const {data,isLoading,error}=useQuery<Dashboard>({queryKey:['email-infrastructure'],queryFn:()=>apiFetch('/email/settings'),refetchInterval:30000});
+ const [domainName,setDomainName]=useState('');const [selector,setSelector]=useState('default');const [primary,setPrimary]=useState(false);
+ const [showMailbox,setShowMailbox]=useState(false);
+ const [mailbox,setMailbox]=useState({fromName:'',fromEmail:'',provider:'smtp',domainId:'',smtpHost:'',smtpPort:587,smtpUser:'',smtpPassword:'',apiKey:'',resendDomainId:'',timezone:'America/New_York',dailyCap:30});
+ const [primaryDomains,setPrimaryDomains]=useState<string|null>(null);const [directDomains,setDirectDomains]=useState<string|null>(null);const [cap,setCap]=useState<number|null>(null);
+ const [search,setSearch]=useState('');const [contacts,setContacts]=useState<Contact[]>([]);const [selected,setSelected]=useState<Contact|null>(null);const [subject,setSubject]=useState('');const [body,setBody]=useState('');const [sender,setSender]=useState('');
+ const {data:verification}=useQuery<{status:string}>({queryKey:['email-verification',selected?.id],enabled:!!selected,queryFn:()=>apiFetch(`/email/verify/${selected!.id}`)});
+ const operation=useMutation({mutationFn:({path,method='POST',payload={}}:{path:string;method?:string;payload?:unknown})=>apiFetch(path,{method,body:JSON.stringify(payload)}),onSuccess:()=>cache.invalidateQueries({queryKey:['email-infrastructure']})});
+ const perform=async(path:string,payload:unknown={},method='POST')=>operation.mutateAsync({path,payload,method});
+ async function createMailbox(e:React.FormEvent) {e.preventDefault();await perform('/email/mailboxes',mailbox);setMailbox({...mailbox,smtpPassword:'',apiKey:''});setShowMailbox(false);toast({title:'Mailbox connected',description:'Sending remains disabled until you enable this mailbox.'});}
+ async function findContacts(e:React.FormEvent) {e.preventDefault();const result=await apiFetch(`/leads?search=${encodeURIComponent(search)}&limit=20`);setContacts(result.leads??[]);}
+ async function verifyContact() {if(!selected)return;const result=await perform(`/email/verify/${selected.id}`);cache.setQueryData(['email-verification',selected.id],result);toast({title:`Email verification: ${result.status}`});}
+ async function queueEmail(e:React.FormEvent) {e.preventDefault();if(!selected)return;const result=await perform('/email/queue',{leadId:selected.id,mailboxId:sender||undefined,subject,body});toast({title:'Email queued',description:`Eligible after ${new Date(result.notBefore).toLocaleString()}; sender limits and local hours still apply.`});setBody('');setSubject('');}
+ async function saveSettings(enabled?:boolean) {await perform('/email/settings',{primaryDomains:(primaryDomains??data?.settings.primary_domains.join(',')??'').split(',').map(x=>x.trim()).filter(Boolean),directLinkDomains:(directDomains??data?.settings.direct_link_domains.join(',')??'').split(',').map(x=>x.trim()).filter(Boolean),globalDailyCap:cap??data?.settings.global_daily_cap,...(enabled===undefined?{}:{engineEnabled:enabled})},'PATCH');toast({title:'Sending settings saved'});}
+ if(isLoading)return <main className="p-6" role="status">Loading mailboxes…</main>;
+ if(error||!data)return <main className="p-6 text-red-600" role="alert">{error?.message??'Mailbox settings unavailable'}</main>;
+ return <main className="mx-auto max-w-6xl p-6 space-y-6">
+  <header><h1 className="text-2xl font-semibold">Outreach mailboxes</h1><p className="text-sm text-muted-foreground">Connect senders, verify addresses, and send within the lead’s business hours.</p></header>
+  {!data.deploymentEnabled&&<p className="rounded border border-amber-300 bg-amber-50 p-3 text-sm">Live sending is disabled for this deployment. You can configure mailboxes and prepare the send queue.</p>}
+  {data.alerts.length>0&&<section aria-label="Sending alerts" className="rounded border border-red-300 bg-red-50 p-4 space-y-2">{data.alerts.map(a=><div key={a.id} className="flex justify-between gap-3 text-sm"><span>{data.mailboxes.find(m=>String(m.id)===a.mailbox_id)?.from_email??'Mailbox'}: {a.reason.replaceAll('_',' ')}</span><button className={button} onClick={()=>perform(`/email/alerts/${a.id}/acknowledge`)}>Acknowledge</button></div>)}</section>}
+  <section className="rounded-lg border border-border bg-card p-4 space-y-3"><h2 className="font-semibold">Sending settings</h2><div className="grid gap-3 md:grid-cols-3">
+   <label className="text-xs">Primary company domains (never used for outreach)<input className={input} value={primaryDomains??data.settings.primary_domains.join(', ')} onChange={e=>setPrimaryDomains(e.target.value)} placeholder="victorysync.com"/></label>
+   <label className="text-xs">Global daily ceiling<input className={input} type="number" min="1" max="100000" value={cap??data.settings.global_daily_cap} onChange={e=>setCap(Number(e.target.value))}/></label>
+   <label className="text-xs">Approved direct-link domains (optional)<input className={input} value={directDomains??data.settings.direct_link_domains.join(', ')} onChange={e=>setDirectDomains(e.target.value)} placeholder="example.com"/></label>
+  </div><div className="flex flex-wrap gap-3 items-center"><button className={button} disabled={operation.isPending} onClick={()=>saveSettings()}>Save settings</button><button className={button} disabled={operation.isPending} onClick={()=>saveSettings(!data.settings.engine_enabled)}>{data.settings.engine_enabled?'Pause all sending':'Enable sending engine'}</button><span className="text-xs text-muted-foreground">Global reset: {data.settings.reset_timezone}. Mailboxes also need individual enablement.</span></div></section>
+  <section className="rounded-lg border border-border bg-card p-4 space-y-3"><h2 className="font-semibold">Sending domains</h2>
+   <form className="flex flex-wrap gap-2 items-end" onSubmit={async e=>{e.preventDefault();await perform('/email/domains',{domain:domainName,dkimSelector:selector,isPrimary:primary});setDomainName('');}}><label className="text-xs">Domain<input className={input} required value={domainName} onChange={e=>setDomainName(e.target.value)} placeholder="outreach-domain.com"/></label><label className="text-xs">DKIM selector<input className={input} required value={selector} onChange={e=>setSelector(e.target.value)}/></label><label className="text-sm"><input type="checkbox" checked={primary} onChange={e=>setPrimary(e.target.checked)}/> Primary company domain</label><button className={button} disabled={operation.isPending}>Add domain</button></form>
+   <div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead><tr className="border-b"><th className="py-2">Domain</th><th>SPF</th><th>DKIM</th><th>DMARC</th><th>Status</th><th/></tr></thead><tbody>{data.domains.map(d=><tr key={d.id} className="border-b"><td className="py-3">{d.domain}{d.is_primary&&<span className="ml-2 text-red-600">Primary · blocked</span>}</td><td>{d.spf_verified?'Verified':'Missing'}</td><td>{d.dkim_verified?'Verified':'Missing'}</td><td>{d.dmarc_verified?'Verified':'Missing'}</td><td>{d.status}</td><td><button className={button} disabled={operation.isPending} onClick={()=>perform(`/email/domains/${d.id}/verify`)}>Check DNS</button></td></tr>)}</tbody></table></div>
+  </section>
+  <section className="rounded-lg border border-border bg-card p-4 space-y-3"><div className="flex justify-between"><h2 className="font-semibold">Mailboxes</h2><button className={button} onClick={()=>setShowMailbox(!showMailbox)}>{showMailbox?'Cancel':'Connect mailbox'}</button></div>
+   {showMailbox&&<form onSubmit={createMailbox} className="grid gap-3 rounded border p-4 md:grid-cols-3">
+    <label className="text-xs">Transport<select className={input} value={mailbox.provider} onChange={e=>setMailbox({...mailbox,provider:e.target.value,smtpPassword:'',apiKey:''})}><option value="smtp">SMTP mailbox</option><option value="resend">Resend API</option></select></label>
+    <label className="text-xs">Sending domain<select className={input} required value={mailbox.domainId} onChange={e=>setMailbox({...mailbox,domainId:e.target.value})}><option value="">Choose domain</option>{data.domains.filter(d=>!d.is_primary&&d.status!=='burned').map(d=><option key={d.id} value={d.id}>{d.domain}</option>)}</select></label>
+    <label className="text-xs">Sender email<input className={input} required type="email" value={mailbox.fromEmail} onChange={e=>setMailbox({...mailbox,fromEmail:e.target.value})}/></label>
+    <label className="text-xs">Sender name<input className={input} required value={mailbox.fromName} onChange={e=>setMailbox({...mailbox,fromName:e.target.value})}/></label>
+    <label className="text-xs">Daily cap<input className={input} type="number" min="1" max="10000" required value={mailbox.dailyCap} onChange={e=>setMailbox({...mailbox,dailyCap:Number(e.target.value)})}/></label>
+    <label className="text-xs">Mailbox midnight timezone<select className={input} value={mailbox.timezone} onChange={e=>setMailbox({...mailbox,timezone:e.target.value})}>{['America/New_York','America/Chicago','America/Denver','America/Phoenix','America/Los_Angeles','Africa/Cairo','UTC'].map(t=><option key={t}>{t}</option>)}</select></label>
+    {mailbox.provider==='smtp'?<><label className="text-xs">SMTP host<input className={input} required value={mailbox.smtpHost} onChange={e=>setMailbox({...mailbox,smtpHost:e.target.value})}/></label><label className="text-xs">TLS port<select className={input} value={mailbox.smtpPort} onChange={e=>setMailbox({...mailbox,smtpPort:Number(e.target.value)})}><option value="587">587 · STARTTLS</option><option value="465">465 · TLS</option></select></label><label className="text-xs">SMTP username<input className={input} required value={mailbox.smtpUser} onChange={e=>setMailbox({...mailbox,smtpUser:e.target.value})}/></label><label className="text-xs">SMTP password / app password<input className={input} type="password" autoComplete="new-password" required value={mailbox.smtpPassword} onChange={e=>setMailbox({...mailbox,smtpPassword:e.target.value})}/></label></>:<label className="text-xs">Resend API key<input className={input} type="password" autoComplete="new-password" required value={mailbox.apiKey} onChange={e=>setMailbox({...mailbox,apiKey:e.target.value})}/></label>}
+    {mailbox.provider==='resend'&&<label className="text-xs">Resend domain ID<input className={input} required value={mailbox.resendDomainId} onChange={e=>setMailbox({...mailbox,resendDomainId:e.target.value})}/></label>}
+    <div className="md:col-span-3"><button className={button} disabled={operation.isPending}>Save encrypted credentials</button><p className="mt-2 text-xs text-muted-foreground">The ramp is 5/day, 15/day, and 25/day for the first three weeks, bounded by your daily cap. New mailboxes start disabled.</p></div>
+   </form>}
+   <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b"><th className="py-2">Mailbox</th><th>Status</th><th>Today / limit</th><th>7-day hard bounces</th><th>Enabled</th><th/></tr></thead><tbody>{data.mailboxes.map(m=><tr className="border-b" key={m.id}><td className="py-3">{m.from_email}<span className="block text-xs text-muted-foreground">{m.provider}</span></td><td>{m.status}</td><td>{m.sent_today} / {m.effective_cap}</td><td>{(Number(m.bounce_rate_7d)*100).toFixed(2)}%</td><td><input aria-label={`Enable ${m.from_email}`} type="checkbox" checked={m.email_engine_enabled} disabled={m.status==='burned'||operation.isPending} onChange={e=>perform(`/email/mailboxes/${m.id}`,{engineEnabled:e.target.checked},'PATCH')}/></td><td><button className={button} disabled={m.status==='burned'||operation.isPending} onClick={()=>perform(`/email/mailboxes/${m.id}`,{status:m.status==='paused'?'warming':'paused'},'PATCH')}>{m.status==='paused'?'Resume ramp':'Pause'}</button></td></tr>)}</tbody></table></div>
+  </section>
+  <section className="rounded-lg border border-border bg-card p-4 space-y-3"><h2 className="font-semibold">Verify and queue email</h2><form className="flex gap-2" onSubmit={findContacts}><input aria-label="Find contact" className={input} value={search} onChange={e=>setSearch(e.target.value)} placeholder="Find a contact by name, company, or email" required/><button className={button}>Search</button></form>
+   {contacts.length>0&&<select aria-label="Choose contact" className={input} value={String(selected?.id??'')} onChange={e=>setSelected(contacts.find(l=>String(l.id)===e.target.value)??null)}><option value="">Choose a contact</option>{contacts.map(l=><option key={l.id} value={String(l.id)}>{l.firstName} {l.lastName} · {l.email}</option>)}</select>}
+   {selected&&<><div className="flex gap-3 items-center text-sm"><span>{selected.email} · {verification?.status??'unverified'}</span><button className={button} disabled={operation.isPending} onClick={verifyContact}>Verify address</button></div><form onSubmit={queueEmail} className="space-y-3"><label className="text-xs">Sender<select className={input} value={sender} onChange={e=>setSender(e.target.value)}><option value="">Rotate across active mailboxes</option>{data.mailboxes.filter(m=>m.email_engine_enabled&&['warming','active'].includes(m.status)).map(m=><option key={m.id} value={String(m.id)}>{m.from_email} · {m.status}</option>)}</select></label><input className={input} aria-label="Email subject" required placeholder="Subject" value={subject} onChange={e=>setSubject(e.target.value)}/><textarea className={`${input} min-h-36`} aria-label="Plain text email body" required placeholder="Plain text message. The unsubscribe line is added automatically." value={body} onChange={e=>setBody(e.target.value)}/><button className={button} disabled={operation.isPending||verification?.status!=='valid'}>Queue email</button><p className="text-xs text-muted-foreground">Held outside 8 AM–5 PM on the contact’s weekdays. No HTML, tracking pixels, or tracked links.</p></form></>}
+  </section>
+ </main>;
 }

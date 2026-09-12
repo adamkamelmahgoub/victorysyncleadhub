@@ -1,0 +1,7 @@
+{
+  "name": "victorysync-outreach-tests",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test phase1.test.mjs phase2.test.mjs" },
+  "devDependencies": { "@electric-sql/pglite": "0.3.14" }
+}

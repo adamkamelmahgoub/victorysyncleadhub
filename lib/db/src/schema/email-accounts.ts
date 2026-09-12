@@ -1,7 +1,9 @@
-import { pgTable, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, numeric, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import {sendingDomainsTable} from './sending-domains';
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
+export const outreachMailboxStatus = pgEnum('outreach_mailbox_status', ['warming','active','paused','burned']);
 export const emailAccountsTable = pgTable("email_accounts", {
   id: serial("id").primaryKey(),
   fromName: text("from_name").notNull(),
@@ -10,6 +12,15 @@ export const emailAccountsTable = pgTable("email_accounts", {
   smtpPort: integer("smtp_port").notNull().default(587),
   smtpUser: text("smtp_user").notNull(),
   smtpPassword: text("smtp_password").notNull(),
+  sendingDomainId: uuid('sending_domain_id').references(()=>sendingDomainsTable.id),
+  provider: text('provider').notNull().default('smtp'),
+  dailyCap: integer('daily_cap').notNull().default(30),
+  mailboxTimezone: text('mailbox_timezone').notNull().default('America/New_York'),
+  warmupStartedAt: timestamp('warmup_started_at', {withTimezone:true}).notNull().defaultNow(),
+  status: outreachMailboxStatus('status').notNull().default('warming'),
+  emailEngineEnabled: boolean('email_engine_enabled').notNull().default(false),
+  rotationCredit: numeric('rotation_credit').notNull().default('0'),
+  nextSendAfter: timestamp('next_send_after', {withTimezone:true}).notNull().defaultNow(),
   isDefault: boolean("is_default").notNull().default(false),
   dailyLimit: integer("daily_limit").notNull().default(100),
   sentToday: integer("sent_today").notNull().default(0),

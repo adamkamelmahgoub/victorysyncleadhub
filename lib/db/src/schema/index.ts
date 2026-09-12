@@ -23,3 +23,4 @@ export * from "./affiliates";
 export * from "./onboarding";
 export * from "./prospects";
 export * from "./invite-codes";
+export * from './sending-domains';

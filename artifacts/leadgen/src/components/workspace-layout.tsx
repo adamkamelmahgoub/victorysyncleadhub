@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode, type ElementType } from "react";
 import { Link, useLocation } from "wouter";
 import {
+  Phone,
   Building2,
   Users,
   GitBranch,
@@ -26,6 +27,7 @@ import { useAuth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
 type Item = { href: string; label: string; icon: ElementType };
 const core: Item[] = [
+  { href: "/call-queue", label: "Call queue", icon: Phone },
   { href: "/companies", label: "Companies", icon: Building2 },
   { href: "/leads", label: "Contacts", icon: Users },
   { href: "/crm-tasks", label: "Tasks & follow-ups", icon: CheckSquare },

@@ -17,6 +17,7 @@ import Sequences from "@/pages/sequences";
 import SequenceEditor from "@/pages/sequence-editor";
 import Leads from "@/pages/leads";
 import LeadDetail from "@/pages/lead-detail";
+import CallQueue from "@/pages/call-queue";
 import Campaigns from "@/pages/campaigns";
 import CampaignDetail from "@/pages/campaign-detail";
 import Forms from "@/pages/forms";
@@ -79,6 +80,7 @@ function Router() {
       <Route path="/leadgen/company-kpis" component={CompanyKpis} />
       <Route path="/leadgen" component={Dashboard} />
       <Route path="/leadgen/leads" component={Leads} />
+      <Route path="/leadgen/call-queue" component={CallQueue} />
       <Route path="/leadgen/leads/:id" component={LeadDetail} />
       <Route path="/leadgen/conversations" component={Conversations} />
       <Route path="/leadgen/calendars" component={MeetingScheduler} />
@@ -110,6 +112,7 @@ function Router() {
 
       <Route path="/dashboard" component={Companies} />
       <Route path="/leads" component={Leads} />
+      <Route path="/call-queue" component={CallQueue} />
       <Route path="/leads/:id" component={LeadDetail} />
       <Route path="/conversations" component={Conversations} />
       <Route path="/calendars" component={MeetingScheduler} />

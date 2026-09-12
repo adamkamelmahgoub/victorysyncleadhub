@@ -1,0 +1,124 @@
+import {randomInt} from 'node:crypto';
+import {resolveTxt} from 'node:dns/promises';
+import {EmailInputError,keyring,encryptCredentials,publicEmailUrl,plainText,checkDirectLinks,unsubscribeToken,tokenHash,safeEqual,verifyEventSignature,verifyResendSignature} from './email-security.js';
+import {ZeroBounceVerifier,type VerificationProvider,type EmailTransport,type OutboundMessage} from './email-providers.js';
+export type EmailRpc=(name:string,data:Record<string,unknown>)=>Promise<any>;
+export type EmailContext={path:string;method:string;body:any;raw:string;headers:Record<string,string>;actor?:string;scope?:string|null;authenticated:boolean};
+export type EmailReply={status:number;body:any;text?:boolean};
+export const isPublicEmailEndpoint=(path:string)=>/^\/email\/(unsubscribe|process|events\/(smtp|resend))$/.test(path);
+export const isEmailEndpoint=(path:string)=>/^\/email\/(settings|domains|mailboxes|verify|queue|process|events|unsubscribe|alerts|send)(\/|$)/.test(path)||/^\/email-accounts(\/|$)/.test(path);
+function domain(value:unknown) {const s=String(value??'').trim().toLowerCase();if(!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(s)) throw new EmailInputError('Enter a domain name without a URL or path');return s;}
+function mailboxInput(b:any) {
+ const email=String(b.fromEmail??'').trim().toLowerCase();
+ if(!/^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]+$/.test(email)) throw new EmailInputError('Enter a single mailbox email address');
+ if(!['smtp','resend'].includes(b.provider)) throw new EmailInputError('Choose SMTP or Resend');
+ if(b.provider==='smtp' && (!b.smtpUser || !b.smtpHost || ![465,587].includes(Number(b.smtpPort)))) throw new EmailInputError('SMTP requires a host, username and TLS port 465 or 587');
+ const secret=b.provider==='smtp'?b.smtpPassword:b.apiKey;if(typeof secret!=='string'||!secret.trim()) throw new EmailInputError('Mailbox credentials are required');
+ if(b.provider==='resend' && !/^[a-f0-9-]{36}$/i.test(String(b.resendDomainId??''))) throw new EmailInputError('Enter the domain ID from Resend');
+ if(!String(b.fromName??'').trim() || /[\r\n]/.test(String(b.fromName))) throw new EmailInputError('A sender name is required');
+ return {fromName:String(b.fromName).trim(),fromEmail:email,domainId:String(b.domainId??''),provider:b.provider,smtpHost:b.provider==='smtp'?String(b.smtpHost):'',smtpPort:Number(b.smtpPort??587),smtpUser:b.provider==='smtp'?String(b.smtpUser):'',dailyCap:Number(b.dailyCap??30),timezone:String(b.timezone??'America/New_York'),encryptedCredentials:encryptCredentials(b.provider==='smtp'?{password:secret}:{apiKey:secret,domainId:String(b.resendDomainId)},email)};
+}
+export class EmailService {
+ constructor(private rpc:EmailRpc,private transport:(mailbox:Record<string,any>)=>EmailTransport,private verifier:VerificationProvider=new ZeroBounceVerifier(process.env.ZEROBOUNCE_API_KEY??''),private fetcher:typeof fetch=fetch,private delay:(ms:number)=>Promise<void>=ms=>new Promise(r=>setTimeout(r,ms))){}
+ private admin(action:string,data:Record<string,unknown>={},c?:EmailContext) {return this.rpc('outreach_email_admin',{p_action:action,p_data:data,p_actor:c?.actor??'system',p_scope:c?.scope??null});}
+ async process() {
+  if(process.env.OUTREACH_EMAIL_ENABLED!=='true') return {sent:0,held:true};
+  keyring();const origin=publicEmailUrl();
+  // One dispatch per invocation bounds serverless duration and spaces real send times.
+  await this.delay(randomInt(3000,17000));
+  if(new Date().getUTCSeconds()<2) await this.delay(2200);
+  const claim=await this.rpc('outreach_email_claim',{});if(!claim) return {sent:0};
+  const j=claim.job,m=claim.mailbox;
+  let outcome:'sent'|'failed'|'unknown'='failed';let messageId:string|null=null;let dispatched=false;
+  try {
+   const links=plainText(j.subject,j.body,claim.directLinkDomains??[]);await checkDirectLinks(links,this.fetcher);
+   const sender=this.transport(m);
+   await sender.prepare?.(m.from_email);
+   const unsubscribe=`${origin}/api/email/unsubscribe?token=${encodeURIComponent(j.unsubscribe_token)}`;
+   const message:OutboundMessage={jobId:j.id,fromName:m.from_name,fromEmail:m.from_email,to:j.to_email,subject:j.subject,text:`${j.body}\n\nUnsubscribe: ${unsubscribe}`,messageId:`<${j.id}@${claim.domain}>`,headers:{'List-Unsubscribe':`<${unsubscribe}>`,'List-Unsubscribe-Post':'List-Unsubscribe=One-Click','X-Outreach-ID':j.id}};
+   const allowed=await this.rpc('outreach_email_dispatch_check',{p_job:j.id,p_claim:j.claim_token});
+   if(allowed && process.env.OUTREACH_EMAIL_ENABLED==='true') {dispatched=true;const result=await sender.send(message);messageId=result.messageId;outcome='sent';}
+  } catch {outcome=dispatched?'unknown':'failed';}
+  // A failed acknowledgement must never cause the provider send to be retried.
+  await this.rpc('outreach_email_finish',{p_job:j.id,p_claim:j.claim_token,p_state:outcome,p_message_id:messageId});
+  return {sent:outcome==='sent'?1:0,state:outcome};
+ }
+ async handle(c:EmailContext):Promise<EmailReply> {
+  const p=c.path,b=c.body??{};const ok=(body:any,status=200)=>({status,body});
+  if(!isEmailEndpoint(p)) return ok({error:'Not found'},404);
+  if(p==='/email/unsubscribe' && ['GET','POST'].includes(c.method)) {
+   const token=String(b.token??'');if(!/^[A-Za-z0-9_-]{43}$/.test(token)) return {status:400,body:'Invalid unsubscribe link.',text:true};
+   const found=await this.rpc('outreach_email_unsubscribe',{p_hash:tokenHash(token)});
+   return {status:found?200:404,body:found?'You have been unsubscribed. No further outreach will be sent.':'Invalid unsubscribe link.',text:true};
+  }
+  if(p==='/email/process' && ['POST','GET'].includes(c.method)) {
+   const secret=process.env.OUTREACH_WORKER_TOKEN??'';if(secret.length<32 || !safeEqual(c.headers.authorization??'',`Bearer ${secret}`)) return ok({error:'Unauthorized'},401);
+   return ok(await this.process());
+  }
+  if(p.startsWith('/email/events/') && c.method==='POST') {
+   if(!c.raw) throw new EmailInputError('Signed events require the original raw request body');
+   const provider=p.endsWith('/resend')?'resend':'smtp';let eventId:string;let type:string|undefined;let jobId:string|null=null;let messageId:string|null=null;
+   if(provider==='resend') {
+    eventId=c.headers['svix-id'];verifyResendSignature(c.raw,eventId,c.headers['svix-timestamp']??'',c.headers['svix-signature']??'',process.env.RESEND_WEBHOOK_SECRET??'');
+    const event=JSON.parse(c.raw);type=({'email.bounced':'hard_bounce','email.complained':'complaint','email.delivered':'delivered'} as Record<string,string>)[event.type];messageId=event.data?.email_id??null;
+   } else {
+    verifyEventSignature(c.raw,c.headers['x-outreach-timestamp']??'',c.headers['x-outreach-signature']??'',process.env.OUTREACH_EVENT_SECRET??'');
+    const event=JSON.parse(c.raw);eventId=event.eventId;type=event.type;jobId=event.jobId??null;messageId=event.messageId??null;
+   }
+   if(!type) return ok({received:true,ignored:true});
+   if(!eventId || eventId.length>200 || !['delivered','hard_bounce','complaint'].includes(type)) throw new EmailInputError('Invalid email event');
+   await this.rpc('outreach_email_event',{p_provider:provider,p_event:eventId,p_job:jobId,p_message:messageId,p_type:type});return ok({received:true});
+  }
+  if(!c.authenticated) return ok({error:'Unauthorized'},401);
+  if(p.startsWith('/email-accounts')) {
+   if(p==='/email-accounts' && c.method==='GET') {const data=await this.admin('dashboard',{},c);return ok(data.mailboxes.map((m:any)=>({id:m.id,fromName:m.from_name,fromEmail:m.from_email,dailyLimit:m.daily_cap,sentToday:m.sent_today,status:m.status})));}
+   return ok({error:'Manage mailboxes in the Outreach Mailboxes screen.'},410);
+  }
+  if(p==='/email/settings' && c.method==='GET') {const data=await this.admin('dashboard',{},c);return ok({...data,deploymentEnabled:process.env.OUTREACH_EMAIL_ENABLED==='true'});}
+  if(p==='/email/settings' && c.method==='PATCH') {
+   const data:any={};for(const k of ['engineEnabled','globalDailyCap','resetTimezone']) if(b[k]!==undefined) data[k]=b[k];
+   for(const k of ['primaryDomains','directLinkDomains']) if(b[k]!==undefined) {if(!Array.isArray(b[k])) throw new EmailInputError('Domains must be a list');data[k]=b[k].map(domain);}
+   if(data.engineEnabled) {keyring();publicEmailUrl();if((process.env.OUTREACH_WORKER_TOKEN??'').length<32) throw new EmailInputError('Configure the worker token before enabling sending');}
+   return ok(await this.admin('settings',data,c));
+  }
+  if(p==='/email/domains' && c.method==='POST') {const selector=String(b.dkimSelector??'default');if(!/^[a-zA-Z0-9_-]+$/.test(selector)) throw new EmailInputError('Invalid DKIM selector');return ok(await this.admin('domain_create',{domain:domain(b.domain),isPrimary:b.isPrimary===true,dkimSelector:selector},c),201);}
+  const verifyDomain=p.match(/^\/email\/domains\/([^/]+)\/verify$/);
+  if(verifyDomain && c.method==='POST') {
+   const d=await this.admin('domain_get',{id:verifyDomain[1]},c);if(!d) return ok({error:'Domain not found'},404);
+   const txt=async(name:string)=>{try{return (await resolveTxt(name)).map(parts=>parts.join(''));}catch{return [];}};
+   const [spf,dkim,dmarc]=await Promise.all([txt(d.domain),txt(`${d.dkim_selector}._domainkey.${d.domain}`),txt(`_dmarc.${d.domain}`)]);
+   const data={id:d.id,spf:spf.filter(x=>/^v=spf1\s/i.test(x)).length===1 && spf.some(x=>/\s[~-]all\s*$/i.test(x)),dkim:dkim.some(x=>/\bp\s*=\s*[a-zA-Z0-9+/]{20,}/.test(x)),dmarc:dmarc.filter(x=>/^v=DMARC1\s*;/i.test(x)).length===1 && dmarc.some(x=>/\bp\s*=\s*(none|quarantine|reject)(;|\s|$)/i.test(x))};
+   return ok(await this.admin('domain_verify',data,c));
+  }
+  if(p==='/email/mailboxes' && c.method==='POST') return ok(await this.admin('mailbox_create',mailboxInput(b),c),201);
+  const mailbox=p.match(/^\/email\/mailboxes\/([^/]+)$/);
+  if(mailbox && c.method==='PATCH') {
+   const data:any={id:mailbox[1]};for(const k of ['status','engineEnabled','dailyCap']) if(b[k]!==undefined) data[k]=b[k];
+   if(data.status && !['warming','active','paused','burned'].includes(data.status)) throw new EmailInputError('Invalid mailbox status');
+   if(b.smtpPassword||b.apiKey||data.engineEnabled) {
+    const m=await this.admin('mailbox_secret',{id:mailbox[1]},c);if(!m) return ok({error:'Mailbox not found'},404);
+    if(data.engineEnabled && !(m.provider==='resend'?process.env.RESEND_WEBHOOK_SECRET:(process.env.OUTREACH_EVENT_SECRET??'').length>=32)) throw new EmailInputError('Configure signed bounce and complaint events before enabling this mailbox');
+    if(b.smtpPassword||b.apiKey) {
+     if(m.provider==='resend' && !/^[a-f0-9-]{36}$/i.test(String(b.resendDomainId??''))) throw new EmailInputError('Enter the domain ID from Resend when rotating its key');
+     data.encryptedCredentials=encryptCredentials(m.provider==='smtp'?{password:String(b.smtpPassword??'')}:{apiKey:String(b.apiKey??''),domainId:String(b.resendDomainId)},m.from_email);
+    }
+   }
+   return ok(await this.admin('mailbox_update',data,c));
+  }
+  const verification=p.match(/^\/email\/verify\/([^/]+)$/);
+  if(verification && c.method==='GET') {const l=await this.admin('lead',{id:verification[1]},c);return l?ok({status:l.email_verification_status,verifiedAt:l.verified_at}):ok({error:'Eligible lead not found'},404);}
+  if(verification && c.method==='POST') {
+   const lead=await this.admin('lead',{id:verification[1]},c);if(!lead) return ok({error:'Eligible lead not found'},404);
+   const status=await this.verifier.verify(lead.normalized_email);
+   return ok(await this.admin('verification',{id:verification[1],email:lead.normalized_email,status,provider:this.verifier.name},c));
+  }
+  if(['/email/queue','/email/send'].includes(p) && c.method==='POST') {
+   if(b.html!==undefined || b.attachments!==undefined) throw new EmailInputError('Only plain text email is supported');
+   const data=await this.admin('dashboard',{},c);const subject=String(b.subject??''),body=String(b.body??'');await checkDirectLinks(plainText(subject,body,data.settings.direct_link_domains),this.fetcher);
+   const token=unsubscribeToken();return ok(await this.rpc('outreach_email_enqueue',{p_lead:String(b.leadId??''),p_subject:subject,p_body:body,p_mailbox:b.mailboxId||b.emailAccountId?String(b.mailboxId??b.emailAccountId):null,p_enrollment:b.enrollmentId?String(b.enrollmentId):null,p_token:token,p_hash:tokenHash(token),p_actor:c.actor??'operator',p_scope:c.scope??null}),202);
+  }
+  const alert=p.match(/^\/email\/alerts\/(\d+)\/acknowledge$/);
+  if(alert && c.method==='POST') return ok(await this.admin('acknowledge',{id:alert[1]},c));
+  return ok({error:'Unsupported email operation'},405);
+ }
+}

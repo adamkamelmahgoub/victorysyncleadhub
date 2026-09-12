@@ -31,6 +31,7 @@ router.get("/leads/:id/activities", async (req, res): Promise<void> => {
 });
 
 router.post("/leads/:id/activities", async (req, res): Promise<void> => {
+  if (req.body?.type === 'call') { res.status(409).json({error:'Log calls through the call queue to resolve the next action.'}); return; }
   const params = CreateLeadActivityParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
