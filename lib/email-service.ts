@@ -175,13 +175,20 @@ export class EmailService {
    return ok(await this.rpc('outreach_email_smtp_admin',{p_action:'monitor',p_data:{id:String(m.id)},p_actor:c.actor??'operator'}));
   }
   const mailbox=p.match(/^\/email\/mailboxes\/([^/]+)$/);
+  const smtpOnly=p.match(/^\/email\/mailboxes\/([^/]+)\/smtp-only$/);
+  if(smtpOnly&&c.method==='POST') {
+   const m=await this.admin('mailbox_secret',{id:smtpOnly[1]},c);if(!m||m.provider!=='smtp')throw new EmailInputError('SMTP mailbox not found');
+   return ok(await this.rpc('outreach_email_manual_mode',{p_mailbox:String(m.id),p_actor:c.actor??'operator'}));
+  }
   if(mailbox && c.method==='PATCH') {
    const data:any={id:mailbox[1]};for(const k of ['status','engineEnabled','dailyCap']) if(b[k]!==undefined) data[k]=b[k];
    if(data.status && !['warming','active','paused','burned'].includes(data.status)) throw new EmailInputError('Invalid mailbox status');
    if(b.smtpPassword||b.apiKey||data.engineEnabled) {
     const m=await this.admin('mailbox_secret',{id:mailbox[1]},c);if(!m) return ok({error:'Mailbox not found'},404);
     if(data.engineEnabled) {
-     if(m.smtp_monitoring_mode==='inbox'){
+     if(m.smtp_monitoring_mode==='manual') {
+      // SMTP-only mode relies on the operator recording outcomes in the sequence queue.
+     }else if(m.smtp_monitoring_mode==='inbox'){
       const checked=await new SequenceService(this.rpc,this.inboxFactory).poll(String(m.id));
       if(checked.polled!==1||!checked.caughtUp)throw new EmailInputError('Check the receiving inbox before enabling sending. Inbox access must work for reply and bounce monitoring.');
      }else if(!(m.provider==='resend'?process.env.RESEND_WEBHOOK_SECRET:(process.env.OUTREACH_EVENT_SECRET??'').length>=32))throw new EmailInputError(m.provider==='smtp'?'Connect receiving inbox monitoring below, or configure your provider event webhook.':'Configure the Resend webhook secret before enabling sending');

@@ -1,0 +1,10 @@
+begin;
+update public.email_accounts set email_engine_enabled=false,smtp_monitoring_mode='webhook',inbound_provider='disabled',inbox_checked_at=null,inbox_poll_after=now() where smtp_monitoring_mode='manual' or inbound_provider='manual';
+drop function if exists public.outreach_sequence_manual_outcome(text,text,text,text);
+drop function if exists public.outreach_email_manual_mode(text,text);
+alter table public.sequence_enrollments drop column if exists manual_email_outcome_at,drop column if exists manual_email_outcome;
+alter table public.email_accounts drop constraint if exists outreach_smtp_monitoring_mode_check;
+alter table public.email_accounts add constraint outreach_smtp_monitoring_mode_check check(smtp_monitoring_mode in ('webhook','inbox'));
+alter table public.email_accounts drop constraint if exists outreach_inbound_provider_check;
+alter table public.email_accounts add constraint outreach_inbound_provider_check check(inbound_provider in ('disabled','imap','resend'));
+commit;

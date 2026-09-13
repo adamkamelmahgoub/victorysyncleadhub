@@ -95,6 +95,11 @@ export class SequenceService {
   }
   const stop=p.match(/^\/sequences\/enrollments\/([^/]+)\/stop$/);
   if(stop&&c.method==='POST')return ok(await this.admin('stop',{id:stop[1]},c));
+  const outcome=p.match(/^\/sequences\/enrollments\/([^/]+)\/outcome$/);
+  if(outcome&&c.method==='POST'){
+   if(!['no_reply','positive_reply','reply','not_interested','hard_bounce','unsubscribed'].includes(String(b.outcome)))throw new EmailInputError('Choose a valid email outcome');
+   return ok(await this.rpc('outreach_sequence_manual_outcome',{p_enrollment:outcome[1],p_outcome:String(b.outcome),p_actor:c.actor??'operator',p_scope:c.scope??null}));
+  }
   const match=p.match(/^\/sequences\/([^/]+)(?:\/(steps|enroll|enrollments)(?:\/([^/]+))?)?$/);
   if(!match)return ok({error:'Unsupported sequence operation'},405);
   const [,id,operation,stepId]=match;

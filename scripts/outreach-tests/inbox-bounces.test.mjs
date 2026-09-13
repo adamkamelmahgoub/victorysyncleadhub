@@ -53,6 +53,7 @@ for(const uuid of [false,true])test(`Inbox bounce monitoring (${uuid?'UUID':'int
  try{
  await db.exec(await sql('migrations/20260914_outreach_phase4.sql'));
  await db.exec(await sql('migrations/20260916_outreach_inbox_bounces.sql'));
+ await db.exec(await sql('migrations/20260922_smtp_only_manual_outcomes.sql'));
  const smtp=(action,data={})=>rpc(db)('outreach_email_smtp_admin',{p_action:action,p_data:{id:String(f.m.id),...data},p_actor:'tester'});
  await smtp('monitor');
  await t.test('verification keys are encrypted and excluded from dashboard and monitoring metadata',async()=>{
@@ -85,8 +86,20 @@ for(const uuid of [false,true])test(`Inbox bounce monitoring (${uuid?'UUID':'int
   assert.equal((await db.query('select status from email_accounts where id=$1',[f.m.id])).rows[0].status,'paused');
   assert.equal((await db.query("select count(*) n from sequence_enrollments where status in ('active','paused')")).rows[0].n,0);
  });
+ await t.test('SMTP-only mode sends without inbox polling and manual outcomes stop and suppress',async()=>{
+  await db.exec("delete from outreach_email_events;update email_accounts set status='active',smtp_host='smtp.test',smtp_user='sender@test'");
+  await rpc(db)('outreach_email_manual_mode',{p_mailbox:String(f.m.id),p_actor:'tester'});
+  let mailbox=(await db.query('select * from email_accounts where id=$1',[f.m.id])).rows[0];assert.equal(mailbox.smtp_monitoring_mode,'manual');assert.equal(mailbox.inbound_provider,'manual');
+  await rpc(db)('outreach_email_admin',{p_action:'mailbox_update',p_data:{id:String(f.m.id),status:'active',engineEnabled:true},p_actor:'tester'});
+  const {l,e}=await enroll(f);
+  const result=await rpc(db)('outreach_sequence_manual_outcome',{p_enrollment:String(e.id),p_outcome:'unsubscribed',p_actor:'tester',p_scope:null});assert.equal(result.status,'stopped');
+  const lead=(await db.query('select * from leads where id=$1',[l.id])).rows[0];assert.equal(lead.suppressed_reason,'unsubscribed');
+  assert.equal((await db.query("select count(*) n from outreach_email_jobs where enrollment_id=$1 and state='queued'",[String(e.id)])).rows[0].n,0);
+  await db.exec("update email_accounts set smtp_monitoring_mode='inbox',inbound_provider='imap',inbox_checked_at=now(),inbox_poll_after=now() where id="+(uuid?`'${f.m.id}'::uuid`:f.m.id));
+ });
  await t.test('rollback reinstates original guards and removes monitoring fields',async()=>{
   assert.equal((await db.query("select has_function_privilege('anon','outreach_email_inbox_report(text,text,jsonb)','execute') allowed")).rows[0].allowed,false);
+  await db.exec(await sql('rollbacks/20260922_smtp_only_manual_outcomes.sql'));
   await db.exec(await sql('rollbacks/20260916_outreach_inbox_bounces.sql'));
   await db.exec(await sql('rollbacks/20260914_outreach_phase4.sql'));
   await db.exec(await sql('rollbacks/20260913_outreach_phase3.sql'));

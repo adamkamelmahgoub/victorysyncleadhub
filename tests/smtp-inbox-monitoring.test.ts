@@ -36,6 +36,16 @@ test('SMTP inbox mode enables only after a successful inbox scan, without a webh
  const request={path:'/email/mailboxes/1',method:'PATCH',body:{engineEnabled:true},raw:'',headers:{},authenticated:true};
  try{await service.handle(request);assert.equal(enabled,true);caughtUp=false;enabled=false;await assert.rejects(()=>service.handle(request),/receiving inbox/);assert.equal(enabled,false);}finally{if(saved!==undefined)process.env.OUTREACH_EVENT_SECRET=saved;}
 });
+test('SMTP-only mode can be selected and enabled without an inbox check',async()=>{
+ const saved=process.env.OUTREACH_EVENT_SECRET;delete process.env.OUTREACH_EVENT_SECRET;const actions:string[]=[];
+ const mailbox={id:1,provider:'smtp',smtp_monitoring_mode:'manual',from_email:'adam@example.test'};
+ const rpc=async(name:string,args:any)=>{actions.push(name);if(args.p_action==='mailbox_secret')return mailbox;return {mode:'manual'};};
+ const service=new EmailService(rpc,()=>({send:async()=>({messageId:'unused'})}));
+ try{
+  const selected=await service.handle({path:'/email/mailboxes/1/smtp-only',method:'POST',body:{},raw:'',headers:{},authenticated:true});assert.equal(selected.status,200);assert.ok(actions.includes('outreach_email_manual_mode'));
+  await service.handle({path:'/email/mailboxes/1',method:'PATCH',body:{engineEnabled:true},raw:'',headers:{},authenticated:true});
+ }finally{if(saved!==undefined)process.env.OUTREACH_EVENT_SECRET=saved;}
+});
 test('known SMTP recipient rejection records a hard bounce instead of ambiguous delivery',async()=>{
  process.env.OUTREACH_EMAIL_ENABLED='true';process.env.OUTREACH_PUBLIC_URL='https://portal.example.test';const actions:Array<{name:string;args:any}>=[];
  const service=new EmailService(async(name,args)=>{actions.push({name,args});if(name==='outreach_email_claim')return {job:{id:'job-id',subject:'Hello',body:'Hello',claim_token:'claim',to_email:'lead@example.test',unsubscribe_token:'token'},mailbox:{from_email:'sender@example.test',from_name:'Sender'},domain:'example.test',directLinkDomains:[]};if(name==='outreach_email_dispatch_check')return true;return null;},()=>({send:async()=>{throw new SmtpRecipientRejected();}}),undefined,undefined,async()=>{});
