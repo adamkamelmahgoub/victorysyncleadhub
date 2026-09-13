@@ -1034,12 +1034,13 @@ async function launchCampaign(id: string, req: VercelRequest, res: VercelRespons
 }
 
 async function getCampaignLeads(id: string, req: VercelRequest, res: VercelResponse) {
-  const rows = await supabaseRest(
-    `campaign_leads?campaign_id=eq.${encodeURIComponent(id)}&select=*,leads(*)&order=created_at.desc`,
-    { method: "GET" },
-    req,
-  );
-  sendJson(res, 200, toCamelValue(rows));
+  const leads: LeadRow[]=[];
+  for(let offset=0;;offset+=500) {
+    const rows=await supabaseRest(`campaign_leads?campaign_id=eq.${encodeURIComponent(id)}&select=lead_id,leads(*)&order=lead_id.asc&limit=500&offset=${offset}`,{method:'GET'},req) as Array<{leads:LeadRow|null}>;
+    for(const row of rows)if(row.leads)leads.push(row.leads);
+    if(rows.length<500)break;
+  }
+  sendJson(res, 200, {leads:leads.map(leadFromRow),total:leads.length,page:1,limit:leads.length});
 }
 
 async function addCampaignLeads(id: string, req: VercelRequest, res: VercelResponse) {
@@ -1057,7 +1058,7 @@ async function addCampaignLeads(id: string, req: VercelRequest, res: VercelRespo
   }));
   const rows = await supabaseRest("campaign_leads?on_conflict=campaign_id,lead_id", {
     method: "POST",
-    headers: { prefer: "resolution=merge-duplicates,return=representation" },
+    headers: { prefer: "resolution=ignore-duplicates,return=representation" },
     body: JSON.stringify(payload),
   }, req);
   sendJson(res, 201, toCamelValue(rows));
@@ -1236,7 +1237,7 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
 
   const query = new URLSearchParams({
     select: "*",
-    order: "created_at.desc",
+    order: "created_at.desc,id.desc",
     limit: String(limit),
     offset: String(offset),
   });

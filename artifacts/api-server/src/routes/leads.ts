@@ -82,7 +82,7 @@ router.get("/leads", async (req, res): Promise<void> => {
       .from(leadsTable)
       .leftJoin(campaignsTable, eq(leadsTable.campaignId, campaignsTable.id))
       .where(where)
-      .orderBy(desc(leadsTable.createdAt))
+      .orderBy(desc(leadsTable.createdAt),desc(leadsTable.id))
       .limit(limit)
       .offset(offset),
     db

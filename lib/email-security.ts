@@ -1,4 +1,5 @@
 import { createCipheriv,createDecipheriv,createHash,createHmac,randomBytes,timingSafeEqual } from 'node:crypto';
+import {isIP} from 'node:net';
 export class EmailInputError extends Error { status = 400; }
 export function keyring() {
   try {
@@ -37,9 +38,13 @@ export function verifyResendSignature(raw:string,id:string,timestamp:string,sign
   if(!signatures.split(' ').some(s=>s.startsWith('v1,') && safeEqual(expected,s.slice(3)))) throw new EmailInputError('Invalid event signature');
 }
 export function publicEmailUrl() {
-  const url=new URL(process.env.OUTREACH_PUBLIC_URL ?? 'https://invalid.invalid');
-  if(url.protocol!=='https:' || url.hostname==='invalid.invalid' || url.username || url.password || url.search || url.hash) throw new EmailInputError('Configure OUTREACH_PUBLIC_URL as a public HTTPS origin');
-  return url.origin;
+  const configured=process.env.OUTREACH_PUBLIC_URL?.trim() || process.env.APP_URL?.trim();
+  const production=process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  try {
+    const url=new URL(configured || (production?`https://${production}`:''));
+    if(url.protocol!=='https:' || !url.hostname.includes('.') || isIP(url.hostname) || url.hostname==='invalid.invalid' || url.hostname.endsWith('.localhost') || url.username || url.password || url.search || url.hash || url.pathname!=='/') throw new Error();
+    return url.origin;
+  } catch {throw new EmailInputError('Set OUTREACH_PUBLIC_URL to your portal HTTPS address (for example https://crm.yourdomain.com), then redeploy. APP_URL or the Vercel production domain can also supply this address.');}
 }
 export function plainText(subject:string,body:string,approved:string[]) {
   if(!subject.trim()||subject.length>998||/[\r\n]/.test(subject)||!body.trim()||body.length>50000||/<\/?[a-z][^>]*>/i.test(body)) throw new EmailInputError('Use a plain text subject and body without HTML');

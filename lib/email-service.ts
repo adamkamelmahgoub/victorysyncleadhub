@@ -99,7 +99,19 @@ export class EmailService {
    if(data.engineEnabled) {keyring();publicEmailUrl();if((process.env.OUTREACH_WORKER_TOKEN??'').length<32) throw new EmailInputError('Configure the worker token before enabling sending');}
    return ok(await this.admin('settings',data,c));
   }
-  if(p==='/email/domains' && c.method==='POST') {const selector=String(b.dkimSelector??'default');if(!/^[a-zA-Z0-9_-]+$/.test(selector)) throw new EmailInputError('Invalid DKIM selector');return ok(await this.admin('domain_create',{domain:domain(b.domain),isPrimary:b.isPrimary===true,dkimSelector:selector},c),201);}
+  if(p==='/email/domains' && c.method==='POST') {
+   const selector=String(b.dkimSelector??'default');if(!/^[a-zA-Z0-9_-]+$/.test(selector)) throw new EmailInputError('Invalid DKIM selector');
+   const name=domain(b.domain);
+   try{
+    const result=await this.rpc('outreach_email_domain_create',{p_data:{domain:name,isPrimary:b.isPrimary===true,dkimSelector:selector},p_actor:c.actor??'operator'});
+    return ok(result,result.alreadyExists||result.restored?200:201);
+   }
+   catch(error) {
+    if(error instanceof Error && /Burned domains cannot be restored/i.test(error.message)) throw new EmailInputError('This domain was marked burned and cannot be restored. Use another sending domain.');
+    if(error instanceof Error && /outreach_email_domain_create.*(?:schema cache|does not exist)|Could not find.*outreach_email_domain_create/i.test(error.message)) throw new EmailInputError('Install the domain restore migration (20260915_outreach_domain_restore.sql), then retry.');
+    throw error;
+   }
+  }
   const domainEdit=p.match(/^\/email\/domains\/([^/]+)$/);
   if(domainEdit && ['PATCH','DELETE'].includes(c.method)) {
    const data:Record<string,unknown>={id:domainEdit[1]};

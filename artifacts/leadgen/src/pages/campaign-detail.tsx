@@ -1,11 +1,15 @@
-import { useRoute, Link } from "wouter";
-import { useGetCampaign, getGetCampaignQueryKey, useGetCampaignLeads, getGetCampaignLeadsQueryKey, useUpdateCampaign } from "@workspace/api-client-react";
+import { useParams, Link } from "wouter";
+import {useState} from 'react';
+import {useQuery,useQueryClient} from '@tanstack/react-query';
+import {apiFetch} from '@/lib/api';
+import {allCampaignContacts,addCampaignContacts,type CampaignContact} from '@/lib/campaign-membership';
+
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Users, CheckCircle2, TrendingUp, ExternalLink } from "lucide-react";
-import { asArray, type ArrayElement } from "@/lib/data-shape";
+
 
 const STATUS_COLORS: Record<string, string> = {
   new: "hsl(185 100% 50%)",
@@ -17,14 +21,19 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function CampaignDetail() {
-  const [, params] = useRoute("/campaigns/:id");
-  const id = parseInt(params?.id ?? "0", 10);
-
-  const { data: campaign, isLoading } = useGetCampaign(id, { query: { enabled: !!id, queryKey: getGetCampaignQueryKey(id) } });
-  const { data: leadsData, isLoading: leadsLoading } = useGetCampaignLeads(id, { query: { enabled: !!id, queryKey: getGetCampaignLeadsQueryKey(id) } });
-
-  const leads = asArray<ArrayElement<NonNullable<typeof leadsData>["leads"]>>(leadsData?.leads);
-  const convRate = campaign && campaign.leadCount > 0 ? Math.round(((campaign.convertedCount ?? 0) / campaign.leadCount) * 100) : 0;
+  const {id=''}=useParams<{id:string}>();
+  const cache=useQueryClient();
+  const {data:campaign,isLoading,error}=useQuery<{id:string|number;name:string;description?:string;status:string}>({queryKey:['campaign',id],enabled:!!id,queryFn:()=>apiFetch('/campaigns/'+encodeURIComponent(id))});
+  const {data:leadsData,isLoading:leadsLoading,error:membersError}=useQuery<{leads:CampaignContact[];total:number}>({queryKey:['campaign-members',id],enabled:!!id,queryFn:()=>apiFetch('/campaigns/'+encodeURIComponent(id)+'/leads')});
+  const leads=leadsData?.leads??[];
+  const leadCount=leadsData?.total??0;
+  const convertedCount=leads.filter(l=>l.status==='converted').length;
+  const convRate=leadCount?Math.round(convertedCount/leadCount*100):0;
+  const [adding,setAdding]=useState(false),[search,setSearch]=useState(''),[selected,setSelected]=useState<Array<string|number>>([]),[visible,setVisible]=useState(100),[saving,setSaving]=useState(false),[saveError,setSaveError]=useState(''),[progress,setProgress]=useState(0);
+  const {data:contacts,isFetching:loadingContacts,error:contactsError}=useQuery({queryKey:['campaign-all-contacts'],enabled:adding,queryFn:({signal})=>allCampaignContacts(apiFetch,signal)});
+  const members=new Set(leads.map(l=>String(l.id)));
+  const available=(contacts?.leads??[]).filter(l=>!members.has(String(l.id))&&[l.firstName,l.lastName,l.email,l.company].join(' ').toLowerCase().includes(search.toLowerCase()));
+  async function addSelected(){setSaving(true);setSaveError('');try{await addCampaignContacts(apiFetch,id,selected,setProgress);setSelected([]);setAdding(false);await cache.invalidateQueries({queryKey:['campaign-members',id]});await cache.invalidateQueries({queryKey:['/api/campaigns']});}catch(e){setSaveError(e instanceof Error?e.message:'Could not add contacts');}finally{setSaving(false);}}
 
   if (isLoading) {
     return (
@@ -40,7 +49,7 @@ export default function CampaignDetail() {
   }
 
   if (!campaign) {
-    return <div className="text-center py-20 text-muted-foreground">Campaign not found.</div>;
+    return <div className="text-center py-20 text-muted-foreground">{error?.message??'Campaign not found.'}</div>;
   }
 
   return (
@@ -63,8 +72,8 @@ export default function CampaignDetail() {
 
         <div className="grid grid-cols-3 gap-4">
           {[
-            { label: "Total Leads", value: campaign.leadCount, icon: Users },
-            { label: "Converted", value: campaign.convertedCount, icon: CheckCircle2 },
+            { label: "Total Leads", value: leadCount, icon: Users },
+            { label: "Converted", value: convertedCount, icon: CheckCircle2 },
             { label: "Conv. Rate", value: `${convRate}%`, icon: TrendingUp },
           ].map(({ label, value, icon: Icon }) => (
             <Card key={label} className="p-4 border border-border bg-card flex items-center gap-4">
@@ -81,7 +90,8 @@ export default function CampaignDetail() {
 
         <Card className="border border-border bg-card overflow-hidden">
           <div className="px-5 py-4 border-b border-border">
-            <p className="text-sm font-semibold text-foreground">Leads in Campaign</p>
+            <p className="text-sm font-semibold text-foreground">Leads in Campaign</p><Button className="mt-2" onClick={()=>setAdding(!adding)}>{adding?'Close':'Add leads'}</Button>{membersError&&<p role="alert">{membersError.message}</p>}
+            {adding&&<div className="mt-3 space-y-2"><input className="rounded border bg-background p-2" aria-label="Search contacts" placeholder="Search contacts" value={search} onChange={e=>{setSearch(e.target.value);setVisible(100);}}/><Button variant="outline" disabled={loadingContacts} onClick={()=>setSelected([...new Set([...selected,...available.map(l=>l.id)])])}>Select all {available.length} matching leads</Button><Button variant="outline" onClick={()=>setSelected([])}>Clear selection</Button><p>{selected.length} selected</p>{loadingContacts&&<p>Loading all contacts...</p>}{contactsError&&<p role="alert">{contactsError.message}</p>}<div className="max-h-72 overflow-y-auto">{available.slice(0,visible).map(l=><label key={l.id} className="flex gap-2 py-2"><input type="checkbox" checked={selected.includes(l.id)} onChange={e=>setSelected(ids=>e.target.checked?[...ids,l.id]:ids.filter(id=>id!==l.id))}/>{l.firstName} {l.lastName} - {l.email}</label>)}</div>{available.length>visible&&<Button variant="outline" onClick={()=>setVisible(n=>n+100)}>Show more</Button>}<Button disabled={saving||!selected.length} onClick={addSelected}>{saving?'Adding '+progress+' / '+selected.length:'Add selected leads'}</Button>{saveError&&<p role="alert">{saveError} Retry to continue; existing campaign members are preserved.</p>}</div>}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -106,7 +116,7 @@ export default function CampaignDetail() {
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
                         <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
-                          {lead.firstName[0]}{lead.lastName[0]}
+                          {lead.firstName?.[0]}{lead.lastName?.[0]}
                         </div>
                         <div>
                           <p className="font-medium text-foreground">{lead.firstName} {lead.lastName}</p>

@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
-import { useListCampaigns, useCreateCampaign, useDeleteCampaign, useListLeads, getListCampaignsQueryKey } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useListCampaigns, useCreateCampaign, useDeleteCampaign,  getListCampaignsQueryKey } from "@workspace/api-client-react";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import {
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow, parseISO } from "date-fns";
+import { allCampaignContacts, addCampaignContacts } from '@/lib/campaign-membership';
 import { apiFetch } from "@/lib/api";
 import { asArray, type ArrayElement } from "@/lib/data-shape";
 
@@ -49,7 +50,7 @@ export default function Campaigns() {
   const [showWizard, setShowWizard] = useState(false);
   const [step, setStep] = useState(1);
   const [form, setForm] = useState(BLANK_FORM);
-  const [selectedLeadIds, setSelectedLeadIds] = useState<number[]>([]);
+  const [selectedLeadIds, setSelectedLeadIds] = useState<Array<string|number>>([]);
   const [leadSearch, setLeadSearch] = useState("");
   const [launching, setLaunching] = useState(false);
   const queryClient = useQueryClient();
@@ -58,7 +59,10 @@ export default function Campaigns() {
   const { data: campaignsResponse, isLoading } = useListCampaigns();
   const createCampaign = useCreateCampaign();
   const deleteCampaign = useDeleteCampaign();
-  const { data: leadsData } = useListLeads();
+  const { data: leadsData, isFetching: loadingLeads, error: leadsError } = useQuery({queryKey:['campaign-all-contacts'],enabled:showWizard,queryFn:({signal})=>allCampaignContacts(apiFetch,signal)});
+  const [visibleLeads,setVisibleLeads]=useState(100);
+  const [pendingCampaign,setPendingCampaign]=useState<string|number|null>(null);
+  const [assignedCount,setAssignedCount]=useState(0);
   const campaigns = asArray<ArrayElement<NonNullable<typeof campaignsResponse>>>(campaignsResponse);
 
   const filteredLeads = useMemo(() => {
@@ -68,13 +72,13 @@ export default function Campaigns() {
     return all.filter(
       (l) =>
         `${l.firstName} ${l.lastName}`.toLowerCase().includes(q) ||
-        l.email.toLowerCase().includes(q) ||
+        (l.email??'').toLowerCase().includes(q) ||
         (l.company ?? "").toLowerCase().includes(q)
     );
   }, [leadsData, leadSearch]);
 
   function openWizard() {
-    setForm(BLANK_FORM);
+    setForm(BLANK_FORM);setPendingCampaign(null);setAssignedCount(0);
     setSelectedLeadIds([]);
     setLeadSearch("");
     setStep(1);
@@ -84,7 +88,7 @@ export default function Campaigns() {
   function nextStep() { setStep((s) => Math.min(s + 1, 4)); }
   function prevStep() { setStep((s) => Math.max(s - 1, 1)); }
 
-  function toggleLead(id: number) {
+  function toggleLead(id: string|number) {
     setSelectedLeadIds((ids) =>
       ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]
     );
@@ -104,7 +108,7 @@ export default function Campaigns() {
     if (!form.name.trim()) { toast({ title: "Campaign name is required", variant: "destructive" }); setStep(1); return; }
     setLaunching(true);
     try {
-      const campaign = await new Promise<{ id: number }>((resolve, reject) => {
+      const campaign = pendingCampaign ? {id:pendingCampaign} : await new Promise<{ id: number }>((resolve, reject) => {
         createCampaign.mutate(
           {
             data: {
@@ -126,12 +130,9 @@ export default function Campaigns() {
         );
       });
 
+      setPendingCampaign(campaign.id);
       if (selectedLeadIds.length > 0) {
-        await apiFetch(`/campaigns/${campaign.id}/leads`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ leadIds: selectedLeadIds }),
-        });
+        await addCampaignContacts(apiFetch,campaign.id,selectedLeadIds,setAssignedCount);
       }
 
       if (!asDraft) {
@@ -140,9 +141,9 @@ export default function Campaigns() {
 
       queryClient.invalidateQueries({ queryKey: getListCampaignsQueryKey() });
       setShowWizard(false);
-      toast({ title: asDraft ? "Campaign saved as draft" : `Campaign launched! Sending to ${selectedLeadIds.length} leads.` });
-    } catch {
-      toast({ title: "Failed to create campaign", variant: "destructive" });
+      toast({ title: asDraft ? "Campaign saved as draft" : `Campaign activated with ${selectedLeadIds.length} leads.` });
+    } catch (error) {
+      toast({ title: "Campaign could not be completed", description:error instanceof Error?error.message:"Retry to continue adding contacts to the same campaign", variant: "destructive" });
     } finally {
       setLaunching(false);
     }
@@ -360,7 +361,7 @@ export default function Campaigns() {
                     className="pl-9"
                     placeholder="Search leads..."
                     value={leadSearch}
-                    onChange={(e) => setLeadSearch(e.target.value)}
+                    onChange={(e) => {setLeadSearch(e.target.value);setVisibleLeads(100);}}
                   />
                 </div>
 
@@ -370,7 +371,7 @@ export default function Campaigns() {
                       {leadsData?.leads?.length === 0 ? "No leads yet — import or add leads first" : "No leads match your search"}
                     </div>
                   ) : (
-                    filteredLeads.map((lead) => {
+                    filteredLeads.slice(0,visibleLeads).map((lead) => {
                       const checked = selectedLeadIds.includes(lead.id);
                       return (
                         <div
@@ -378,9 +379,9 @@ export default function Campaigns() {
                           className={`flex items-center gap-3 px-4 py-3 border-b border-border last:border-b-0 cursor-pointer hover:bg-muted/50 transition-colors ${checked ? "bg-primary/5" : ""}`}
                           onClick={() => toggleLead(lead.id)}
                         >
-                          <Checkbox checked={checked} onCheckedChange={() => toggleLead(lead.id)} />
+                          <Checkbox checked={checked} onClick={e=>e.stopPropagation()} onCheckedChange={() => toggleLead(lead.id)} />
                           <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 text-xs font-semibold text-primary">
-                            {lead.firstName[0]}{lead.lastName[0]}
+                            {lead.firstName?.[0]}{lead.lastName?.[0]}
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-foreground">{lead.firstName} {lead.lastName}</p>
@@ -393,6 +394,7 @@ export default function Campaigns() {
                   )}
                 </div>
 
+                {loadingLeads&&<p role="status">Loading all contacts...</p>}{leadsError&&<p role="alert">{leadsError.message}</p>}{filteredLeads.length>visibleLeads&&<Button variant="outline" onClick={()=>setVisibleLeads(n=>n+100)}>Show more contacts</Button>}{launching&&<p role="status">Added {assignedCount} of {selectedLeadIds.length} contacts...</p>}
                 {selectedLeadIds.length === 0 && (
                   <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                     No leads selected — you can still save as draft and add leads later

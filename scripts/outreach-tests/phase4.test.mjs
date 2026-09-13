@@ -89,6 +89,17 @@ for(const uuid of [false,true])test(`Phase 4 domains and metrics (${uuid?'UUID':
   await assert.rejects(()=>rpc(db)('outreach_email_admin',{p_action:'mailbox_update',p_data:{id:String(f.m.id),status:'warming',engineEnabled:true}}),/cannot send/);
   assert.equal((await db.query("select has_function_privilege('anon','outreach_email_metrics(text,jsonb,text,text)','execute') allowed")).rows[0].allowed,false);
  });
+ await t.test('readding an archived domain restores it without resuming senders or resetting identity',async()=>{
+  await db.exec(await sql('migrations/20260915_outreach_domain_restore.sql'));
+  const create=data=>rpc(db)('outreach_email_domain_create',{p_data:data,p_actor:'tester'});
+  const restored=await create({domain:'SENDER.TEST',dkimSelector:'new',isPrimary:false});assert.equal(restored.id,d.id);assert.equal(restored.restored,true);assert.equal(restored.is_primary,true);assert.equal(restored.spf_verified,false);
+  const m=(await db.query('select * from email_accounts')).rows[0];assert.equal(m.status,'paused');assert.equal(m.email_engine_enabled,false);
+  const repeated=await create({domain:'sender.test'});assert.equal(repeated.alreadyExists,true);assert.equal(repeated.id,d.id);
+  const fresh=await create({domain:'another.test',dkimSelector:'default'});assert.equal(fresh.domain,'another.test');
+  await db.query("update sending_domains set status='burned',deleted_at=now() where id=$1",[fresh.id]);await assert.rejects(()=>create({domain:'another.test'}),/Burned/);
+  assert.equal((await db.query("select has_function_privilege('anon','outreach_email_domain_create(jsonb,text)','execute') allowed")).rows[0].allowed,false);
+  await db.exec(await sql('rollbacks/20260915_outreach_domain_restore.sql'));
+ });
  await t.test('rollback restores original functions and removes new fields',async()=>{
   await db.exec(await sql('rollbacks/20260914_outreach_phase4.sql'));
   assert.equal((await db.query("select count(*) n from information_schema.columns where table_name='sending_domains' and column_name='allow_primary_sending'")).rows[0].n,0);
