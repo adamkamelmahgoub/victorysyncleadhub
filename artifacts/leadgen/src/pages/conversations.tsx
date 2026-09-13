@@ -12,7 +12,8 @@ import { apiFetch } from "@/lib/api";
 import { asArray, type ArrayElement } from "@/lib/data-shape";
 
 type Channel = "all" | "email" | "sms" | "facebook" | "instagram" | "whatsapp";
-type EmailLog = { id: number; leadId: number; subject?: string; body?: string; sentAt?: string; status?: string };
+type EmailLog = { id: string; leadId: string; subject?: string; body?: string; sentAt?: string; createdAt?: string; status?: string; fromEmail?: string };
+type Mailbox = {id:string|number;from_email:string;status:string;email_engine_enabled:boolean;effective_cap:number;sent_today:number};
 
 const CHANNEL_CONFIG: Record<Channel, { label: string; color: string; icon: React.ElementType; connected: boolean }> = {
   all: { label: "All", color: "text-foreground", icon: MessageSquare, connected: true },
@@ -37,22 +38,25 @@ export default function Conversations() {
   const leads = asArray<ArrayElement<NonNullable<typeof leadsData>["leads"]>>(leadsData?.leads);
 
   const [channel, setChannel] = useState<Channel>("all");
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<string | number | null>(null);
   const [search, setSearch] = useState("");
   const [reply, setReply] = useState("");
   const [replySubject, setReplySubject] = useState("Follow up");
+  const [mailboxId, setMailboxId] = useState("");
   const [sendNotice, setSendNotice] = useState("");
   const qc = useQueryClient();
   const send = useMutation({
-    mutationFn: (data: { leadId: number; subject: string; body: string }) => apiFetch('/api/email/send', { method: 'POST', body: JSON.stringify(data) }),
+    mutationFn: (data: { leadId: string | number; subject: string; body: string; mailboxId?:string }) => apiFetch('/email/send', { method: 'POST', body: JSON.stringify(data) }),
     onSuccess: (result, sent) => {
       setReply(current => current === sent.body ? '' : current);
-      setSendNotice(result.message ?? 'Email request saved. Check its status in the thread.');
-      void qc.invalidateQueries({ queryKey: ['email-logs'] });
+      setSendNotice(`Email queued for ${result.not_before?new Date(result.not_before).toLocaleString():'the next eligible send window'}.`);
+      void qc.invalidateQueries({ queryKey: ['email-conversation'] });
     },
   });
 
-  const selected = leads.find((l) => l.id === selectedId);
+  const selected = leads.find((l) => String(l.id) === String(selectedId));
+  const {data:emailSettings}=useQuery<{mailboxes:Mailbox[]}>({queryKey:['inbox-mailboxes'],queryFn:()=>apiFetch('/email/settings')});
+  const availableMailboxes=(emailSettings?.mailboxes??[]).filter(m=>m.email_engine_enabled&&['warming','active'].includes(m.status)&&m.sent_today<m.effective_cap);
 
   const { data: activities } = useQuery({
     queryKey: ["activities", selectedId],
@@ -63,11 +67,10 @@ export default function Conversations() {
     enabled: !!selectedId,
   });
 
-  const { data: emailLogs } = useQuery({
-    queryKey: ["email-logs", selectedId],
+  const { data: emailLogs = [] } = useQuery<EmailLog[]>({
+    queryKey: ["email-conversation", selectedId],
     queryFn: async () => {
-      const all = asArray<EmailLog>(await apiFetch("/api/email/logs"));
-      return all.filter((l) => l.leadId === selectedId);
+      return asArray<EmailLog>(await apiFetch(`/email/conversation/${selectedId}`));
     },
     enabled: !!selectedId,
   });
@@ -90,7 +93,7 @@ export default function Conversations() {
   function sendReply() {
     if (!reply.trim() || !replySubject.trim() || !selectedId || send.isPending) return;
     setSendNotice('');
-    send.mutate({ leadId: selectedId, subject: replySubject.trim(), body: reply });
+    send.mutate({ leadId: selectedId, subject: replySubject.trim(), body: reply,mailboxId:mailboxId||undefined });
   }
 
   const CHANNELS: Channel[] = ["all", "email", "sms", "facebook", "instagram", "whatsapp"];
@@ -159,8 +162,8 @@ export default function Conversations() {
           {/* Contact list */}
           <div className="flex-1 overflow-y-auto">
             {filtered.map((lead, i) => {
-              const isSelected = selectedId === lead.id;
-              const lastMsg = emailLogs?.filter(log => log.leadId === lead.id).at(-1);
+              const isSelected = String(selectedId) === String(lead.id);
+              const lastMsg = isSelected?emailLogs.at(-1):undefined;
               const hasSent = lastMsg?.status === 'sent';
               const hasUnread = false;
               return (
@@ -179,7 +182,7 @@ export default function Conversations() {
                           {lead.firstName} {lead.lastName}
                         </span>
                         <span className="text-[10px] text-muted-foreground flex-shrink-0 ml-1">
-                          {lastMsg?.sentAt ? formatDistanceToNow(new Date(lastMsg.sentAt), { addSuffix: true }) : ''}
+                          {lastMsg?.sentAt||lastMsg?.createdAt ? formatDistanceToNow(new Date(lastMsg.sentAt??lastMsg.createdAt!), { addSuffix: true }) : ''}
                         </span>
                       </div>
                       <div className="text-[11px] text-muted-foreground truncate">{lead.company ?? lead.email}</div>
@@ -233,7 +236,7 @@ export default function Conversations() {
               </div>
 
               {/* Real email logs */}
-              {Array.isArray(emailLogs) && emailLogs.map((log: EmailLog) => (
+              {emailLogs.map((log: EmailLog) => (
                 <div key={log.id} className="flex gap-3 justify-end">
                   <div className="max-w-lg">
                     <div className="bg-primary text-white rounded-2xl rounded-tr-sm px-4 py-2.5">
@@ -243,7 +246,7 @@ export default function Conversations() {
                     <div className="flex items-center justify-end gap-1 mt-1 mr-1">
                       <Clock className="w-3 h-3 text-muted-foreground" />
                       <span className="text-[10px] text-muted-foreground">
-                        {log.sentAt ? formatDistanceToNow(new Date(log.sentAt), { addSuffix: true }) : ""} · {log.status}
+                        {log.sentAt||log.createdAt ? formatDistanceToNow(new Date(log.sentAt??log.createdAt!), { addSuffix: true }) : ""} · {log.status}{log.fromEmail?` · ${log.fromEmail}`:''}
                       </span>
                     </div>
                   </div>
@@ -297,6 +300,7 @@ export default function Conversations() {
                     placeholder="Re: Follow up"
                   />
                 </div>
+                <div className="px-3 py-1.5 border-b border-border bg-muted/30 flex items-center gap-2 text-xs"><span className="text-muted-foreground">From:</span><select aria-label="Sending mailbox" className="flex-1 bg-transparent outline-none" value={mailboxId} onChange={e=>setMailboxId(e.target.value)}><option value="">Automatically rotate sender</option>{availableMailboxes.map(m=><option key={m.id} value={String(m.id)}>{m.from_email} · {m.sent_today}/{m.effective_cap}</option>)}</select></div>
                 <textarea
                   value={reply}
                   onChange={(e) => setReply(e.target.value)}
@@ -316,7 +320,7 @@ export default function Conversations() {
                     disabled={!reply.trim() || !replySubject.trim() || send.isPending}
                     className="flex items-center gap-1.5 px-4 py-1.5 bg-primary text-white text-xs font-medium rounded-lg hover:bg-primary/90 disabled:opacity-40 transition-colors"
                   >
-                    <Send className="w-3 h-3" /> {send.isPending ? 'Saving…' : 'Queue email'}
+                    <Send className="w-3 h-3" /> {send.isPending ? 'Queuing…' : 'Send email'}
                   </button>
                 </div>
               </div>

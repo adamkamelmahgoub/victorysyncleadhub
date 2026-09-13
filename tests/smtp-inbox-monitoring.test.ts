@@ -46,6 +46,13 @@ test('SMTP-only mode can be selected and enabled without an inbox check',async()
   await service.handle({path:'/email/mailboxes/1',method:'PATCH',body:{engineEnabled:true},raw:'',headers:{},authenticated:true});
  }finally{if(saved!==undefined)process.env.OUTREACH_EVENT_SECRET=saved;}
 });
+test('Inbox conversation reads real outreach jobs and queues through the selected mailbox',async()=>{
+ const calls:Array<{name:string;args:any}>=[];const rpc=async(name:string,args:any)=>{calls.push({name,args});if(name==='outreach_email_conversation')return [{id:'job',status:'sent'}];if(name==='outreach_email_admin')return {settings:{direct_link_domains:[]}};if(name==='outreach_email_enqueue')return {id:'queued',not_before:'2026-09-14T12:00:00Z'};return null;};
+ const service=new EmailService(rpc,()=>({send:async()=>({messageId:'unused'})}),undefined,async()=>new Response(null,{status:200}));
+ const base={raw:'',headers:{},authenticated:true,actor:'operator'};
+ const thread=await service.handle({...base,path:'/email/conversation/lead-1',method:'GET',body:{}});assert.equal(thread.body[0].status,'sent');
+ const queued=await service.handle({...base,path:'/email/send',method:'POST',body:{leadId:'lead-1',mailboxId:'mailbox-1',subject:'Hello',body:'Plain text'}});assert.equal(queued.status,202);assert.ok(calls.some(c=>c.name==='outreach_email_enqueue'&&c.args.p_mailbox==='mailbox-1'));
+});
 test('known SMTP recipient rejection records a hard bounce instead of ambiguous delivery',async()=>{
  process.env.OUTREACH_EMAIL_ENABLED='true';process.env.OUTREACH_PUBLIC_URL='https://portal.example.test';const actions:Array<{name:string;args:any}>=[];
  const service=new EmailService(async(name,args)=>{actions.push({name,args});if(name==='outreach_email_claim')return {job:{id:'job-id',subject:'Hello',body:'Hello',claim_token:'claim',to_email:'lead@example.test',unsubscribe_token:'token'},mailbox:{from_email:'sender@example.test',from_name:'Sender'},domain:'example.test',directLinkDomains:[]};if(name==='outreach_email_dispatch_check')return true;return null;},()=>({send:async()=>{throw new SmtpRecipientRejected();}}),undefined,undefined,async()=>{});

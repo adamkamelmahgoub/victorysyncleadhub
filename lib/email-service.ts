@@ -7,7 +7,7 @@ export type EmailRpc=(name:string,data:Record<string,unknown>)=>Promise<any>;
 export type EmailContext={path:string;method:string;body:any;raw:string;headers:Record<string,string>;actor?:string;scope?:string|null;authenticated:boolean};
 export type EmailReply={status:number;body:any;text?:boolean};
 export const isPublicEmailEndpoint=(path:string)=>/^\/email\/(unsubscribe|process|poll|events\/(smtp|resend))$/.test(path);
-export const isEmailEndpoint=(path:string)=>isPublicEmailEndpoint(path)||isSequenceEndpoint(path)||/^\/email\/(run|metrics|settings|domains|mailboxes|verify|queue|process|events|unsubscribe|alerts|send)(\/|$)/.test(path)||/^\/email-accounts(\/|$)/.test(path);
+export const isEmailEndpoint=(path:string)=>isPublicEmailEndpoint(path)||isSequenceEndpoint(path)||/^\/email\/(run|metrics|settings|domains|mailboxes|verify|queue|process|events|unsubscribe|alerts|send|conversation)(\/|$)/.test(path)||/^\/email-accounts(\/|$)/.test(path);
 function domain(value:unknown) {const s=String(value??'').trim().toLowerCase();if(!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(s)) throw new EmailInputError('Enter a domain name without a URL or path');return s;}
 function mailboxInput(b:any) {
  const email=String(b.fromEmail??'').trim().toLowerCase();
@@ -104,6 +104,8 @@ export class EmailService {
    try{monitoring=await this.rpc('outreach_email_smtp_admin',{p_action:'status'});verification=await this.rpc('outreach_email_smtp_admin',{p_action:'verification_status'});}catch{/* Core mailbox settings must remain usable while optional monitoring is repaired. */}
    return ok({...data,mailboxes:data.mailboxes.map((m:any)=>({...m,...monitoring.find((x:any)=>String(x.id)===String(m.id))})),verificationConfigured:!!process.env.ZEROBOUNCE_API_KEY||verification.configured,deploymentEnabled:process.env.OUTREACH_EMAIL_ENABLED==='true'});
   }
+  const conversation=p.match(/^\/email\/conversation\/([^/]+)$/);
+  if(conversation&&c.method==='GET')return ok(await this.rpc('outreach_email_conversation',{p_lead:conversation[1],p_scope:c.scope??null}));
   if(p==='/email/settings/verification'&&c.method==='POST'){
    if(typeof b.apiKey!=='string'||!b.apiKey.trim()||b.apiKey.length>500)throw new EmailInputError('Enter your ZeroBounce API key');
    return ok(await this.rpc('outreach_email_smtp_admin',{p_action:'verification_key',p_data:{credentials:encryptCredentials({apiKey:b.apiKey.trim()},'outreach:zerobounce')},p_actor:c.actor??'operator'}));
