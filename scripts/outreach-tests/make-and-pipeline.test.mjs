@@ -52,7 +52,7 @@ async function reply(f,from,auto=false,returnAt=null,event=randomUUID()){
 for(const uuid of [false,true])test('Make bridge and pipeline deletion '+(uuid?'UUID':'integer'),async t=>{
  const f=await fixture(uuid),db=f.db;
  try{
- await db.exec(`create table automation_workflows(id uuid primary key default gen_random_uuid(),name text,is_active boolean,trigger_type text,actions jsonb);create table pipelines(id uuid primary key default gen_random_uuid(),name text);create table pipeline_stages(id uuid primary key default gen_random_uuid(),pipeline_id uuid references pipelines(id) on delete cascade);alter table leads add column pipeline_stage_id uuid references pipeline_stages(id),add column tags text[] default array[]::text[],add column status text default 'new';`);
+ await db.exec(`create table automation_workflows(id uuid primary key default gen_random_uuid(),name text,is_active boolean,trigger_type text,trigger_config jsonb default '{}'::jsonb,actions jsonb,enrolled_count integer default 0,completed_count integer default 0);create table pipelines(id uuid primary key default gen_random_uuid(),name text);create table pipeline_stages(id uuid primary key default gen_random_uuid(),pipeline_id uuid references pipelines(id) on delete cascade);alter table leads add column pipeline_stage_id uuid references pipeline_stages(id),add column tags text[] default array[]::text[],add column status text default 'new';`);
  await db.exec(await sql('migrations/20260917_pipeline_delete.sql'));
  await db.exec(await sql('migrations/20260918_make_bridge.sql'));
  await db.exec(await sql('migrations/20260917_pipeline_delete.sql'));
@@ -100,7 +100,20 @@ for(const uuid of [false,true])test('Make bridge and pipeline deletion '+(uuid?'
   assert.equal((await db.query("select has_function_privilege('anon','outreach_make_admin(text,jsonb,text)','execute') allowed")).rows[0].allowed,false);
   assert.equal((await db.query("select has_table_privilege('authenticated','outreach_make_config','select') allowed")).rows[0].allowed,false);
   await make('revoke');assert.equal(await make('secret'),null);
-  await db.exec(await sql('rollbacks/20260918_make_bridge.sql'));
+  await db.exec(await sql('migrations/20260919_remove_make_bridge.sql'));
+  assert.equal((await db.query("select to_regprocedure('outreach_make_admin(text,jsonb,text)') gone")).rows[0].gone,null);
+  await db.exec(await sql('migrations/20260920_native_workflows.sql'));
+  const actions=[{type:'add_tag',config:{tag:'native-engine'}},{type:'wait',config:{duration:'1',unit:'minutes'}},{type:'stop_workflow',config:{}}];
+  const workflow=(await db.query("insert into automation_workflows(name,is_active,trigger_type,actions) values('Native',true,'manual',$1) returning id",[JSON.stringify(actions)])).rows[0];
+  const native=(action,data={})=>rpc(db)('outreach_workflow_admin',{p_action:action,p_data:data,p_actor:'tester'});
+  const run=await native('manual',{workflowId:workflow.id,leadId:String(l.id)});const first=await native('claim');
+  assert.equal(first.run.id,run.id);assert.equal(first.node.type,'add_tag');
+  await native('db_node',{runId:run.id,lease:first.run.lease,node:first.node});await native('finish',{runId:run.id,lease:first.run.lease,node:first.node,result:{}});
+  assert.ok((await db.query('select tags from leads where id=$1',[l.id])).rows[0].tags.includes('native-engine'));
+  const second=await native('claim');await native('finish',{runId:run.id,lease:second.run.lease,node:second.node,result:{},waitSeconds:60});
+  assert.equal((await db.query('select status from outreach_workflow_runs where id=$1',[run.id])).rows[0].status,'waiting');
+  assert.equal((await db.query("select has_function_privilege('anon','outreach_workflow_admin(text,jsonb,text)','execute') allowed")).rows[0].allowed,false);
+  await db.exec(await sql('rollbacks/20260920_native_workflows.sql'));
   await db.exec(await sql('rollbacks/20260917_pipeline_delete.sql'));
   assert.equal((await db.query('select count(*) n from leads')).rows[0].n,1);
  });

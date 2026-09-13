@@ -2,19 +2,18 @@ import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Zap, Plus, Play, Pause, Trash2, ChevronRight,
-  Mail, Clock, Tag, User, GitBranch, MessageSquare,
+  Mail, Clock, Tag, GitBranch, PhoneCall, CircleStop,
   TrendingUp, Copy, Search, X, ArrowUp, ArrowDown,
-  Save, Edit3, Globe, FileText, Bell,
+  Save, Edit3, Globe, FileText,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { asArray } from "@/lib/data-shape";
-import { MakeConnection } from "@/components/make-connection";
 
-type TriggerType = "contact_created" | "tag_added" | "form_submitted" | "appointment_scheduled" |
-  "opportunity_stage_changed" | "email_opened" | "sms_replied" | "deal_won" | "page_visit" | "make";
+type TriggerType = "contact_created" | "tag_added" | "status_changed" |
+  "opportunity_stage_changed" | "email_replied" | "call_logged" | "disposition_changed" | "manual";
 
 type ActionType = "send_email" | "wait" | "add_tag" | "remove_tag" | "update_status" |
-  "enroll_sequence" | "send_sms" | "assign_user" | "add_note" | "webhook" | "send_notification";
+  "enroll_sequence" | "condition" | "move_pipeline_stage" | "create_call_task" | "add_note" | "webhook" | "stop_workflow";
 
 interface WorkflowAction {
   type: ActionType;
@@ -34,29 +33,25 @@ interface Automation {
 }
 
 const TRIGGER_LABELS: Record<TriggerType, string> = {
-  make: "Make scenario / custom trigger",
   contact_created: "Contact Created",
   tag_added: "Tag Added",
-  form_submitted: "Form Submitted",
-  appointment_scheduled: "Appointment Scheduled",
+  status_changed: "Contact Status Changed",
   opportunity_stage_changed: "Opportunity Stage Changed",
-  email_opened: "Email Opened",
-  sms_replied: "SMS Replied",
-  deal_won: "Deal Won / Closed",
-  page_visit: "Page Visit",
+  email_replied: "Email Replied",
+  call_logged: "Call Logged",
+  disposition_changed: "Call Disposition Changed",
+  manual: "Manual Run",
 };
 
 const TRIGGER_CONFIG: Record<TriggerType, { label: string; fields: { key: string; label: string; placeholder: string }[] }> = {
-  make: { label: "Make scenario", fields: [{key:"scenarioUrl",label:"Make scenario URL (reference)",placeholder:"https://...make.com/..."}] },
   contact_created: { label: "Contact Created", fields: [] },
   tag_added: { label: "Tag Added", fields: [{ key: "tag", label: "Tag Name", placeholder: "e.g. interested" }] },
-  form_submitted: { label: "Form Submitted", fields: [{ key: "formName", label: "Form Name", placeholder: "e.g. Contact Us" }] },
-  appointment_scheduled: { label: "Appointment Scheduled", fields: [{ key: "calendarName", label: "Calendar (optional)", placeholder: "Any calendar" }] },
-  opportunity_stage_changed: { label: "Stage Changed", fields: [{ key: "stage", label: "New Stage", placeholder: "e.g. Proposal Sent" }] },
-  email_opened: { label: "Email Opened", fields: [{ key: "subject", label: "Subject Contains (optional)", placeholder: "Leave blank for any" }] },
-  sms_replied: { label: "SMS Replied", fields: [] },
-  deal_won: { label: "Deal Won", fields: [] },
-  page_visit: { label: "Page Visit", fields: [{ key: "url", label: "Page URL Contains", placeholder: "/pricing" }] },
+  status_changed: { label: "Contact Status Changed", fields: [{ key: "status", label: "New status (optional)", placeholder: "qualified" }] },
+  opportunity_stage_changed: { label: "Pipeline Stage Changed", fields: [{ key: "stageId", label: "Stage ID (optional)", placeholder: "Leave blank for any stage" }] },
+  email_replied: { label: "Email Replied", fields: [] },
+  call_logged: { label: "Call Logged", fields: [] },
+  disposition_changed: { label: "Disposition Changed", fields: [{ key: "disposition", label: "Disposition (optional)", placeholder: "meeting_booked" }] },
+  manual: { label: "Manual Run", fields: [] },
 };
 
 const ACTION_META: Record<ActionType, {
@@ -95,15 +90,24 @@ const ACTION_META: Record<ActionType, {
   },
   enroll_sequence: {
     label: "Enroll in Sequence", icon: GitBranch, color: "text-indigo-600", bg: "bg-indigo-50",
-    fields: [{ key: "sequenceName", label: "Sequence Name", placeholder: "e.g. Nurture Campaign" }],
+    fields: [],
   },
-  send_sms: {
-    label: "Send SMS", icon: MessageSquare, color: "text-teal-600", bg: "bg-teal-50",
-    fields: [{ key: "message", label: "Message (160 chars)", placeholder: "Hi {{firstName}}, just checking in...", type: "textarea" }],
+  condition: {
+    label: "Filter / Condition", icon: GitBranch, color: "text-violet-600", bg: "bg-violet-50",
+    fields: [
+      {key:"field",label:"Contact field",placeholder:"status"},
+      {key:"operator",label:"Operator",placeholder:"equals",options:["equals","not_equals","contains","is_empty","is_not_empty"]},
+      {key:"value",label:"Value",placeholder:"qualified"},
+      {key:"onFalse",label:"If false",placeholder:"stop",options:["stop","continue"]},
+    ],
   },
-  assign_user: {
-    label: "Assign to Team Member", icon: User, color: "text-orange-600", bg: "bg-orange-50",
-    fields: [{ key: "userEmail", label: "Team Member Email", placeholder: "e.g. sales@company.com" }],
+  move_pipeline_stage: {
+    label: "Move Pipeline Stage", icon: TrendingUp, color: "text-orange-600", bg: "bg-orange-50",
+    fields: [],
+  },
+  create_call_task: {
+    label: "Create Call Task", icon: PhoneCall, color: "text-cyan-600", bg: "bg-cyan-50",
+    fields: [{key:"title",label:"Task title",placeholder:"Follow up call"},{key:"description",label:"Call context",placeholder:"Reference the last email",type:"textarea"},{key:"delayDays",label:"Due in days",placeholder:"2"},{key:"priority",label:"Priority",placeholder:"medium",options:["low","medium","high"]}],
   },
   add_note: {
     label: "Add Internal Note", icon: FileText, color: "text-gray-600", bg: "bg-gray-100",
@@ -116,12 +120,9 @@ const ACTION_META: Record<ActionType, {
       { key: "method", label: "Method", placeholder: "POST", options: ["GET", "POST", "PUT", "PATCH"] },
     ],
   },
-  send_notification: {
-    label: "Send Internal Alert", icon: Bell, color: "text-yellow-600", bg: "bg-yellow-50",
-    fields: [
-      { key: "message", label: "Alert Message", placeholder: "New hot lead: {{firstName}} {{lastName}}" },
-      { key: "to", label: "Notify (email)", placeholder: "team@company.com" },
-    ],
+  stop_workflow: {
+    label: "Stop Workflow", icon: CircleStop, color: "text-red-600", bg: "bg-red-50",
+    fields: [],
   },
 };
 
@@ -138,12 +139,12 @@ const TEMPLATES = [
     { type: "add_tag" as ActionType, config: { tag: "welcomed" } },
     { type: "update_status" as ActionType, config: { status: "contacted" } },
   ]},
-  { name: "Form Submission Follow-up", triggerType: "form_submitted" as TriggerType, actions: [
+  { name: "Manual Follow-up", triggerType: "manual" as TriggerType, actions: [
     { type: "send_email" as ActionType, config: { subject: "Got your message!", body: "Hi {{firstName}},\n\nThanks for filling out our form. Expect a response within 24 hours." } },
     { type: "wait" as ActionType, config: { duration: "1", unit: "days" } },
-    { type: "send_sms" as ActionType, config: { message: "Hi {{firstName}}, just checking in re your inquiry. Reply YES to schedule a call." } },
+    { type: "create_call_task" as ActionType, config: { title: "Follow up", delayDays: "1", priority: "medium" } },
   ]},
-  { name: "Deal Won Onboarding", triggerType: "deal_won" as TriggerType, actions: [
+  { name: "Meeting Booked Onboarding", triggerType: "disposition_changed" as TriggerType, actions: [
     { type: "send_email" as ActionType, config: { subject: "Welcome aboard, {{firstName}}! 🎉", body: "We're thrilled to have you as a customer. Here's how to get started..." } },
     { type: "add_tag" as ActionType, config: { tag: "customer" } },
     { type: "update_status" as ActionType, config: { status: "converted" } },
@@ -151,7 +152,7 @@ const TEMPLATES = [
   { name: "Tag-Based Nurture", triggerType: "tag_added" as TriggerType, actions: [
     { type: "send_email" as ActionType, config: { subject: "Special offer inside", body: "Hi {{firstName}},\n\nWe noticed you've shown interest in our platform..." } },
     { type: "wait" as ActionType, config: { duration: "3", unit: "days" } },
-    { type: "webhook" as ActionType, config: { url: "https://hooks.zapier.com/", method: "POST" } },
+    { type: "create_call_task" as ActionType, config: { title: "Follow up after email", delayDays: "2", priority: "high" } },
   ]},
   { name: "Blank Workflow", triggerType: "contact_created" as TriggerType, actions: [] },
 ];
@@ -169,6 +170,8 @@ function ActionCard({
   onChange: (config: Record<string, string>) => void;
 }) {
   const {data:mailboxes=[]}=useQuery<{id:string;fromEmail:string;status:string}[]>({queryKey:['workflow-mailboxes'],queryFn:()=>apiFetch('/api/email-accounts'),enabled:action.type==='send_email'});
+  const {data:sequences=[]}=useQuery<Array<{id:string;name:string;status:string}>>({queryKey:['workflow-sequences'],queryFn:()=>apiFetch('/api/sequences'),enabled:action.type==='enroll_sequence'});
+  const {data:stages=[]}=useQuery<Array<{id:string;name:string}>>({queryKey:['workflow-stages'],queryFn:()=>apiFetch('/api/pipeline/stages'),enabled:action.type==='move_pipeline_stage'});
   const meta = ACTION_META[action.type];
   if (!meta) return null;
   const Icon = meta.icon;
@@ -210,6 +213,8 @@ function ActionCard({
         {editing && (
           <div className="border-t border-border p-3 space-y-3 bg-muted/20">
             {action.type==='send_email'&&<div><label className="text-[11px] font-medium">Sending mailbox</label><select aria-label="Sending mailbox" className="w-full border rounded p-2 text-xs" value={action.config.mailboxId??''} onChange={e=>onChange({...action.config,mailboxId:e.target.value})}><option value="">Choose mailbox</option>{asArray<{id:string;fromEmail:string;status:string}>(mailboxes).map(m=><option key={m.id} value={m.id}>{m.fromEmail} ({m.status})</option>)}</select></div>}
+            {action.type==='enroll_sequence'&&<div><label className="text-[11px] font-medium">Sequence</label><select aria-label="Sequence" className="w-full border rounded p-2 text-xs" value={action.config.sequenceId??''} onChange={e=>onChange({...action.config,sequenceId:e.target.value})}><option value="">Choose active sequence</option>{asArray<{id:string;name:string;status:string}>(sequences).filter(s=>s.status==='active').map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></div>}
+            {action.type==='move_pipeline_stage'&&<div><label className="text-[11px] font-medium">Pipeline stage</label><select aria-label="Pipeline stage" className="w-full border rounded p-2 text-xs" value={action.config.stageId??''} onChange={e=>onChange({...action.config,stageId:e.target.value})}><option value="">Choose stage</option>{asArray<{id:string;name:string}>(stages).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></div>}
             {meta.fields.map((f) => (
               <div key={f.key}>
                 <label className="text-[11px] font-medium text-muted-foreground block mb-1">{f.label}</label>
@@ -268,6 +273,11 @@ export default function Automation() {
   const [editName, setEditName] = useState("");
   const [editingStep, setEditingStep] = useState<number | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
+  const [manualSearch,setManualSearch]=useState("");
+  const [manualContacts,setManualContacts]=useState<Array<{id:string;firstName:string;lastName:string;email:string}>>([]);
+  const [manualLeadId,setManualLeadId]=useState("");
+  const {data:engineStatus}=useQuery<{queued:number;running:number;failed:number}>({queryKey:['workflow-engine-status'],queryFn:()=>apiFetch('/api/workflows/status'),refetchInterval:30000});
+  const runWorkflow=useMutation({mutationFn:()=>apiFetch('/api/workflows/run',{method:'POST',body:JSON.stringify({workflowId:selected?.id,leadId:manualLeadId})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['workflow-engine-status']});qc.invalidateQueries({queryKey:['automations']});}});
 
   const { data: automationsResponse = [], isLoading } = useQuery<Automation[]>({
     queryKey: ["automations"],
@@ -367,14 +377,13 @@ export default function Automation() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-foreground">Automation</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Configure email steps here and run your workflows with Make.</p>
+            <p className="text-sm text-muted-foreground mt-0.5">Build visual workflows that run inside Victory Sync.</p>
           </div>
           <button onClick={() => setShowNew(true)} className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90">
             <Plus className="w-4 h-4" /> Create Workflow
           </button>
         </div>
 
-        <MakeConnection />
         <div className="grid grid-cols-4 gap-4">
           {[
             { label: "Active Workflows", value: automations.filter((a) => a.isActive).length, color: "text-green-600" },
@@ -410,7 +419,7 @@ export default function Automation() {
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${STATUS_STYLES[status(selected)]}`}>{status(selected)}</span>
                   <div className="flex gap-2 ml-2">
                     <button
-                      onClick={() => update.mutate({ id: selected.id, isActive: !selected.isActive })}
+                      onClick={() => update.mutate({ id: selected.id, name:editName,triggerType:editTrigger,triggerConfig:editTriggerConfig,actions:editActions,isActive: !selected.isActive })}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium ${selected.isActive ? "bg-amber-100 text-amber-700" : "bg-green-100 text-green-700"}`}
                     >
                       {selected.isActive ? <><Pause className="w-3.5 h-3.5" />Pause</> : <><Play className="w-3.5 h-3.5" />Activate</>}
@@ -423,7 +432,7 @@ export default function Automation() {
                   </div>
                 </div>
 
-                <div className="p-6 overflow-y-auto max-h-[70vh]">
+                <div className="p-6 overflow-y-auto max-h-[70vh] bg-[radial-gradient(circle_at_1px_1px,hsl(var(--border))_1px,transparent_0)] [background-size:22px_22px]">
                   {/* Trigger */}
                   <div className="w-full max-w-sm mx-auto mb-2">
                     <div className="border-2 border-primary/40 rounded-xl p-4 bg-primary/5">
@@ -476,11 +485,11 @@ export default function Automation() {
                   <div className="flex flex-col items-center mt-2">
                     <div className="w-0.5 h-5 bg-border" />
                     <div className="w-full max-w-sm mx-auto">
-                      <button onClick={() => setShowAddStep(!showAddStep)} className="w-full flex items-center justify-center gap-2 text-sm text-primary font-medium border-2 border-dashed border-primary/40 px-4 py-3 rounded-xl hover:bg-primary/5 transition-colors">
-                        <Plus className="w-4 h-4" /> Add Step
+                      <button onClick={() => setShowAddStep(!showAddStep)} className="w-full flex items-center justify-center gap-2 text-sm text-primary font-medium border-2 border-dashed border-primary/40 px-4 py-3 rounded-xl hover:bg-primary/5 transition-colors bg-white">
+                        <Plus className="w-4 h-4" /> Add node
                       </button>
                       {showAddStep && (
-                        <div className="mt-2 grid grid-cols-2 gap-2 bg-white border border-border rounded-xl p-3 shadow-lg">
+                        <div className="mt-2 bg-white border border-border rounded-xl p-3 shadow-lg"><div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Node library · {Object.keys(ACTION_META).length} nodes</div><div className="grid grid-cols-2 gap-2">
                           {Object.entries(ACTION_META).map(([type, meta]) => {
                             const Icon = meta.icon;
                             return (
@@ -495,7 +504,7 @@ export default function Automation() {
                                 <span className="text-xs text-foreground font-medium">{meta.label}</span>
                               </button>
                             );
-                          })}
+                          })}</div>
                         </div>
                       )}
                     </div>
@@ -505,6 +514,13 @@ export default function Automation() {
 
               {/* Right panel: stats + danger zone */}
               <div className="space-y-4">
+                <div className="bg-white rounded-xl border border-border shadow-sm p-4 space-y-2">
+                  <h3 className="text-sm font-semibold">Native engine</h3>
+                  <p className="text-xs text-muted-foreground">Runs inside Victory Sync. Queued: {engineStatus?.queued??0} · Running: {engineStatus?.running??0} · Failed: {engineStatus?.failed??0}</p>
+                  {editTrigger==='manual'&&<><form onSubmit={async e=>{e.preventDefault();const result=await apiFetch(`/api/leads?search=${encodeURIComponent(manualSearch)}&limit=20`);setManualContacts(result.leads??[]);}} className="flex gap-1"><input className="min-w-0 flex-1 border rounded px-2 py-1 text-xs" value={manualSearch} onChange={e=>setManualSearch(e.target.value)} placeholder="Find contact"/><button className="border rounded px-2 text-xs">Find</button></form><select className="w-full border rounded px-2 py-1 text-xs" value={manualLeadId} onChange={e=>setManualLeadId(e.target.value)}><option value="">Choose contact</option>{manualContacts.map(c=><option key={c.id} value={c.id}>{c.firstName} {c.lastName} · {c.email}</option>)}</select><button className="w-full bg-primary text-white rounded px-2 py-1.5 text-xs disabled:opacity-50" disabled={!selected.isActive||!manualLeadId||runWorkflow.isPending} onClick={()=>runWorkflow.mutate()}>{runWorkflow.isPending?'Running…':'Run now'}</button></>}
+                  {runWorkflow.error&&<p className="text-xs text-red-600">{runWorkflow.error.message}</p>}
+                </div>
+                {update.error&&<div className="px-5 py-2 text-xs text-red-600 bg-red-50 border-b">{update.error.message}</div>}
                 <div className="bg-white rounded-xl border border-border shadow-sm p-4 space-y-3">
                   <h3 className="text-sm font-semibold text-foreground">Performance</h3>
                   {[

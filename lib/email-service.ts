@@ -1,4 +1,4 @@
-import {randomInt,randomBytes} from 'node:crypto';
+import {randomInt} from 'node:crypto';
 import {resolveTxt} from 'node:dns/promises';
 import {EmailInputError,keyring,encryptCredentials,decryptCredentials,publicEmailUrl,plainText,checkDirectLinks,unsubscribeToken,tokenHash,safeEqual,verifyEventSignature,verifyResendSignature} from './email-security.js';
 import {ZeroBounceVerifier,SmtpRecipientRejected,type VerificationProvider,type EmailTransport,type OutboundMessage} from './email-providers.js';
@@ -6,7 +6,7 @@ import {SequenceService,isSequenceEndpoint,type InboxFactory} from './sequence-s
 export type EmailRpc=(name:string,data:Record<string,unknown>)=>Promise<any>;
 export type EmailContext={path:string;method:string;body:any;raw:string;headers:Record<string,string>;actor?:string;scope?:string|null;authenticated:boolean};
 export type EmailReply={status:number;body:any;text?:boolean};
-export const isPublicEmailEndpoint=(path:string)=>/^\/email\/(unsubscribe|process|poll|events\/(smtp|resend)|make\/(catalog|lead|queue|process|poll|events\/claim|events\/ack))$/.test(path);
+export const isPublicEmailEndpoint=(path:string)=>/^\/email\/(unsubscribe|process|poll|events\/(smtp|resend))$/.test(path);
 export const isEmailEndpoint=(path:string)=>isPublicEmailEndpoint(path)||isSequenceEndpoint(path)||/^\/email\/(run|metrics|settings|domains|mailboxes|verify|queue|process|events|unsubscribe|alerts|send)(\/|$)/.test(path)||/^\/email-accounts(\/|$)/.test(path);
 function domain(value:unknown) {const s=String(value??'').trim().toLowerCase();if(!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(s)) throw new EmailInputError('Enter a domain name without a URL or path');return s;}
 function mailboxInput(b:any) {
@@ -56,31 +56,6 @@ export class EmailService {
   if(isSequenceEndpoint(c.path))return new SequenceService(this.rpc,this.inboxFactory).handle(c);
   const p=c.path,b=c.body??{};const ok=(body:any,status=200)=>({status,body});
   if(!isEmailEndpoint(p)) return ok({error:'Not found'},404);
-  if(p.startsWith('/email/make/')) {
-   const hash=await this.rpc('outreach_make_admin',{p_action:'secret'});
-   const authorization=c.headers.authorization??'';
-   if(!hash||!authorization.startsWith('Bearer ')||!safeEqual(tokenHash(authorization.slice(7)),hash))return ok({error:'Invalid Make connection token'},401);
-   const action=p.slice('/email/make/'.length);
-   if(action==='catalog'&&c.method==='GET')return ok(await this.rpc('outreach_make_admin',{p_action:'catalog'}));
-   if(action==='lead'&&c.method==='POST')return ok(await this.rpc('outreach_make_admin',{p_action:'lead',p_data:{id:String(b.leadId??'')}}));
-   if(action==='events/claim'&&c.method==='POST')return ok(await this.rpc('outreach_make_admin',{p_action:'claim'}));
-   if(action==='events/ack'&&c.method==='POST')return ok(await this.rpc('outreach_make_admin',{p_action:'ack',p_data:{id:String(b.id??''),lease:String(b.lease??'')}}));
-   if(action==='process'&&c.method==='POST')return ok(await this.process());
-   if(action==='poll'&&c.method==='POST')return ok(await new SequenceService(this.rpc,this.inboxFactory).poll());
-   if(action==='queue'&&c.method==='POST') {
-    if(typeof b.eventKey!=='string'||!b.eventKey.trim()||b.eventKey.length>200)throw new EmailInputError('A stable eventKey of 1 to 200 characters is required for retry protection');
-    let payload={...b};
-    if(b.workflowId){
-     if(!Number.isInteger(b.stepIndex)||b.stepIndex<0)throw new EmailInputError('Choose a zero-based email stepIndex');
-     const template=await this.rpc('outreach_make_admin',{p_action:'template',p_data:{workflowId:String(b.workflowId),stepIndex:b.stepIndex,leadId:String(b.leadId??'')}});
-     payload={...payload,...template};
-    }
-    if(!payload.mailboxId)throw new EmailInputError('Choose a mailbox for this workflow email');
-    const rpc:EmailRpc=(name,args)=>name==='outreach_email_enqueue'?this.rpc('outreach_make_enqueue',{p_event_key:b.eventKey,p_args:args}):this.rpc(name,args);
-    return new EmailService(rpc,this.transport,this.verifier,this.fetcher,this.delay,this.inboxFactory).handle({...c,path:'/email/queue',body:payload,authenticated:true,actor:'make',scope:null});
-   }
-   return ok({error:'Unsupported Make operation'},405);
-  }
   if(p==='/email/unsubscribe' && ['GET','POST'].includes(c.method)) {
    const token=String(b.token??'');if(!/^[A-Za-z0-9_-]{43}$/.test(token)) return {status:400,body:'Invalid unsubscribe link.',text:true};
    const found=await this.rpc('outreach_email_unsubscribe',{p_hash:tokenHash(token)});
@@ -105,17 +80,6 @@ export class EmailService {
    await this.rpc('outreach_email_event',{p_provider:provider,p_event:eventId,p_job:jobId,p_message:messageId,p_type:type});return ok({received:true});
   }
   if(!c.authenticated) return ok({error:'Unauthorized'},401);
-  if(p==='/email/settings/make') {
-   if(c.scope)throw new EmailInputError('Make connections require an operator account');
-   if(c.method==='GET')return ok(await this.rpc('outreach_make_admin',{p_action:'status'}));
-   if(c.method==='POST') {
-    const token=randomBytes(32).toString('base64url');
-    await this.rpc('outreach_make_admin',{p_action:'rotate',p_data:{hash:tokenHash(token)},p_actor:c.actor??'operator'});
-    return ok({token,configured:true});
-   }
-   if(c.method==='DELETE')return ok(await this.rpc('outreach_make_admin',{p_action:'revoke',p_actor:c.actor??'operator'}));
-   return ok({error:'Unsupported Make operation'},405);
-  }
   if(p==='/email/run'&&c.method==='POST'){if(c.scope)throw new EmailInputError('Manual queue dispatch requires an operator account');return ok(await this.process());}
   const metrics=p.match(/^\/email\/metrics\/(\d{4}-\d{2}-\d{2}|call-outcome|reply-outcome)$/);
   if(metrics) {
@@ -135,7 +99,11 @@ export class EmailService {
    if(p==='/email-accounts' && c.method==='GET') {const data=await this.admin('dashboard',{},c);return ok(data.mailboxes.map((m:any)=>({id:m.id,fromName:m.from_name,fromEmail:m.from_email,dailyLimit:m.daily_cap,sentToday:m.sent_today,status:m.status})));}
    return ok({error:'Manage mailboxes in the Outreach Mailboxes screen.'},410);
   }
-  if(p==='/email/settings' && c.method==='GET') {const data=await this.admin('dashboard',{},c);const monitoring=await this.rpc('outreach_email_smtp_admin',{p_action:'status'});const verification=await this.rpc('outreach_email_smtp_admin',{p_action:'verification_status'});return ok({...data,mailboxes:data.mailboxes.map((m:any)=>({...m,...monitoring.find((x:any)=>String(x.id)===String(m.id))})),verificationConfigured:!!process.env.ZEROBOUNCE_API_KEY||verification.configured,deploymentEnabled:process.env.OUTREACH_EMAIL_ENABLED==='true'});}
+  if(p==='/email/settings' && c.method==='GET') {
+   const data=await this.admin('dashboard',{},c);let monitoring:any[]=[];let verification={configured:false};
+   try{monitoring=await this.rpc('outreach_email_smtp_admin',{p_action:'status'});verification=await this.rpc('outreach_email_smtp_admin',{p_action:'verification_status'});}catch{/* Core mailbox settings must remain usable while optional monitoring is repaired. */}
+   return ok({...data,mailboxes:data.mailboxes.map((m:any)=>({...m,...monitoring.find((x:any)=>String(x.id)===String(m.id))})),verificationConfigured:!!process.env.ZEROBOUNCE_API_KEY||verification.configured,deploymentEnabled:process.env.OUTREACH_EMAIL_ENABLED==='true'});
+  }
   if(p==='/email/settings/verification'&&c.method==='POST'){
    if(typeof b.apiKey!=='string'||!b.apiKey.trim()||b.apiKey.length>500)throw new EmailInputError('Enter your ZeroBounce API key');
    return ok(await this.rpc('outreach_email_smtp_admin',{p_action:'verification_key',p_data:{credentials:encryptCredentials({apiKey:b.apiKey.trim()},'outreach:zerobounce')},p_actor:c.actor??'operator'}));

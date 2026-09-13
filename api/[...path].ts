@@ -6,6 +6,7 @@ import { EmailService,isEmailEndpoint,isPublicEmailEndpoint } from '../lib/email
 import { EmailInputError, emailOperationError } from '../lib/email-security.js';
 import { mailboxTransport } from '../artifacts/api-server/src/lib/email-transports.js';
 import { inboxAdapter } from '../artifacts/api-server/src/lib/inbox-adapters.js';
+import { WorkflowService,isWorkflowEndpoint,isPublicWorkflowEndpoint } from '../lib/workflow-service.js';
 export const config = { api: { bodyParser: false } };
 
 type VercelRequest = {
@@ -947,6 +948,22 @@ function stripUndefined(value: Record<string, unknown>) {
   );
 }
 
+const nativeWorkflowTriggers = new Set(['contact_created','tag_added','status_changed','opportunity_stage_changed','email_replied','call_logged','disposition_changed','manual']);
+const nativeWorkflowNodes = new Set(['send_email','wait','condition','add_tag','remove_tag','update_status','move_pipeline_stage','enroll_sequence','create_call_task','add_note','webhook','stop_workflow']);
+function validateNativeWorkflow(payload:Record<string,any>) {
+  if(!payload.is_active)return;
+  if(!nativeWorkflowTriggers.has(String(payload.trigger_type??'')))throw new Error('Choose a trigger supported by the native workflow engine');
+  if(!Array.isArray(payload.actions)||!payload.actions.length)throw new Error('Add at least one workflow node before activating');
+  for(const [index,node] of payload.actions.entries()){
+    if(!node||!nativeWorkflowNodes.has(String(node.type??'')))throw new Error(`Workflow node ${index+1} is not supported by the native engine`);
+    const config=node.config??{};
+    if(node.type==='send_email'&&(!config.mailboxId||!String(config.subject??'').trim()||!String(config.body??'').trim()))throw new Error(`Email node ${index+1} requires a mailbox, subject, and body`);
+    if(node.type==='wait'&&(!Number.isFinite(Number(config.duration))||Number(config.duration)<0))throw new Error(`Wait node ${index+1} requires a valid duration`);
+    if(node.type==='condition'&&(!config.field||!config.operator))throw new Error(`Condition node ${index+1} requires a field and operator`);
+    if(node.type==='webhook'&&!/^https:\/\//i.test(String(config.url??'')))throw new Error(`Webhook node ${index+1} requires a public HTTPS URL`);
+  }
+}
+
 function genericResourcePath(path: string) {
   const clean = path.replace(/^\/api\//, "");
   const parts = clean.split("/");
@@ -984,6 +1001,7 @@ async function createResource(config: ResourceConfig, req: VercelRequest, res: V
     ...(config.defaults ?? {}),
     ...(toSnakeValue(body) as Record<string, unknown>),
   });
+  if(config.table==='automation_workflows')validateNativeWorkflow(payload);
   const rows = await supabaseRest(config.table, {
     method: "POST",
     body: JSON.stringify(payload),
@@ -1006,6 +1024,10 @@ async function getResource(config: ResourceConfig, id: string, req: VercelReques
 async function updateResource(config: ResourceConfig, id: string, req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as Record<string, unknown>;
   const payload = stripUndefined(toSnakeValue(body) as Record<string, unknown>);
+  if(config.table==='automation_workflows'){
+    const rows=await supabaseRest(`${config.table}?id=eq.${encodeURIComponent(id)}&select=*&limit=1`,{method:'GET'},req) as Array<Record<string,unknown>>;
+    validateNativeWorkflow({...rows[0],...payload});
+  }
   const rows = await supabaseRest(`${config.table}?id=eq.${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
@@ -2439,7 +2461,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         res.setHeader('Cache-Control','no-store');if(reply.text){res.statusCode=reply.status;res.setHeader('content-type','text/plain; charset=utf-8');res.end(reply.body);}else sendJson(res,reply.status,reply.body);
       }catch(error){const failure=emailOperationError(error);sendJson(res,failure.status,{error:failure.error});}
     }
+    async function runWorkflow(authenticated:boolean,user?:AuthenticatedUser) {
+      try{
+        const body=!['GET','HEAD'].includes(method)?await readJson(req):{};
+        const email=new EmailService((name,data)=>supabaseRest(`rpc/${name}`,{method:'POST',body:JSON.stringify(data)},req),mailboxTransport,undefined,undefined,undefined,inboxAdapter);
+        const workflows=new WorkflowService((name,data)=>supabaseRest(`rpc/${name}`,{method:'POST',body:JSON.stringify(data)},req),email);
+        const reply=await workflows.handle({path:emailPath,method,body,raw:'',headers:Object.fromEntries(Object.entries(req.headers).map(([k,v])=>[k.toLowerCase(),Array.isArray(v)?v[0]??'':v??''])),actor:user?.id??'system',scope:user?.user_metadata?.role==='agent'?String(user.user_metadata.client_account_id??'__unassigned__'):null,authenticated});
+        res.setHeader('Cache-Control','no-store');sendJson(res,reply.status,reply.body);
+      }catch(error){const failure=emailOperationError(error);sendJson(res,failure.status,{error:failure.error});}
+    }
     if(isPublicEmailEndpoint(emailPath)) {await runEmail(false);return;}
+    if(isPublicWorkflowEndpoint(emailPath)) {await runWorkflow(false);return;}
 
     if (path === "/api/healthz") {
       sendJson(res, 200, {
@@ -2492,6 +2524,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if(isEmailEndpoint(emailPath)) {await runEmail(true,currentUser);return;}
+    if(isWorkflowEndpoint(emailPath)) {await runWorkflow(true,currentUser);return;}
     if (path === '/api/dispositions') {
       if (method === 'GET') sendJson(res, 200, DISPOSITIONS.map((name,id)=>({id:id+1,name,color:'#f97316'})));
       else sendJson(res, 405, {error:'Outreach dispositions are fixed'});

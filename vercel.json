@@ -3,6 +3,11 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm --filter @workspace/leadgen build",
   "outputDirectory": "artifacts/leadgen/dist/public",
+  "crons": [
+    { "path": "/api/workflows/process", "schedule": "*/5 * * * *" },
+    { "path": "/api/email/process", "schedule": "*/5 * * * *" },
+    { "path": "/api/email/poll", "schedule": "*/5 * * * *" }
+  ],
   "routes": [
     {
       "src": "/api/(.*)",
