@@ -218,7 +218,8 @@ export class EmailService {
   if(['/email/queue','/email/send'].includes(p) && c.method==='POST') {
    if(b.html!==undefined || b.attachments!==undefined) throw new EmailInputError('Only plain text email is supported');
    const data=await this.admin('dashboard',{},c);const subject=String(b.subject??''),body=String(b.body??'');await checkDirectLinks(plainText(subject,body,data.settings.direct_link_domains),this.fetcher);
-   const token=unsubscribeToken();return ok(await this.rpc('outreach_email_enqueue',{p_lead:String(b.leadId??''),p_subject:subject,p_body:body,p_mailbox:b.mailboxId||b.emailAccountId?String(b.mailboxId??b.emailAccountId):null,p_enrollment:b.enrollmentId?String(b.enrollmentId):null,p_token:token,p_hash:tokenHash(token),p_actor:c.actor??'operator',p_scope:c.scope??null}),202);
+   const token=unsubscribeToken();const args={p_lead:String(b.leadId??''),p_subject:subject,p_body:body,p_mailbox:b.mailboxId||b.emailAccountId?String(b.mailboxId??b.emailAccountId):null,p_token:token,p_hash:tokenHash(token),p_actor:c.actor??'operator',p_scope:c.scope??null};
+   return ok(p==='/email/send'?await this.rpc('outreach_email_enqueue_manual',args):await this.rpc('outreach_email_enqueue',{...args,p_enrollment:b.enrollmentId?String(b.enrollmentId):null}),202);
   }
   const alert=p.match(/^\/email\/alerts\/(\d+)\/acknowledge$/);
   if(alert && c.method==='POST') return ok(await this.admin('acknowledge',{id:alert[1]},c));

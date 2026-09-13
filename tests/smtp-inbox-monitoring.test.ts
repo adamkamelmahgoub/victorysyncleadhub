@@ -51,7 +51,7 @@ test('Inbox conversation reads real outreach jobs and queues through the selecte
  const service=new EmailService(rpc,()=>({send:async()=>({messageId:'unused'})}),undefined,async()=>new Response(null,{status:200}));
  const base={raw:'',headers:{},authenticated:true,actor:'operator'};
  const thread=await service.handle({...base,path:'/email/conversation/lead-1',method:'GET',body:{}});assert.equal(thread.body[0].status,'sent');
- const queued=await service.handle({...base,path:'/email/send',method:'POST',body:{leadId:'lead-1',mailboxId:'mailbox-1',subject:'Hello',body:'Plain text'}});assert.equal(queued.status,202);assert.ok(calls.some(c=>c.name==='outreach_email_enqueue'&&c.args.p_mailbox==='mailbox-1'));
+ const queued=await service.handle({...base,path:'/email/send',method:'POST',body:{leadId:'lead-1',mailboxId:'mailbox-1',subject:'Hello',body:'Plain text'}});assert.equal(queued.status,202);assert.ok(calls.some(c=>c.name==='outreach_email_enqueue_manual'&&c.args.p_mailbox==='mailbox-1'));
 });
 test('known SMTP recipient rejection records a hard bounce instead of ambiguous delivery',async()=>{
  process.env.OUTREACH_EMAIL_ENABLED='true';process.env.OUTREACH_PUBLIC_URL='https://portal.example.test';const actions:Array<{name:string;args:any}>=[];
