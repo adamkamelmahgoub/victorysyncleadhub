@@ -55,6 +55,8 @@ for(const uuid of [false,true])test('Make bridge and pipeline deletion '+(uuid?'
  await db.exec(`create table automation_workflows(id uuid primary key default gen_random_uuid(),name text,is_active boolean,trigger_type text,actions jsonb);create table pipelines(id uuid primary key default gen_random_uuid(),name text);create table pipeline_stages(id uuid primary key default gen_random_uuid(),pipeline_id uuid references pipelines(id) on delete cascade);alter table leads add column pipeline_stage_id uuid references pipeline_stages(id),add column tags text[] default array[]::text[],add column status text default 'new';`);
  await db.exec(await sql('migrations/20260917_pipeline_delete.sql'));
  await db.exec(await sql('migrations/20260918_make_bridge.sql'));
+ await db.exec(await sql('migrations/20260917_pipeline_delete.sql'));
+ await db.exec(await sql('migrations/20260918_make_bridge.sql'));
  const make=(action,data={})=>rpc(db)('outreach_make_admin',{p_action:action,p_data:data});
  await make('rotate',{hash:'a'.repeat(64)});
  const {l}=await enroll(f);

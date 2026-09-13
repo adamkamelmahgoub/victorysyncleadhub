@@ -1,16 +1,16 @@
 begin;
-create table public.outreach_make_config(id boolean primary key default true check(id),token_hash text check(token_hash is null or token_hash ~ '^[a-f0-9]{64}$'));
-insert into public.outreach_make_config values(true,null);
-create table public.outreach_make_events(id uuid primary key default gen_random_uuid(),event_type text not null,lead_id text,payload jsonb not null default '{}',created_at timestamptz not null default now(),lease uuid,lease_until timestamptz,acknowledged_at timestamptz);
-create index outreach_make_pending on public.outreach_make_events(created_at) where acknowledged_at is null;
-create table public.outreach_make_requests(event_key text primary key,request jsonb not null,result jsonb not null,created_at timestamptz not null default now());
+create table if not exists public.outreach_make_config(id boolean primary key default true check(id),token_hash text check(token_hash is null or token_hash ~ '^[a-f0-9]{64}$'));
+insert into public.outreach_make_config values(true,null) on conflict(id) do nothing;
+create table if not exists public.outreach_make_events(id uuid primary key default gen_random_uuid(),event_type text not null,lead_id text,payload jsonb not null default '{}',created_at timestamptz not null default now(),lease uuid,lease_until timestamptz,acknowledged_at timestamptz);
+create index if not exists outreach_make_pending on public.outreach_make_events(created_at) where acknowledged_at is null;
+create table if not exists public.outreach_make_requests(event_key text primary key,request jsonb not null,result jsonb not null,created_at timestamptz not null default now());
 alter table public.outreach_make_config enable row level security;
 alter table public.outreach_make_events enable row level security;
 alter table public.outreach_make_requests enable row level security;
 revoke all on public.outreach_make_config,public.outreach_make_events,public.outreach_make_requests from public,anon,authenticated;
 grant all on public.outreach_make_config,public.outreach_make_events,public.outreach_make_requests to service_role;
 
-create function public.outreach_make_capture() returns trigger language plpgsql security definer set search_path=public,pg_temp as $$
+create or replace function public.outreach_make_capture() returns trigger language plpgsql security definer set search_path=public,pg_temp as $$
 declare n jsonb:=to_jsonb(new);o jsonb;event_type text;
 begin
  if not exists(select 1 from public.outreach_make_config where token_hash is not null) then return new;end if;
@@ -28,11 +28,14 @@ begin
  end if;
  return new;
 end $$;
+drop trigger if exists outreach_make_lead on public.leads;
+drop trigger if exists outreach_make_reply on public.outreach_inbound_messages;
+drop trigger if exists outreach_make_audit on public.outreach_audit;
 create trigger outreach_make_lead after insert or update on public.leads for each row execute function public.outreach_make_capture();
 create trigger outreach_make_reply after insert on public.outreach_inbound_messages for each row execute function public.outreach_make_capture();
 create trigger outreach_make_audit after insert on public.outreach_audit for each row execute function public.outreach_make_capture();
 
-create function public.outreach_make_admin(p_action text,p_data jsonb default '{}',p_actor text default 'operator') returns jsonb language plpgsql as $$
+create or replace function public.outreach_make_admin(p_action text,p_data jsonb default '{}',p_actor text default 'operator') returns jsonb language plpgsql as $$
 declare result jsonb;l jsonb;w jsonb;a jsonb;lease_id uuid;
 begin
  if p_action='status' then return jsonb_build_object('configured',exists(select 1 from public.outreach_make_config where token_hash is not null));
@@ -63,7 +66,7 @@ begin
  end if;
  raise exception 'Unknown Make operation';
 end $$;
-create function public.outreach_make_enqueue(p_event_key text,p_args jsonb) returns jsonb language plpgsql as $$
+create or replace function public.outreach_make_enqueue(p_event_key text,p_args jsonb) returns jsonb language plpgsql as $$
 declare request_data jsonb:=p_args - array['p_token','p_hash'];previous public.outreach_make_requests;result jsonb;
 begin
  if length(p_event_key) not between 1 and 200 then raise exception 'Event key required';end if;

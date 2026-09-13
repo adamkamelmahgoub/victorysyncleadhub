@@ -1,6 +1,6 @@
 begin;
 -- Detach contacts before the existing pipeline -> stages cascade executes.
-create function public.preserve_pipeline_contacts() returns trigger
+create or replace function public.preserve_pipeline_contacts() returns trigger
 language plpgsql security definer set search_path=public,pg_temp as $$
 declare detached integer;
 begin
@@ -12,6 +12,7 @@ begin
  return old;
 end $$;
 revoke all on function public.preserve_pipeline_contacts() from public;
+drop trigger if exists preserve_pipeline_contacts on public.pipelines;
 create trigger preserve_pipeline_contacts before delete on public.pipelines
 for each row execute function public.preserve_pipeline_contacts();
 notify pgrst,'reload schema';
