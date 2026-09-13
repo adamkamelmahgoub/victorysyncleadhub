@@ -1,6 +1,20 @@
 import { createCipheriv,createDecipheriv,createHash,createHmac,randomBytes,timingSafeEqual } from 'node:crypto';
 import {isIP} from 'node:net';
 export class EmailInputError extends Error { status = 400; }
+const setupMessages = new Set([
+ 'Verify DNS and configure encrypted credentials before enabling mailbox',
+ 'Mailbox must match its sending domain', 'Warmup ramp cannot be skipped',
+ 'Burned mailboxes cannot be resumed', 'No active mailbox capacity available',
+ 'Lead must be verified, unsuppressed and have a confirmed timezone', 'Mailbox is not enabled',
+ 'Check the receiving inbox before enabling bounce monitoring', 'SMTP mailbox not found',
+ 'Workflow must exist and be active', 'Choose a send email step', 'Eligible contact required',
+ 'Event key already used for different email', 'Unsupported template variable',
+]);
+export function emailOperationError(error: unknown) {
+ const message=error instanceof Error?error.message:'';
+ if(error instanceof EmailInputError||setupMessages.has(message))return {status:400,error:message};
+ return {status:503,error:'Email operation could not be completed. Check configuration and retry.'};
+}
 export function keyring() {
   try {
     const keys=JSON.parse(process.env.OUTREACH_ENCRYPTION_KEYS ?? '{}') as Record<string,string>;

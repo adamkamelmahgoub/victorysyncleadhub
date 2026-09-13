@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Building2, Star, GripVertical, LayoutDashboard, Columns3 } from "lucide-react";
+import { Plus, Building2, Star, GripVertical, LayoutDashboard, Columns3, Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { asArray } from "@/lib/data-shape";
 import { Link } from "wouter";
@@ -150,6 +150,7 @@ export default function PipelinePage() {
   const [stageError, setStageError] = useState("");
   const [creatingPipeline, setCreatingPipeline] = useState(false);
   const [creatingStage, setCreatingStage] = useState(false);
+  const [deletingPipeline, setDeletingPipeline] = useState(false);
   const { toast } = useToast();
 
   const selectedPipeline = useMemo(
@@ -160,7 +161,7 @@ export default function PipelinePage() {
   const loadPipelines = useCallback(async () => {
     const rows = asArray<Pipeline>(await apiFetch("/api/pipelines"));
     setPipelines(rows);
-    setSelectedPipelineId((current) => current || rows[0]?.id || "");
+    setSelectedPipelineId((current) => rows.some((row) => row.id === current) ? current : rows[0]?.id || "");
     return rows;
   }, []);
 
@@ -184,6 +185,20 @@ export default function PipelinePage() {
   useEffect(() => {
     loadBoard(selectedPipelineId);
   }, [loadBoard, selectedPipelineId]);
+
+  async function deletePipeline() {
+    if (!selectedPipeline || !window.confirm(`Delete "${selectedPipeline.name}" and its stages? Contacts will be preserved and become unassigned.`)) return;
+    setDeletingPipeline(true);
+    try {
+      await apiFetch(`/api/pipelines/${selectedPipeline.id}`, { method: "DELETE" });
+      const remaining = await loadPipelines();
+      setSelectedPipelineId(remaining[0]?.id || "");
+      await loadBoard(remaining[0]?.id || "");
+      toast({ title: "Pipeline deleted", description: "Contacts were preserved." });
+    } catch (error) {
+      toast({ title: "Could not delete pipeline", description: error instanceof Error ? error.message : String(error), variant: "destructive" });
+    } finally { setDeletingPipeline(false); }
+  }
 
   async function createPipeline() {
     if (!newPipeline.name.trim()) return;
@@ -262,6 +277,9 @@ export default function PipelinePage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={deletePipeline} disabled={!selectedPipelineId || deletingPipeline}>
+            <Trash2 className="w-4 h-4 mr-1.5" />{deletingPipeline ? "Deleting..." : "Delete pipeline"}
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setShowPipelineDialog(true)}>
             <Plus className="w-4 h-4 mr-1.5" /> Pipeline
           </Button>

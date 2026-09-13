@@ -8,9 +8,10 @@ import {
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { asArray } from "@/lib/data-shape";
+import { MakeConnection } from "@/components/make-connection";
 
 type TriggerType = "contact_created" | "tag_added" | "form_submitted" | "appointment_scheduled" |
-  "opportunity_stage_changed" | "email_opened" | "sms_replied" | "deal_won" | "page_visit";
+  "opportunity_stage_changed" | "email_opened" | "sms_replied" | "deal_won" | "page_visit" | "make";
 
 type ActionType = "send_email" | "wait" | "add_tag" | "remove_tag" | "update_status" |
   "enroll_sequence" | "send_sms" | "assign_user" | "add_note" | "webhook" | "send_notification";
@@ -33,6 +34,7 @@ interface Automation {
 }
 
 const TRIGGER_LABELS: Record<TriggerType, string> = {
+  make: "Make scenario / custom trigger",
   contact_created: "Contact Created",
   tag_added: "Tag Added",
   form_submitted: "Form Submitted",
@@ -45,6 +47,7 @@ const TRIGGER_LABELS: Record<TriggerType, string> = {
 };
 
 const TRIGGER_CONFIG: Record<TriggerType, { label: string; fields: { key: string; label: string; placeholder: string }[] }> = {
+  make: { label: "Make scenario", fields: [{key:"scenarioUrl",label:"Make scenario URL (reference)",placeholder:"https://...make.com/..."}] },
   contact_created: { label: "Contact Created", fields: [] },
   tag_added: { label: "Tag Added", fields: [{ key: "tag", label: "Tag Name", placeholder: "e.g. interested" }] },
   form_submitted: { label: "Form Submitted", fields: [{ key: "formName", label: "Form Name", placeholder: "e.g. Contact Us" }] },
@@ -165,6 +168,7 @@ function ActionCard({
   onMove: (dir: "up" | "down") => void;
   onChange: (config: Record<string, string>) => void;
 }) {
+  const {data:mailboxes=[]}=useQuery<{id:string;fromEmail:string;status:string}[]>({queryKey:['workflow-mailboxes'],queryFn:()=>apiFetch('/api/email-accounts'),enabled:action.type==='send_email'});
   const meta = ACTION_META[action.type];
   if (!meta) return null;
   const Icon = meta.icon;
@@ -205,6 +209,7 @@ function ActionCard({
         </div>
         {editing && (
           <div className="border-t border-border p-3 space-y-3 bg-muted/20">
+            {action.type==='send_email'&&<div><label className="text-[11px] font-medium">Sending mailbox</label><select aria-label="Sending mailbox" className="w-full border rounded p-2 text-xs" value={action.config.mailboxId??''} onChange={e=>onChange({...action.config,mailboxId:e.target.value})}><option value="">Choose mailbox</option>{asArray<{id:string;fromEmail:string;status:string}>(mailboxes).map(m=><option key={m.id} value={m.id}>{m.fromEmail} ({m.status})</option>)}</select></div>}
             {meta.fields.map((f) => (
               <div key={f.key}>
                 <label className="text-[11px] font-medium text-muted-foreground block mb-1">{f.label}</label>
@@ -362,13 +367,14 @@ export default function Automation() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-foreground">Automation</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Build automated workflows to engage contacts at the right time</p>
+            <p className="text-sm text-muted-foreground mt-0.5">Configure email steps here and run your workflows with Make.</p>
           </div>
           <button onClick={() => setShowNew(true)} className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90">
             <Plus className="w-4 h-4" /> Create Workflow
           </button>
         </div>
 
+        <MakeConnection />
         <div className="grid grid-cols-4 gap-4">
           {[
             { label: "Active Workflows", value: automations.filter((a) => a.isActive).length, color: "text-green-600" },

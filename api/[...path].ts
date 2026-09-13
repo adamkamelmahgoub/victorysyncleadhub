@@ -3,7 +3,7 @@ import { leadReports } from "../artifacts/api-server/src/lib/lead-reports.js";
 import { companyCrmRequest } from "../artifacts/api-server/src/lib/company-crm.js";
 import { DISPOSITIONS, parseCall, parseOutreachUpdate } from '../lib/outreach.js';
 import { EmailService,isEmailEndpoint,isPublicEmailEndpoint } from '../lib/email-service.js';
-import { EmailInputError } from '../lib/email-security.js';
+import { EmailInputError, emailOperationError } from '../lib/email-security.js';
 import { mailboxTransport } from '../artifacts/api-server/src/lib/email-transports.js';
 import { inboxAdapter } from '../artifacts/api-server/src/lib/inbox-adapters.js';
 export const config = { api: { bodyParser: false } };
@@ -2437,7 +2437,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const service=new EmailService((name,data)=>supabaseRest(`rpc/${name}`,{method:'POST',body:JSON.stringify(data)},req),mailboxTransport,undefined,undefined,undefined,inboxAdapter);
         const reply=await service.handle({path:emailPath,method,body,raw,headers:Object.fromEntries(Object.entries(req.headers).map(([k,v])=>[k.toLowerCase(),Array.isArray(v)?v[0]??'':v??''])),actor:user?.id??'system',scope:user?.user_metadata?.role==='agent'?String(user.user_metadata.client_account_id??'__unassigned__'):null,authenticated});
         res.setHeader('Cache-Control','no-store');if(reply.text){res.statusCode=reply.status;res.setHeader('content-type','text/plain; charset=utf-8');res.end(reply.body);}else sendJson(res,reply.status,reply.body);
-      }catch(error){sendJson(res,error instanceof EmailInputError?400:503,{error:error instanceof EmailInputError?error.message:'Email operation could not be completed. Check configuration and retry.'});}
+      }catch(error){const failure=emailOperationError(error);sendJson(res,failure.status,{error:failure.error});}
     }
     if(isPublicEmailEndpoint(emailPath)) {await runEmail(false);return;}
 
