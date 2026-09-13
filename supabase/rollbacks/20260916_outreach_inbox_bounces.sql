@@ -1,0 +1,13 @@
+begin;
+select set_config('outreach.email_actor','system',true);
+update public.email_accounts set email_engine_enabled=false where smtp_monitoring_mode='inbox';
+drop function public.outreach_email_claim();
+alter function public.outreach_email_claim_phase3() rename to outreach_email_claim;
+drop function public.outreach_email_dispatch_check(uuid,uuid);
+alter function public.outreach_email_dispatch_check_phase3(uuid,uuid) rename to outreach_email_dispatch_check;
+drop function public.outreach_email_inbox_report(text,text,jsonb);
+drop function public.outreach_email_smtp_admin(text,jsonb,text);
+drop table public.outreach_delivery_reports;
+drop table public.outreach_verification_config;
+alter table public.email_accounts drop column smtp_monitoring_mode;
+commit;

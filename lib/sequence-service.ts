@@ -1,7 +1,8 @@
 import {EmailInputError,encryptCredentials,keyring,plainText,safeEqual} from './email-security.js';
 import type {EmailContext,EmailReply,EmailRpc} from './email-service.js';
+import type {DeliveryReport} from './delivery-report.js';
 
-export type InboundMessage={id:string;from:string;subject:string;text:string;receivedAt:string;headers:Record<string,string>};
+export type InboundMessage={id:string;from:string;subject:string;text:string;receivedAt:string;headers:Record<string,string>;deliveryReport?:DeliveryReport};
 export type InboxBatch={messages:InboundMessage[];cursor:Record<string,unknown>;caughtUp:boolean};
 export interface InboxAdapter {poll(mailbox:Record<string,any>):Promise<InboxBatch>}
 export type InboxFactory=(mailbox:Record<string,any>)=>InboxAdapter;
@@ -35,12 +36,16 @@ export function classifyReply(message:InboundMessage,now=new Date(),timezone='UT
 export class SequenceService {
  constructor(private rpc:EmailRpc,private inboxFactory?:InboxFactory){}
  private admin(action:string,data:Record<string,unknown>={},c?:EmailContext){return this.rpc('outreach_sequence_admin',{p_action:action,p_data:data,p_actor:c?.actor??'system',p_scope:c?.scope??null});}
- async poll() {
+ async poll(mailboxId?:string) {
   keyring();if(!this.inboxFactory)throw new EmailInputError('Inbox provider is unavailable');
-  const mailbox=await this.admin('inbox_claim');if(!mailbox)return {polled:0};
+  const mailbox=mailboxId?await this.rpc('outreach_email_smtp_admin',{p_action:'inbox_claim',p_data:{id:mailboxId},p_actor:'system'}):await this.admin('inbox_claim');if(!mailbox)return {polled:0};
   try {
    const batch=await this.inboxFactory(mailbox).poll(mailbox);
    for(const message of batch.messages){
+    if(message.deliveryReport){
+     if(mailbox.provider==='smtp')await this.rpc('outreach_email_inbox_report',{p_mailbox:String(mailbox.id),p_event:message.id,p_report:message.deliveryReport});
+     continue;
+    }
     const timezone=await this.admin('reply_timezone',{email:message.from});
     const classification=classifyReply(message,new Date(),timezone??mailbox.mailbox_timezone);
     await this.rpc('outreach_sequence_inbound',{p_mailbox:String(mailbox.id),p_event:message.id,p_from:message.from,p_subject:message.subject,p_body:message.text,p_received:message.receivedAt,p_auto:classification.auto,p_return:classification.returnAt});

@@ -16,6 +16,7 @@ export class ZeroBounceVerifier implements VerificationProvider {
 }
 export type OutboundMessage={jobId:string;fromEmail:string;fromName:string;to:string;subject:string;text:string;messageId:string;headers:Record<string,string>};
 export interface EmailTransport {prepare?(fromEmail:string):Promise<void>;send(message:OutboundMessage):Promise<{messageId:string}>}
+export class SmtpRecipientRejected extends Error {constructor(){super('SMTP permanently rejected the recipient');}}
 export class ResendTransport implements EmailTransport {
  constructor(private apiKey:string,private fetcher:typeof fetch=fetch,private domainId:string=''){}
  async prepare(fromEmail:string) {

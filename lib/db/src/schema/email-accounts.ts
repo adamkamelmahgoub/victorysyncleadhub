@@ -14,6 +14,7 @@ export const emailAccountsTable = pgTable("email_accounts", {
   smtpPassword: text("smtp_password").notNull(),
   sendingDomainId: uuid('sending_domain_id').references(()=>sendingDomainsTable.id),
   provider: text('provider').notNull().default('smtp'),
+  smtpMonitoringMode: text('smtp_monitoring_mode').notNull().default('webhook'),
   dailyCap: integer('daily_cap').notNull().default(30),
   mailboxTimezone: text('mailbox_timezone').notNull().default('America/New_York'),
   warmupStartedAt: timestamp('warmup_started_at', {withTimezone:true}).notNull().defaultNow(),

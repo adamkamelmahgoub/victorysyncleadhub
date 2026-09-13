@@ -1,13 +1,13 @@
 import {randomInt} from 'node:crypto';
 import {resolveTxt} from 'node:dns/promises';
-import {EmailInputError,keyring,encryptCredentials,publicEmailUrl,plainText,checkDirectLinks,unsubscribeToken,tokenHash,safeEqual,verifyEventSignature,verifyResendSignature} from './email-security.js';
-import {ZeroBounceVerifier,type VerificationProvider,type EmailTransport,type OutboundMessage} from './email-providers.js';
+import {EmailInputError,keyring,encryptCredentials,decryptCredentials,publicEmailUrl,plainText,checkDirectLinks,unsubscribeToken,tokenHash,safeEqual,verifyEventSignature,verifyResendSignature} from './email-security.js';
+import {ZeroBounceVerifier,SmtpRecipientRejected,type VerificationProvider,type EmailTransport,type OutboundMessage} from './email-providers.js';
 import {SequenceService,isSequenceEndpoint,type InboxFactory} from './sequence-service.js';
 export type EmailRpc=(name:string,data:Record<string,unknown>)=>Promise<any>;
 export type EmailContext={path:string;method:string;body:any;raw:string;headers:Record<string,string>;actor?:string;scope?:string|null;authenticated:boolean};
 export type EmailReply={status:number;body:any;text?:boolean};
 export const isPublicEmailEndpoint=(path:string)=>/^\/email\/(unsubscribe|process|poll|events\/(smtp|resend))$/.test(path);
-export const isEmailEndpoint=(path:string)=>isSequenceEndpoint(path)||/^\/email\/(metrics|settings|domains|mailboxes|verify|queue|process|events|unsubscribe|alerts|send)(\/|$)/.test(path)||/^\/email-accounts(\/|$)/.test(path);
+export const isEmailEndpoint=(path:string)=>isSequenceEndpoint(path)||/^\/email\/(run|metrics|settings|domains|mailboxes|verify|queue|process|events|unsubscribe|alerts|send)(\/|$)/.test(path)||/^\/email-accounts(\/|$)/.test(path);
 function domain(value:unknown) {const s=String(value??'').trim().toLowerCase();if(!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(s)) throw new EmailInputError('Enter a domain name without a URL or path');return s;}
 function mailboxInput(b:any) {
  const email=String(b.fromEmail??'').trim().toLowerCase();
@@ -25,12 +25,17 @@ export class EmailService {
  async process() {
   if(process.env.OUTREACH_EMAIL_ENABLED!=='true') return {sent:0,held:true};
   keyring();const origin=publicEmailUrl();
+  if(this.inboxFactory) await new SequenceService(this.rpc,this.inboxFactory).poll();
   // One dispatch per invocation bounds serverless duration and spaces real send times.
   await this.delay(randomInt(3000,17000));
   if(new Date().getUTCSeconds()<2) await this.delay(2200);
   const claim=await this.rpc('outreach_email_claim',{});if(!claim) return {sent:0};
   const j=claim.job,m=claim.mailbox;
-  let outcome:'sent'|'failed'|'unknown'='failed';let messageId:string|null=null;let dispatched=false;
+  if(m.smtp_monitoring_mode==='inbox') {
+   const checked=await new SequenceService(this.rpc,this.inboxFactory).poll(String(m.id));
+   if(checked.polled!==1||!checked.caughtUp){await this.rpc('outreach_email_smtp_admin',{p_action:'release',p_data:{id:String(m.id),job:j.id,claim:j.claim_token},p_actor:'system'});return {sent:0,held:true,reason:'Inbox must finish checking replies and bounces.'};}
+  }
+  let outcome:'sent'|'failed'|'unknown'='failed';let messageId:string|null=null;let dispatched=false;let hardBounce=false;
   try {
    const links=plainText(j.subject,j.body,claim.directLinkDomains??[]);await checkDirectLinks(links,this.fetcher);
    const sender=this.transport(m);
@@ -41,9 +46,10 @@ export class EmailService {
    const allowed=await this.rpc('outreach_email_dispatch_check',{p_job:j.id,p_claim:j.claim_token});
    if(!allowed&&claim.phase3){await this.rpc('outreach_sequence_release',{p_job:j.id,p_claim:j.claim_token});return {sent:0,held:true};}
    if(allowed && process.env.OUTREACH_EMAIL_ENABLED==='true') {dispatched=true;const result=await sender.send(message);messageId=result.messageId;outcome='sent';}
-  } catch {outcome=dispatched?'unknown':'failed';}
+  } catch(error) {hardBounce=error instanceof SmtpRecipientRejected;outcome=dispatched&&!hardBounce?'unknown':'failed';}
   // A failed acknowledgement must never cause the provider send to be retried.
   await this.rpc('outreach_email_finish',{p_job:j.id,p_claim:j.claim_token,p_state:outcome,p_message_id:messageId});
+  if(hardBounce)await this.rpc('outreach_email_event',{p_provider:'smtp',p_event:`rcpt:${j.id}`,p_job:j.id,p_message:null,p_type:'hard_bounce'});
   return {sent:outcome==='sent'?1:0,state:outcome};
  }
  async handle(c:EmailContext):Promise<EmailReply> {
@@ -74,6 +80,7 @@ export class EmailService {
    await this.rpc('outreach_email_event',{p_provider:provider,p_event:eventId,p_job:jobId,p_message:messageId,p_type:type});return ok({received:true});
   }
   if(!c.authenticated) return ok({error:'Unauthorized'},401);
+  if(p==='/email/run'&&c.method==='POST'){if(c.scope)throw new EmailInputError('Manual queue dispatch requires an operator account');return ok(await this.process());}
   const metrics=p.match(/^\/email\/metrics\/(\d{4}-\d{2}-\d{2}|call-outcome|reply-outcome)$/);
   if(metrics) {
    const action=metrics[1];let data:Record<string,unknown>;
@@ -92,11 +99,19 @@ export class EmailService {
    if(p==='/email-accounts' && c.method==='GET') {const data=await this.admin('dashboard',{},c);return ok(data.mailboxes.map((m:any)=>({id:m.id,fromName:m.from_name,fromEmail:m.from_email,dailyLimit:m.daily_cap,sentToday:m.sent_today,status:m.status})));}
    return ok({error:'Manage mailboxes in the Outreach Mailboxes screen.'},410);
   }
-  if(p==='/email/settings' && c.method==='GET') {const data=await this.admin('dashboard',{},c);return ok({...data,deploymentEnabled:process.env.OUTREACH_EMAIL_ENABLED==='true'});}
+  if(p==='/email/settings' && c.method==='GET') {const data=await this.admin('dashboard',{},c);const monitoring=await this.rpc('outreach_email_smtp_admin',{p_action:'status'});const verification=await this.rpc('outreach_email_smtp_admin',{p_action:'verification_status'});return ok({...data,mailboxes:data.mailboxes.map((m:any)=>({...m,...monitoring.find((x:any)=>String(x.id)===String(m.id))})),verificationConfigured:!!process.env.ZEROBOUNCE_API_KEY||verification.configured,deploymentEnabled:process.env.OUTREACH_EMAIL_ENABLED==='true'});}
+  if(p==='/email/settings/verification'&&c.method==='POST'){
+   if(typeof b.apiKey!=='string'||!b.apiKey.trim()||b.apiKey.length>500)throw new EmailInputError('Enter your ZeroBounce API key');
+   return ok(await this.rpc('outreach_email_smtp_admin',{p_action:'verification_key',p_data:{credentials:encryptCredentials({apiKey:b.apiKey.trim()},'outreach:zerobounce')},p_actor:c.actor??'operator'}));
+  }
   if(p==='/email/settings' && c.method==='PATCH') {
    const data:any={};for(const k of ['engineEnabled','globalDailyCap','resetTimezone']) if(b[k]!==undefined) data[k]=b[k];
    for(const k of ['primaryDomains','directLinkDomains']) if(b[k]!==undefined) {if(!Array.isArray(b[k])) throw new EmailInputError('Domains must be a list');data[k]=b[k].map(domain);}
-   if(data.engineEnabled) {keyring();publicEmailUrl();if((process.env.OUTREACH_WORKER_TOKEN??'').length<32) throw new EmailInputError('Configure the worker token before enabling sending');}
+   if(data.engineEnabled) {
+    keyring();publicEmailUrl();
+    if(!data.primaryDomains?.length){const current=await this.admin('dashboard',{},c);data.primaryDomains=[...new Set([...current.settings.primary_domains,...current.domains.filter((d:any)=>d.is_primary).map((d:any)=>d.domain)])];}
+    if(!data.primaryDomains.length)throw new EmailInputError('Add your primary company domain before enabling sending');
+   }
    return ok(await this.admin('settings',data,c));
   }
   if(p==='/email/domains' && c.method==='POST') {
@@ -126,16 +141,47 @@ export class EmailService {
    const txt=async(name:string)=>{try{return (await resolveTxt(name)).map(parts=>parts.join(''));}catch{return [];}};
    const [spf,dkim,dmarc]=await Promise.all([txt(d.spf_host??d.domain),txt(`${d.dkim_selector}._domainkey.${d.domain}`),txt(`_dmarc.${d.domain}`)]);
    const data={id:d.id,spf:spf.filter(x=>/^v=spf1\s/i.test(x)).length===1 && spf.some(x=>/\s[~-]all\s*$/i.test(x)),dkim:dkim.some(x=>/\bp\s*=\s*[a-zA-Z0-9+/]{20,}/.test(x)),dmarc:dmarc.filter(x=>/^v=DMARC1\s*;/i.test(x)).length===1 && dmarc.some(x=>/\bp\s*=\s*(none|quarantine|reject)(;|\s|$)/i.test(x))};
-   return ok(await this.admin('domain_verify',data,c));
+   const dnsIssues:string[]=[];
+   if(!data.spf)dnsIssues.push(`SPF: publish one valid SPF record at ${d.spf_host??d.domain}`);
+   if(!data.dkim)dnsIssues.push(`DKIM: no valid key found at ${d.dkim_selector}._domainkey.${d.domain}; use the selector from your sending provider`);
+   if(!data.dmarc)dnsIssues.push(dmarc.filter(x=>/^v=DMARC1\s*;/i.test(x)).length>1?'DMARC: multiple policies found; keep one DMARC TXT record':`DMARC: publish one valid policy at _dmarc.${d.domain}`);
+   return ok({...await this.admin('domain_verify',data,c),dnsIssues});
   }
   if(p==='/email/mailboxes' && c.method==='POST') return ok(await this.admin('mailbox_create',mailboxInput(b),c),201);
+  const smtpAction=p.match(/^\/email\/mailboxes\/([^/]+)\/(smtp|monitor)$/);
+  if(smtpAction&&c.method==='POST') {
+   const m=await this.admin('mailbox_secret',{id:smtpAction[1]},c);if(!m||m.provider!=='smtp')throw new EmailInputError('SMTP mailbox not found');
+   if(smtpAction[2]==='smtp') {
+    if(!/^[a-z0-9.-]+$/i.test(b.host??'')||![465,587].includes(Number(b.port))||!b.user||!b.password)throw new EmailInputError('Enter the SMTP host, TLS port, login email, and app password');
+    const credentials=encryptCredentials({password:String(b.password)},m.from_email);
+    const transport=this.transport({...m,smtp_host:String(b.host),smtp_port:Number(b.port),smtp_user:String(b.user),smtp_password:credentials});
+    try{if(!transport.prepare)throw new Error();await transport.prepare(m.from_email);}catch{throw new EmailInputError('SMTP login failed. Check the provider host, login address and app password.');}
+    return ok(await this.rpc('outreach_email_smtp_admin',{p_action:'connection',p_data:{id:String(m.id),host:String(b.host),port:Number(b.port),user:String(b.user),credentials},p_actor:c.actor??'operator'}));
+   }
+   const sequences=new SequenceService(this.rpc,this.inboxFactory);
+   if(b.reuseGmail===true) {
+    if(String(m.smtp_host).toLowerCase()!=='smtp.gmail.com')throw new EmailInputError('Enter your Gmail inbox credentials below');
+    const secret=decryptCredentials(m.smtp_password,m.from_email);
+    await sequences.handle({...c,path:`/email/inboxes/${m.id}`,method:'PUT',body:{provider:'imap',host:'imap.gmail.com',user:m.smtp_user,password:secret.password,folder:'INBOX'}});
+   }else if(b.host) {
+    await sequences.handle({...c,path:`/email/inboxes/${m.id}`,method:'PUT',body:{provider:'imap',host:b.host,user:b.user,password:b.password,folder:b.folder??'INBOX'}});
+   }
+   const checked=await sequences.poll(String(m.id));
+   if(checked.polled!==1||!checked.caughtUp)throw new EmailInputError(checked.error??'Inbox scan is still running. Click Check inbox again before enabling sending.');
+   return ok(await this.rpc('outreach_email_smtp_admin',{p_action:'monitor',p_data:{id:String(m.id)},p_actor:c.actor??'operator'}));
+  }
   const mailbox=p.match(/^\/email\/mailboxes\/([^/]+)$/);
   if(mailbox && c.method==='PATCH') {
    const data:any={id:mailbox[1]};for(const k of ['status','engineEnabled','dailyCap']) if(b[k]!==undefined) data[k]=b[k];
    if(data.status && !['warming','active','paused','burned'].includes(data.status)) throw new EmailInputError('Invalid mailbox status');
    if(b.smtpPassword||b.apiKey||data.engineEnabled) {
     const m=await this.admin('mailbox_secret',{id:mailbox[1]},c);if(!m) return ok({error:'Mailbox not found'},404);
-    if(data.engineEnabled && !(m.provider==='resend'?process.env.RESEND_WEBHOOK_SECRET:(process.env.OUTREACH_EVENT_SECRET??'').length>=32)) throw new EmailInputError('Configure signed bounce and complaint events before enabling this mailbox');
+    if(data.engineEnabled) {
+     if(m.smtp_monitoring_mode==='inbox'){
+      const checked=await new SequenceService(this.rpc,this.inboxFactory).poll(String(m.id));
+      if(checked.polled!==1||!checked.caughtUp)throw new EmailInputError('Check the receiving inbox before enabling sending. Inbox access must work for reply and bounce monitoring.');
+     }else if(!(m.provider==='resend'?process.env.RESEND_WEBHOOK_SECRET:(process.env.OUTREACH_EVENT_SECRET??'').length>=32))throw new EmailInputError(m.provider==='smtp'?'Connect receiving inbox monitoring below, or configure your provider event webhook.':'Configure the Resend webhook secret before enabling sending');
+    }
     if(b.smtpPassword||b.apiKey) {
      if(m.provider==='resend' && !/^[a-f0-9-]{36}$/i.test(String(b.resendDomainId??''))) throw new EmailInputError('Enter the domain ID from Resend when rotating its key');
      data.encryptedCredentials=encryptCredentials(m.provider==='smtp'?{password:String(b.smtpPassword??'')}:{apiKey:String(b.apiKey??''),domainId:String(b.resendDomainId)},m.from_email);
@@ -147,8 +193,14 @@ export class EmailService {
   if(verification && c.method==='GET') {const l=await this.admin('lead',{id:verification[1]},c);return l?ok({status:l.email_verification_status,verifiedAt:l.verified_at}):ok({error:'Eligible lead not found'},404);}
   if(verification && c.method==='POST') {
    const lead=await this.admin('lead',{id:verification[1]},c);if(!lead) return ok({error:'Eligible lead not found'},404);
-   const status=await this.verifier.verify(lead.normalized_email);
-   return ok(await this.admin('verification',{id:verification[1],email:lead.normalized_email,status,provider:this.verifier.name},c));
+   let verifier=this.verifier;
+   if(verifier instanceof ZeroBounceVerifier&&!process.env.ZEROBOUNCE_API_KEY){
+    const encrypted=await this.rpc('outreach_email_smtp_admin',{p_action:'verification_secret'});
+    if(!encrypted)throw new EmailInputError('Add your ZeroBounce API key in Mailboxes before verifying recipients');
+    verifier=new ZeroBounceVerifier(decryptCredentials(encrypted,'outreach:zerobounce').apiKey??'');
+   }
+   const status=await verifier.verify(lead.normalized_email);
+   return ok(await this.admin('verification',{id:verification[1],email:lead.normalized_email,status,provider:verifier.name},c));
   }
   if(['/email/queue','/email/send'].includes(p) && c.method==='POST') {
    if(b.html!==undefined || b.attachments!==undefined) throw new EmailInputError('Only plain text email is supported');

@@ -2,6 +2,7 @@ import {ImapFlow} from 'imapflow';
 import {simpleParser} from 'mailparser';
 import {decryptCredentials} from '../../../../lib/email-security.js';
 import type {InboxAdapter,InboxBatch,InboundMessage} from '../../../../lib/sequence-service.js';
+import {deliveryReport} from '../../../../lib/delivery-report.js';
 
 const address=(value:string)=>String(value??'').match(/<?([^\s<>]+@[^\s<>]+)>?/)?.[1]?.toLowerCase()??'';
 export class ResendInbox implements InboxAdapter {
@@ -44,10 +45,14 @@ export class ImapInbox implements InboxAdapter {
     if(ids.length){
      for await(const item of c.fetch(ids,{envelope:true,internalDate:true,headers:true,source:{maxLength:200000}},{uid:true})){
       if(item.internalDate&&new Date(item.internalDate)<new Date(m.inbox_configured_at))continue;
-      const parsed=await simpleParser(item.source??item.headers??Buffer.alloc(0),{skipHtmlToText:true,skipTextToHtml:true,skipImageLinks:true});
+      // MailParser supports keepDeliveryStatus; the installed @types package omits it.
+      const parserOptions={skipHtmlToText:true,skipTextToHtml:true,skipImageLinks:true,keepDeliveryStatus:true};
+      const parsed=await simpleParser(item.source??item.headers??Buffer.alloc(0),parserOptions);
+      const contentType=parsed.headers.get('content-type') as {value?:string;params?:Record<string,string>}|undefined;
+      const report=deliveryReport(parsed.attachments,contentType?.value==='multipart/report'&&contentType.params?.['report-type']==='delivery-status');
       const from=parsed.from?.value[0]?.address??item.envelope?.from?.[0]?.address;
       if(!from)continue;
-      messages.push({id:`imap:${this.config.folder}:${validity}:${item.uid}`,from:from.toLowerCase(),subject:parsed.subject??item.envelope?.subject??'',text:(parsed.text??'').slice(0,50000),receivedAt:new Date(item.internalDate??Date.now()).toISOString(),headers:Object.fromEntries([...parsed.headers].map(([k,v])=>[k,String(v)]))});
+      messages.push({id:`imap:${this.config.folder}:${validity}:${item.uid}`,from:from.toLowerCase(),subject:parsed.subject??item.envelope?.subject??'',text:(parsed.text??'').slice(0,50000),receivedAt:new Date(item.internalDate??Date.now()).toISOString(),headers:Object.fromEntries([...parsed.headers].map(([k,v])=>[k,String(v)])),deliveryReport:report});
      }
     }
     const caughtUp=(found||[]).length<=100;
