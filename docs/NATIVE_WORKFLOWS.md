@@ -6,10 +6,10 @@ Supported triggers are contact created, tag added, contact status changed, pipel
 
 Supported nodes are send email, wait, condition, add/remove tag, update contact status, move pipeline stage, enroll in sequence, create call task, add note, HTTPS webhook, and stop workflow. Email nodes must select a configured mailbox and queue through the outreach engine, so verification, suppression, DNS, warmup, daily limits, local send windows, and reply checks still apply.
 
-The production scheduler calls the native workflow processor and the email queue/reply poll every five minutes. `CRON_SECRET` and `OUTREACH_WORKER_TOKEN` are configured to the same private value. Operators can run a manual-trigger workflow immediately from its editor.
+The Supabase scheduler calls the native workflow processor and email dispatcher every two minutes, and checks replies every five minutes. Its bearer token is encrypted in Supabase Vault and matches `OUTREACH_WORKER_TOKEN` in Vercel. Operators can run a manual-trigger workflow immediately from its editor.
 
 Workflow runs use a two-minute execution lease. Completed nodes have a unique run/step log, waits persist their next execution time, and failures stop the run with a short error visible in engine status. Pausing a workflow stops new and due execution until it is activated again.
 
 Webhook nodes allow public HTTPS destinations only. Redirects and private/local network addresses are rejected. Remote actions can still receive a retry after an uncertain network failure, so webhook consumers should use the supplied run ID as an idempotency key.
 
-Apply migrations in order through `20260920_native_workflows.sql`. The corresponding rollback removes native triggers, runs, and logs without deleting contacts, workflows, email jobs, or activities.
+Apply migrations in order through `20260921_native_worker_scheduler.sql`. The corresponding rollbacks remove the scheduled jobs and native workflow state without deleting contacts, workflow definitions, email jobs, or activities.
