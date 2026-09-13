@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {simpleParser} from '../artifacts/api-server/node_modules/mailparser/index.js';
 import {deliveryReport} from '../lib/delivery-report.js';
-import {SequenceService} from '../lib/sequence-service.js';
+import {SequenceService,inboxPollingError} from '../lib/sequence-service.js';
 import {EmailService} from '../lib/email-service.js';
 import {SmtpRecipientRejected} from '../lib/email-providers.js';
 
@@ -11,6 +11,12 @@ test('real multipart DSN parses machine status and the original message ID, not 
  const parsed=await simpleParser(source,{keepDeliveryStatus:true});const report=deliveryReport(parsed.attachments,true);
  assert.deepEqual(report,{messageIds:['<job-id@victorysync.com>'],recipients:[{recipient:'lead@example.test',action:'failed',status:'5.1.1'}]});
  assert.equal(deliveryReport([],false),undefined);assert.throws(()=>deliveryReport([],true),/incomplete/);
+});
+test('IMAP failures explain authentication, timeout and host problems without exposing provider diagnostics',()=>{
+ assert.match(inboxPollingError({authenticationFailed:true,responseStatus:'NO',message:'secret diagnostic'}),/IMAP login was rejected/);
+ assert.match(inboxPollingError({code:'ETIMEDOUT'}),/timed out/);
+ assert.match(inboxPollingError({code:'ENOTFOUND'}),/could not be reached/);
+ assert.doesNotMatch(inboxPollingError(new Error('password=secret diagnostic')),/password=secret/);
 });
 test('DSNs are processed as delivery events and never as human replies; failed persistence leaves cursor unchanged',async()=>{
  process.env.OUTREACH_ENCRYPTION_KEY_ID='test';process.env.OUTREACH_ENCRYPTION_KEYS=JSON.stringify({test:Buffer.alloc(32,7).toString('base64')});

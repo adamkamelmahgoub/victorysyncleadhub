@@ -7,6 +7,14 @@ export type InboxBatch={messages:InboundMessage[];cursor:Record<string,unknown>;
 export interface InboxAdapter {poll(mailbox:Record<string,any>):Promise<InboxBatch>}
 export type InboxFactory=(mailbox:Record<string,any>)=>InboxAdapter;
 export const isSequenceEndpoint=(path:string)=>/^\/sequences(?:\/|$)/.test(path)||/^\/email\/(inboxes|poll)(?:\/|$)/.test(path);
+export function inboxPollingError(error:unknown) {
+ const e=error as {authenticationFailed?:boolean;responseStatus?:string;code?:string;message?:string};
+ if(e?.authenticationFailed||e?.responseStatus==='NO')return 'IMAP login was rejected. SMTP is connected, but inbox access is not. In Zoho Mail, enable IMAP Access for this mailbox and use an application-specific password, then click Check inbox.';
+ if(['ETIMEDOUT','ESOCKETTIMEDOUT'].includes(String(e?.code)))return 'The IMAP server timed out. Check the inbox host and try again.';
+ if(['ECONNREFUSED','ENOTFOUND','EAI_AGAIN'].includes(String(e?.code)))return 'The IMAP server could not be reached. Check the receiving host and internet DNS, then retry.';
+ if(/certificate|tls/i.test(String(e?.message??'')))return 'The IMAP server failed secure TLS verification. Check the receiving host supplied by your provider.';
+ return 'Reply polling failed. Check the IMAP host, enable inbox access with your provider, and use an application-specific password.';
+}
 
 // Only explicit ISO dates or English month/day dates following a return phrase are parsed.
 // Ambiguous locale dates intentionally use the seven-day fallback.
@@ -52,9 +60,9 @@ export class SequenceService {
    }
    await this.admin('inbox_finish',{id:String(mailbox.id),token:mailbox.inbox_poll_token,ok:true,cursor:batch.cursor,caughtUp:batch.caughtUp});
    return {polled:1,messages:batch.messages.length,caughtUp:batch.caughtUp};
-  }catch{
+  }catch(error){
    await this.admin('inbox_finish',{id:String(mailbox.id),token:mailbox.inbox_poll_token,ok:false});
-   return {polled:0,error:'Reply polling failed; sequence sending is held until polling recovers.'};
+   return {polled:0,error:inboxPollingError(error)};
   }
  }
  async handle(c:EmailContext):Promise<EmailReply>{
