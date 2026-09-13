@@ -1,5 +1,5 @@
 begin;
-create function public.outreach_email_conversation(p_lead text,p_scope text default null) returns jsonb language sql stable as $$
+create or replace function public.outreach_email_conversation(p_lead text,p_scope text default null) returns jsonb language sql stable as $$
  select coalesce(jsonb_agg(jsonb_build_object(
   'id',j.id::text,'leadId',j.lead_id::text,'subject',j.subject,'body',j.body,'status',j.state,
   'createdAt',j.created_at,'sentAt',j.sent_at,'fromEmail',m.from_email,'failureReason',j.failure_reason
