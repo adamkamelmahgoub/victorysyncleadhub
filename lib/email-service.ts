@@ -41,7 +41,8 @@ export class EmailService {
    const sender=this.transport(m);
    await sender.prepare?.(m.from_email);
    const unsubscribe=`${origin}/api/email/unsubscribe?token=${encodeURIComponent(j.unsubscribe_token)}`;
-   const message:OutboundMessage={jobId:j.id,fromName:m.from_name,fromEmail:m.from_email,to:j.to_email,subject:j.subject,text:`${j.body}\n\nUnsubscribe: ${unsubscribe}`,messageId:`<${j.id}@${claim.domain}>`,headers:{'List-Unsubscribe':`<${unsubscribe}>`,'List-Unsubscribe-Post':'List-Unsubscribe=One-Click','X-Outreach-ID':j.id}};
+   const signature=String(m.signature??'').trim();
+   const message:OutboundMessage={jobId:j.id,fromName:m.from_name,fromEmail:m.from_email,to:j.to_email,subject:j.subject,text:[j.body.trim(),signature,`Unsubscribe from future emails: ${unsubscribe}`].filter(Boolean).join('\n\n'),messageId:`<${j.id}@${claim.domain}>`,headers:{'List-Unsubscribe':`<${unsubscribe}>`,'List-Unsubscribe-Post':'List-Unsubscribe=One-Click','X-Outreach-ID':j.id}};
    if(claim.thread?.inReplyTo){message.headers['In-Reply-To']=claim.thread.inReplyTo;message.headers.References=claim.thread.references;}
    const allowed=await this.rpc('outreach_email_dispatch_check',{p_job:j.id,p_claim:j.claim_token});
    if(!allowed&&claim.phase3){await this.rpc('outreach_sequence_release',{p_job:j.id,p_claim:j.claim_token});return {sent:0,held:true};}
@@ -181,6 +182,13 @@ export class EmailService {
   if(smtpOnly&&c.method==='POST') {
    const m=await this.admin('mailbox_secret',{id:smtpOnly[1]},c);if(!m||m.provider!=='smtp')throw new EmailInputError('SMTP mailbox not found');
    return ok(await this.rpc('outreach_email_manual_mode',{p_mailbox:String(m.id),p_actor:c.actor??'operator'}));
+  }
+  const signature=p.match(/^\/email\/mailboxes\/([^/]+)\/signature$/);
+  if(signature&&['GET','PATCH'].includes(c.method)){
+   const m=await this.admin('mailbox_secret',{id:signature[1]},c);if(!m)return ok({error:'Mailbox not found'},404);
+   if(c.method==='GET')return ok({signature:m.signature??''});
+   const value=String(b.signature??'').trim();if(value.length>5000||/<\/?[a-z][^>]*>/i.test(value))throw new EmailInputError('Use a plain text signature of at most 5,000 characters');
+   return ok(await this.rpc('outreach_email_signature',{p_mailbox:String(m.id),p_signature:value,p_actor:c.actor??'operator'}));
   }
   if(mailbox && c.method==='PATCH') {
    const data:any={id:mailbox[1]};for(const k of ['status','engineEnabled','dailyCap']) if(b[k]!==undefined) data[k]=b[k];

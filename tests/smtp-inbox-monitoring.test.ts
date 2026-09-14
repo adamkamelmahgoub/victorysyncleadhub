@@ -59,3 +59,9 @@ test('known SMTP recipient rejection records a hard bounce instead of ambiguous 
  const result=await service.process();assert.equal(result.state,'failed');assert.ok(actions.some(c=>c.name==='outreach_email_event'&&c.args.p_type==='hard_bounce'));
  process.env.OUTREACH_EMAIL_ENABLED='false';
 });
+test('saved mailbox signature is inserted once above the final unsubscribe line',async()=>{
+ process.env.OUTREACH_EMAIL_ENABLED='true';process.env.OUTREACH_PUBLIC_URL='https://portal.example.test';let text='';
+ const service=new EmailService(async(name)=>{if(name==='outreach_email_claim')return {job:{id:'job-id',subject:'Hello',body:'Message body',claim_token:'claim',to_email:'lead@example.test',unsubscribe_token:'token'},mailbox:{from_email:'sender@example.test',from_name:'Sender',signature:'Adam\nVictory Sync'},domain:'example.test',directLinkDomains:[]};if(name==='outreach_email_dispatch_check')return true;return null;},()=>({send:async message=>{text=message.text;return {messageId:'sent'};}}),undefined,undefined,async()=>{});
+ await service.process();const lines=text.split('\n');assert.equal(text,'Message body\n\nAdam\nVictory Sync\n\nUnsubscribe from future emails: https://portal.example.test/api/email/unsubscribe?token=token');assert.match(lines.at(-1)??'',/^Unsubscribe from future emails:/);
+ process.env.OUTREACH_EMAIL_ENABLED='false';
+});
