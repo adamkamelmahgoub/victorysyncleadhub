@@ -14,7 +14,7 @@ export class ZeroBounceVerifier implements VerificationProvider {
     if(data.status==='valid'||data.status==='catch-all') return 'risky';return 'unverified';
   }
 }
-export type OutboundMessage={jobId:string;fromEmail:string;fromName:string;to:string;subject:string;text:string;messageId:string;headers:Record<string,string>};
+export type OutboundMessage={jobId:string;fromEmail:string;fromName:string;to:string;subject:string;text:string;html?:string;messageId:string;headers:Record<string,string>};
 export interface EmailTransport {prepare?(fromEmail:string):Promise<void>;send(message:OutboundMessage):Promise<{messageId:string}>}
 export class SmtpRecipientRejected extends Error {constructor(){super('SMTP permanently rejected the recipient');}}
 export class ResendTransport implements EmailTransport {
@@ -30,7 +30,7 @@ export class ResendTransport implements EmailTransport {
  }
  async send(message:OutboundMessage) {
   try {
-   const response=await this.fetcher('https://api.resend.com/emails',{method:'POST',headers:{authorization:`Bearer ${this.apiKey}`,'content-type':'application/json','Idempotency-Key':`outreach/${message.jobId}`},body:JSON.stringify({from:`${message.fromName.replace(/["\r\n<>]/g,'')} <${message.fromEmail}>`,to:[message.to],subject:message.subject,text:message.text,headers:message.headers,tags:[{name:'outreach_job_id',value:message.jobId}]}),signal:AbortSignal.timeout(20000)});
+   const response=await this.fetcher('https://api.resend.com/emails',{method:'POST',headers:{authorization:`Bearer ${this.apiKey}`,'content-type':'application/json','Idempotency-Key':`outreach/${message.jobId}`},body:JSON.stringify({from:`${message.fromName.replace(/["\r\n<>]/g,'')} <${message.fromEmail}>`,to:[message.to],subject:message.subject,text:message.text,html:message.html,headers:message.headers,tags:[{name:'outreach_job_id',value:message.jobId}]}),signal:AbortSignal.timeout(20000)});
    if(!response.ok) throw new Error();const result=await response.json() as {id?:string};if(!result.id) throw new Error();return {messageId:result.id};
   }catch {throw new Error('Provider dispatch outcome is unknown');}
  }

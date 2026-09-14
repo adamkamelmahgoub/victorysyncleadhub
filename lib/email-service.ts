@@ -9,6 +9,7 @@ export type EmailReply={status:number;body:any;text?:boolean};
 export const isPublicEmailEndpoint=(path:string)=>/^\/email\/(unsubscribe|process|poll|events\/(smtp|resend))$/.test(path);
 export const isEmailEndpoint=(path:string)=>isPublicEmailEndpoint(path)||isSequenceEndpoint(path)||/^\/email\/(run|metrics|settings|domains|mailboxes|verify|queue|process|events|unsubscribe|alerts|send|conversation)(\/|$)/.test(path)||/^\/email-accounts(\/|$)/.test(path);
 function domain(value:unknown) {const s=String(value??'').trim().toLowerCase();if(!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(s)) throw new EmailInputError('Enter a domain name without a URL or path');return s;}
+function emailHtml(value:string){return value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/\r?\n/g,'<br>');}
 function mailboxInput(b:any) {
  const email=String(b.fromEmail??'').trim().toLowerCase();
  if(!/^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]+$/.test(email)) throw new EmailInputError('Enter a single mailbox email address');
@@ -42,7 +43,7 @@ export class EmailService {
    await sender.prepare?.(m.from_email);
    const unsubscribe=`${origin}/api/email/unsubscribe?token=${encodeURIComponent(j.unsubscribe_token)}`;
    const signature=String(m.signature??'').trim();
-   const message:OutboundMessage={jobId:j.id,fromName:m.from_name,fromEmail:m.from_email,to:j.to_email,subject:j.subject,text:[j.body.trim(),signature,`Unsubscribe from future emails: ${unsubscribe}`].filter(Boolean).join('\n\n'),messageId:`<${j.id}@${claim.domain}>`,headers:{'List-Unsubscribe':`<${unsubscribe}>`,'List-Unsubscribe-Post':'List-Unsubscribe=One-Click','X-Outreach-ID':j.id}};
+   const message:OutboundMessage={jobId:j.id,fromName:m.from_name,fromEmail:m.from_email,to:j.to_email,subject:j.subject,text:[j.body.trim(),signature,`Unsubscribe: ${unsubscribe}`].filter(Boolean).join('\n\n'),html:`<div>${emailHtml(j.body.trim())}</div>${signature?`<div style="margin-top:1em">${emailHtml(signature)}</div>`:''}<div style="margin-top:2em"><a href="${emailHtml(unsubscribe)}">Unsubscribe</a></div>`,messageId:`<${j.id}@${claim.domain}>`,headers:{'List-Unsubscribe':`<${unsubscribe}>`,'List-Unsubscribe-Post':'List-Unsubscribe=One-Click','X-Outreach-ID':j.id}};
    if(claim.thread?.inReplyTo){message.headers['In-Reply-To']=claim.thread.inReplyTo;message.headers.References=claim.thread.references;}
    const allowed=await this.rpc('outreach_email_dispatch_check',{p_job:j.id,p_claim:j.claim_token});
    if(!allowed&&claim.phase3){await this.rpc('outreach_sequence_release',{p_job:j.id,p_claim:j.claim_token});return {sent:0,held:true};}
