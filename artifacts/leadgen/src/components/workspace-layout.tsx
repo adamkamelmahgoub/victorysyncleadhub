@@ -89,6 +89,7 @@ const groups: { label: string; links: Item[] }[] = [
       { href: "/team", label: "Team & invites", icon: Users },
       { href: "/training", label: "Agent training", icon: FileText },
       { href: "/integrations", label: "Integrations", icon: Plug },
+      { href: "/activity-log", label: "Activity & audit log", icon: FileText },
       { href: "/webhooks", label: "Webhooks", icon: Plug },
       { href: "/reputation", label: "Reputation", icon: Users },
       { href: "/affiliates", label: "Affiliates", icon: Users },

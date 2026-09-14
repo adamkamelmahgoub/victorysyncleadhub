@@ -17,6 +17,7 @@ export async function apiFetch(path: string, opts?: RequestInit) {
     ...opts,
     headers,
   });
+  if(!['GET','HEAD'].includes((opts?.method??'GET').toUpperCase())&&!normalizedPath.startsWith('/api/activity/'))void import('./activity').then(({recordActivity})=>recordActivity('api','data_changed',{pagePath:window.location.pathname,target:normalizedPath,requestMethod:(opts?.method??'GET').toUpperCase(),requestStatus:res.status}));
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     try {

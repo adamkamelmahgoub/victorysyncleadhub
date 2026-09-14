@@ -465,6 +465,13 @@ async function authenticateRequest(req: VercelRequest): Promise<AuthenticatedUse
   return await response.json() as AuthenticatedUser;
 }
 
+async function recordPortalActivity(req:VercelRequest,user:AuthenticatedUser,event:{eventType:string;action:string;pagePath?:string|null;target?:string|null;requestMethod?:string|null;requestStatus?:number|null;sessionId?:string|null;metadata?:Record<string,unknown>}) {
+  const clean=(value:unknown,max=500)=>typeof value==='string'?value.replace(/[\r\n\t]+/g,' ').trim().slice(0,max):null;
+  const forwarded=String(getHeader(req,'x-forwarded-for')??'').split(',')[0].trim();
+  const metadata=event.metadata&&typeof event.metadata==='object'?Object.fromEntries(Object.entries(event.metadata).slice(0,20).map(([k,v])=>[k.slice(0,80),typeof v==='string'?v.slice(0,500):v])):{};
+  try{await supabaseRest('portal_activity_log',{method:'POST',body:JSON.stringify({actor_id:user.id,actor_email:clean(user.email,320),actor_name:clean(user.user_metadata?.full_name??user.user_metadata?.name,200),organization_id:clean(user.user_metadata?.org_id,200),client_account_id:clean(user.user_metadata?.client_account_id,200),session_id:clean(event.sessionId,200),event_type:clean(event.eventType,80)??'activity',action:clean(event.action,200)??'unknown',page_path:clean(event.pagePath,1000),target:clean(event.target,500),request_method:clean(event.requestMethod,20),request_status:event.requestStatus??null,ip_address:clean(forwarded||getHeader(req,'x-real-ip'),100),user_agent:clean(getHeader(req,'user-agent'),1000),metadata})},req);}catch(error){console.warn('Portal activity logging failed',error instanceof Error?error.message:'unknown');}
+}
+
 async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
   const body = await readJson(req) as { orgId?: unknown };
   const requestedOrgId = typeof body.orgId === "string" && body.orgId.trim() ? body.orgId.trim() : null;
@@ -562,6 +569,7 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
     });
     if (!response.ok) throw new Error("Unable to synchronize dashboard access metadata");
   }
+  await recordPortalActivity(req,user,{eventType:'authentication',action:'signed_in',pagePath:'/login',metadata:{role:member.role??metadata.role??'member'}});
   sendJson(res, 200, { member: toCamelValue(member) });
 }
 
@@ -2490,6 +2498,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const currentUser = await authenticateRequest(req);
+    if(path==='/api/activity/events'&&method==='POST'){
+      const body=await readJson(req) as Record<string,unknown>;
+      await recordPortalActivity(req,currentUser,{eventType:String(body.eventType??'interaction'),action:String(body.action??'unknown'),pagePath:typeof body.pagePath==='string'?body.pagePath:null,target:typeof body.target==='string'?body.target:null,requestMethod:typeof body.requestMethod==='string'?body.requestMethod:null,requestStatus:typeof body.requestStatus==='number'?body.requestStatus:null,sessionId:typeof body.sessionId==='string'?body.sessionId:null,metadata:body.metadata&&typeof body.metadata==='object'?body.metadata as Record<string,unknown>:undefined});
+      sendJson(res,201,{recorded:true});return;
+    }
+    if(path==='/api/activity/logs'&&method==='GET'){
+      const role=String(currentUser.user_metadata?.role??'member');if(!['owner','admin'].includes(role)){sendJson(res,403,{error:'Only owners and administrators can view the activity log'});return;}
+      const q=new URL(req.url??'/', 'https://local.invalid').searchParams;
+      const result=await supabaseRest('rpc/portal_activity_list',{method:'POST',body:JSON.stringify({p_query:q.get('query'),p_event_type:q.get('type'),p_limit:Number(q.get('limit')??100),p_offset:Number(q.get('offset')??0),p_org:null})},req);sendJson(res,200,result);return;
+    }
+    await recordPortalActivity(req,currentUser,{eventType:'api',action:'api_request',pagePath:path,requestMethod:method});
     if (/^\/api\/(companies|company-crm)(\/|$)/.test(path)) {
       const result = await companyCrmRequest(method, req.url ?? path, getHeader(req, "authorization") ?? "", currentUser, () => readJson(req));
       sendJson(res, result.status, result.data);

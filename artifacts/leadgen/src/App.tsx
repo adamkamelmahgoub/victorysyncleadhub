@@ -10,6 +10,7 @@ import OutreachWeekly from '@/pages/outreach-weekly';
 import EmailAccounts from "@/pages/email-accounts";
 import EmailUnsubscribes from "@/pages/email-unsubscribes";
 import SentEmails from "@/pages/sent-emails";
+import ActivityLog from '@/pages/activity-log';
 import Pipeline from "@/pages/pipeline";
 import Companies from "@/pages/companies";
 import CompanyDetail from "@/pages/company-detail";
@@ -53,6 +54,7 @@ import { AuthProvider, useAuth } from "@/lib/auth";
 import { useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { canAccessPath } from "@/lib/permissions";
+import {ActivityTracker} from '@/components/activity-tracker';
 
 const queryClient = new QueryClient({
   mutationCache: new MutationCache({
@@ -101,6 +103,7 @@ function Router() {
       <Route path="/leadgen/email-accounts" component={EmailAccounts} />
       <Route path="/leadgen/email-unsubscribes" component={EmailUnsubscribes} />
       <Route path="/leadgen/sent-emails" component={SentEmails} />
+      <Route path="/leadgen/activity-log" component={ActivityLog} />
       <Route path="/leadgen/integrations" component={Integrations} />
       <Route path="/leadgen/company-import" component={() => <LeadImport companyMode />} />
       <Route path="/leadgen/lead-import" component={() => <LeadImport />} />
@@ -137,6 +140,7 @@ function Router() {
       <Route path="/email-accounts" component={EmailAccounts} />
       <Route path="/email-unsubscribes" component={EmailUnsubscribes} />
       <Route path="/sent-emails" component={SentEmails} />
+      <Route path="/activity-log" component={ActivityLog} />
       <Route path="/settings" component={Settings} />
       <Route path="/team" component={Team} />
       <Route path="/integrations" component={Integrations} />
@@ -272,6 +276,7 @@ function AuthenticatedApp() {
 
   return (
     <AppErrorBoundary resetKey={location}>
+      <ActivityTracker />
       <Layout>
         <Router />
       </Layout>

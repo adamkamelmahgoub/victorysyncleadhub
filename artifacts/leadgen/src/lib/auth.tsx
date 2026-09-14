@@ -9,6 +9,7 @@ import {
 import type { Session, User } from "@supabase/supabase-js";
 import { setAuthTokenGetter } from "@workspace/api-client-react";
 import { supabase } from "./supabase";
+import {recordActivity} from './activity';
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -107,6 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ? session.user.user_metadata.page_permissions.filter((value): value is string => typeof value === "string")
         : null,
       signOut: async () => {
+        await recordActivity('authentication','signed_out',{pagePath:window.location.pathname});
         await supabase.auth.signOut();
       },
     }),
