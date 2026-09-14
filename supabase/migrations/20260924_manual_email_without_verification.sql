@@ -6,15 +6,17 @@ do $$ declare definition text;changed text;begin
  changed:=replace(definition,
   'l.email_verification_status<>''valid'' or l.normalized_email<>j.to_email or l.verified_email is distinct from l.normalized_email',
   '(not j.operator_verification_override and (l.email_verification_status<>''valid'' or l.verified_email is distinct from l.normalized_email)) or l.normalized_email<>j.to_email');
- if changed=definition then raise exception 'Unable to install manual verification override in email claim';end if;execute changed;
+ if changed=definition and position('j.operator_verification_override' in definition)=0 then raise exception 'Unable to install manual verification override in email claim';end if;
+ if changed<>definition then execute changed;end if;
  select pg_get_functiondef('public.outreach_email_dispatch_check_phase2(uuid,uuid)'::regprocedure) into definition;
  changed:=replace(definition,
   'l.email_verification_status=''valid'' and l.verified_email=l.normalized_email and j.to_email=l.normalized_email',
   '(j.operator_verification_override or (l.email_verification_status=''valid'' and l.verified_email=l.normalized_email)) and j.to_email=l.normalized_email');
- if changed=definition then raise exception 'Unable to install manual verification override in dispatch check';end if;execute changed;
+ if changed=definition and position('j.operator_verification_override' in definition)=0 then raise exception 'Unable to install manual verification override in dispatch check';end if;
+ if changed<>definition then execute changed;end if;
 end $$;
 
-create function public.outreach_email_enqueue_manual(p_lead text,p_subject text,p_body text,p_mailbox text,p_token text,p_hash text,p_actor text,p_scope text default null) returns jsonb language plpgsql as $$
+create or replace function public.outreach_email_enqueue_manual(p_lead text,p_subject text,p_body text,p_mailbox text,p_token text,p_hash text,p_actor text,p_scope text default null) returns jsonb language plpgsql as $$
 declare l public.leads;m public.email_accounts;j public.outreach_email_jobs;chosen text;
 begin
  perform pg_advisory_xact_lock(8675309);
