@@ -215,8 +215,11 @@ export class EmailService {
      data.encryptedCredentials=encryptCredentials(m.provider==='smtp'?{password:String(b.smtpPassword??'')}:{apiKey:String(b.apiKey??''),domainId:String(b.resendDomainId)},m.from_email);
     }
    }
-   return ok(await this.admin('mailbox_update',data,c));
+   const updated=await this.admin('mailbox_update',data,c);
+   if(b.label!==undefined||b.warmupDailyCap!==undefined||b.dailyCap!==undefined)await this.rpc('outreach_mailbox_manage',{p_action:'update',p_id:mailbox[1],p_data:{...(b.label!==undefined?{label:String(b.label)}:{}),...(b.warmupDailyCap!==undefined?{warmupDailyCap:Number(b.warmupDailyCap)}:{}),...(b.dailyCap!==undefined?{dailyCap:Number(b.dailyCap)}:{})},p_actor:c.actor??'operator'});
+   return ok(updated);
   }
+  if(mailbox&&c.method==='DELETE')return ok(await this.rpc('outreach_mailbox_manage',{p_action:'delete',p_id:mailbox[1],p_data:{},p_actor:c.actor??'operator'}));
   const verification=p.match(/^\/email\/verify\/([^/]+)$/);
   if(verification && c.method==='GET') {const l=await this.admin('lead',{id:verification[1]},c);return l?ok({status:l.email_verification_status,verifiedAt:l.verified_at}):ok({error:'Eligible lead not found'},404);}
   if(verification && c.method==='POST') {

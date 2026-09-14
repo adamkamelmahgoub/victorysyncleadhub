@@ -9,6 +9,9 @@ const setupMessages = new Set([
  'Check the receiving inbox before enabling bounce monitoring', 'SMTP mailbox not found',
  'Workflow must exist and be active', 'Choose a send email step', 'Eligible contact required',
  'Event key already used for different email', 'Unsupported template variable',
+ 'Campaign not found', 'Add a subject and email body before launching',
+ 'Campaign email must be plain text', 'The campaign sending mailbox is not enabled',
+ 'No enabled mailbox capacity is available', 'Mailbox not found',
 ]);
 export function emailOperationError(error: unknown) {
  const message=error instanceof Error?error.message:'';

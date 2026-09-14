@@ -1,0 +1,8 @@
+begin;
+alter table public.sequences add column if not exists archived_at timestamptz;
+create or replace function public.outreach_sequence_list() returns jsonb language sql stable as $$select coalesce(jsonb_agg(to_jsonb(x)||jsonb_build_object('total_enrolled',(select count(*) from public.sequence_enrollments e where e.sequence_id=x.id)) order by x.created_at desc),'[]'::jsonb) from public.sequences x where x.archived_at is null$$;
+create or replace function public.outreach_sequence_archive(p_sequence text,p_actor text default 'operator') returns jsonb language plpgsql as $$
+declare q public.sequences;n int;begin update public.sequences set archived_at=now(),status='paused',updated_at=now() where id::text=p_sequence and archived_at is null returning * into q;if not found then raise exception 'Sequence not found';end if;update public.sequence_enrollments set status='stopped',stopped_reason='sequence_deleted',next_send_at=null,resume_at=null where sequence_id=q.id and status in ('active','paused');get diagnostics n=row_count;insert into public.outreach_audit(actor,reason,details) values(p_actor,'sequence_deleted',jsonb_build_object('sequence_id',q.id,'stopped_enrollments',n));return jsonb_build_object('id',q.id,'deleted',true,'stoppedEnrollments',n);end $$;
+revoke all on function public.outreach_sequence_list() from public;revoke all on function public.outreach_sequence_archive(text,text) from public;
+do $$ begin if exists(select 1 from pg_roles where rolname='service_role') then grant execute on function public.outreach_sequence_list() to service_role;grant execute on function public.outreach_sequence_archive(text,text) to service_role;end if;end $$;
+commit;

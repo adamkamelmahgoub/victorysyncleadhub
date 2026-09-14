@@ -1,0 +1,1 @@
+begin;drop function if exists public.outreach_sequence_archive(text,text);drop function if exists public.outreach_sequence_list();alter table public.sequences drop column if exists archived_at;commit;

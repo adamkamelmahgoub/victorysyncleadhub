@@ -90,7 +90,7 @@ export class SequenceService {
    return ok(await this.admin('inbox_configure',{id:inbox[1],provider:b.provider,credentials:b.provider==='disabled'?null:encryptCredentials(secret,m.from_email)},c));
   }
   if(p==='/sequences'){
-   if(c.method==='GET')return ok(await this.admin('list',{},c));
+   if(c.method==='GET')return ok(await this.rpc('outreach_sequence_list',{}));
    if(c.method==='POST'){if(!String(b.name??'').trim())throw new EmailInputError('Name is required');return ok(await this.admin('create',{name:String(b.name).trim()},c),201);}
   }
   const stop=p.match(/^\/sequences\/enrollments\/([^/]+)\/stop$/);
@@ -112,7 +112,7 @@ export class SequenceService {
    if(c.method==='DELETE'&&stepId)return ok(await this.admin('step_delete',{id,stepId},c));
    if(!['POST','PUT'].includes(c.method))return ok({error:'Unsupported step operation'},405);
    const channel=b.channel??'email';
-   if(!['email','call_task'].includes(channel)||!Number.isInteger(b.stepNumber)||b.stepNumber<1||!Number.isInteger(b.delayDays)||b.delayDays<0||b.delayDays>365)throw new EmailInputError('Enter a channel, step number and delay of 0 to 365 days');
+   if(!['email','manual_email','call_task','linkedin_task','action_item'].includes(channel)||!Number.isInteger(b.stepNumber)||b.stepNumber<1||!Number.isInteger(b.delayDays)||b.delayDays<0||b.delayDays>365)throw new EmailInputError('Enter a channel, step number and delay of 0 to 365 days');
    const subject=String(b.subject??''),body=String(b.body??'');
    if(channel==='email'){const settings=await this.rpc('outreach_email_admin',{p_action:'dashboard'});plainText(subject,body,settings.settings.direct_link_domains);}
    if(/\{\{(?!(firstName|first_name|lastName|company|city|avg_job_value|missed_calls_per_week|after_hours_coverage|uses_answering_service)\}\})/.test(subject+body))throw new EmailInputError('Unsupported template variable');
@@ -120,9 +120,11 @@ export class SequenceService {
   }
   if(!operation&&['PUT','PATCH'].includes(c.method)){
    if(b.status!==undefined&&!['draft','active','paused'].includes(b.status))throw new EmailInputError('Invalid sequence status');
-   return ok(await this.admin('update',{id,...(b.name!==undefined?{name:String(b.name)}:{}),...(b.status!==undefined?{status:b.status}:{})},c));
+   const result=await this.admin('update',{id,...(b.name!==undefined?{name:String(b.name)}:{}),...(b.status!==undefined?{status:b.status}:{})},c);
+   if(b.label!==undefined)await this.rpc('outreach_sequence_label',{p_sequence:id,p_label:String(b.label),p_actor:c.actor??'operator'});
+   return ok(result);
   }
-  if(!operation&&c.method==='DELETE')return ok(await this.admin('delete',{id},c));
+  if(!operation&&c.method==='DELETE')return ok(await this.rpc('outreach_sequence_archive',{p_sequence:id,p_actor:c.actor??'operator'}));
   return ok({error:'Unsupported sequence operation'},405);
  }
 }
