@@ -60,6 +60,7 @@ export default function Campaigns() {
   const createCampaign = useCreateCampaign();
   const deleteCampaign = useDeleteCampaign();
   const { data: leadsData, isFetching: loadingLeads, error: leadsError } = useQuery({queryKey:['campaign-all-contacts'],enabled:showWizard,queryFn:({signal})=>allCampaignContacts(apiFetch,signal)});
+  const {data:mailboxes=[]}=useQuery<Array<{id:string;fromName:string;fromEmail:string;status:string}>>({queryKey:['campaign-mailboxes'],enabled:showWizard,queryFn:()=>apiFetch('/email-accounts')});
   const [visibleLeads,setVisibleLeads]=useState(100);
   const [pendingCampaign,setPendingCampaign]=useState<string|number|null>(null);
   const [assignedCount,setAssignedCount]=useState(0);
@@ -136,12 +137,13 @@ export default function Campaigns() {
       }
 
       if (!asDraft) {
-        await apiFetch(`/campaigns/${campaign.id}/launch`, { method: "POST" });
+        const result=await apiFetch(`/email/campaigns/${campaign.id}/launch`, { method: "POST", body:'{}' }) as {queued:number;skipped:number;alreadyQueued:number};
+        toast({title:`Campaign launched: ${result.queued} emails queued`,description:[result.skipped?`${result.skipped} contacts skipped because they are suppressed, missing an email, or missing a confirmed timezone.`:'',result.alreadyQueued?`${result.alreadyQueued} were already queued.`:''].filter(Boolean).join(' ')});
       }
 
       queryClient.invalidateQueries({ queryKey: getListCampaignsQueryKey() });
       setShowWizard(false);
-      toast({ title: asDraft ? "Campaign saved as draft" : `Campaign activated with ${selectedLeadIds.length} leads.` });
+      if(asDraft)toast({ title:"Campaign saved as draft" });
     } catch (error) {
       toast({ title: "Campaign could not be completed", description:error instanceof Error?error.message:"Retry to continue adding contacts to the same campaign", variant: "destructive" });
     } finally {
@@ -290,10 +292,7 @@ export default function Campaigns() {
                     <Label className="text-xs font-medium text-muted-foreground">From Name</Label>
                     <Input className="mt-1" placeholder="John at VictorySync" value={form.fromName} onChange={(e) => setForm((f) => ({ ...f, fromName: e.target.value }))} />
                   </div>
-                  <div>
-                    <Label className="text-xs font-medium text-muted-foreground">From Email</Label>
-                    <Input className="mt-1" type="email" placeholder="john@agency.com" value={form.fromEmail} onChange={(e) => setForm((f) => ({ ...f, fromEmail: e.target.value }))} />
-                  </div>
+                  <div><Label className="text-xs font-medium text-muted-foreground">Sending mailbox</Label><Select value={form.fromEmail} onValueChange={v=>{const m=mailboxes.find(x=>x.fromEmail===v);setForm(f=>({...f,fromEmail:v,fromName:f.fromName||m?.fromName||''}));}}><SelectTrigger className="mt-1"><SelectValue placeholder="Rotate enabled mailboxes"/></SelectTrigger><SelectContent>{mailboxes.map(m=><SelectItem key={m.id} value={m.fromEmail}>{m.fromEmail} ({m.status})</SelectItem>)}</SelectContent></Select><p className="mt-1 text-xs text-muted-foreground">Leave empty to rotate across enabled mailboxes.</p></div>
                 </div>
                 <div>
                   <Label className="text-xs font-medium text-muted-foreground">Source Type</Label>

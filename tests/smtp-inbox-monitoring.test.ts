@@ -53,6 +53,12 @@ test('Inbox conversation reads real outreach jobs and queues through the selecte
  const thread=await service.handle({...base,path:'/email/conversation/lead-1',method:'GET',body:{}});assert.equal(thread.body[0].status,'sent');
  const queued=await service.handle({...base,path:'/email/send',method:'POST',body:{leadId:'lead-1',mailboxId:'mailbox-1',subject:'Hello',body:'Plain text'}});assert.equal(queued.status,202);assert.ok(calls.some(c=>c.name==='outreach_email_enqueue_manual'&&c.args.p_mailbox==='mailbox-1'));
 });
+test('sent history and campaign launch use scoped outreach RPCs',async()=>{
+ const calls:Array<{name:string;args:any}>=[];const rpc=async(name:string,args:any)=>{calls.push({name,args});return name==='outreach_sent_emails'?{items:[],total:0}:{campaignId:'campaign-1',queued:2,skipped:1,alreadyQueued:0};};
+ const service=new EmailService(rpc,()=>({send:async()=>({messageId:'unused'})}));const base={raw:'',headers:{},authenticated:true,actor:'operator-1',scope:'account-1'};
+ const sent=await service.handle({...base,path:'/email/sent',method:'GET',body:{query:'roof',limit:'50',offset:'0'}});assert.equal(sent.body.total,0);assert.ok(calls.some(c=>c.name==='outreach_sent_emails'&&c.args.p_scope==='account-1'&&c.args.p_query==='roof'));
+ const launch=await service.handle({...base,path:'/email/campaigns/campaign-1/launch',method:'POST',body:{}});assert.equal(launch.body.queued,2);assert.ok(calls.some(c=>c.name==='outreach_campaign_launch'&&c.args.p_actor==='operator-1'&&c.args.p_campaign==='campaign-1'));
+});
 test('known SMTP recipient rejection records a hard bounce instead of ambiguous delivery',async()=>{
  process.env.OUTREACH_EMAIL_ENABLED='true';process.env.OUTREACH_PUBLIC_URL='https://portal.example.test';const actions:Array<{name:string;args:any}>=[];
  const service=new EmailService(async(name,args)=>{actions.push({name,args});if(name==='outreach_email_claim')return {job:{id:'job-id',subject:'Hello',body:'Hello',claim_token:'claim',to_email:'lead@example.test',unsubscribe_token:'token'},mailbox:{from_email:'sender@example.test',from_name:'Sender'},domain:'example.test',directLinkDomains:[]};if(name==='outreach_email_dispatch_check')return true;return null;},()=>({send:async()=>{throw new SmtpRecipientRejected();}}),undefined,undefined,async()=>{});

@@ -57,6 +57,7 @@ const groups: { label: string; links: Item[] }[] = [
       { href: "/campaigns", label: "Campaigns", icon: Megaphone },
       { href: "/email-templates", label: "Email templates", icon: FileText },
       { href: "/email-accounts", label: "Mailboxes", icon: Mail },
+      { href: "/sent-emails", label: "Sent emails", icon: Mail },
       { href: "/email-unsubscribes", label: "Unsubscribed contacts", icon: Users },
       { href: "/automation", label: "Workflows", icon: Zap },
       { href: "/forms", label: "Forms", icon: FileText },

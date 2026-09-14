@@ -2456,6 +2456,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           body=JSON.parse(raw);
         } else if(emailPath==='/email/unsubscribe') body={token:new URL(req.url??'/', 'https://local.invalid').searchParams.get('token')};
         else if(!['GET','HEAD'].includes(method)) body=await readJson(req);
+        else body=Object.fromEntries(new URL(req.url??'/', 'https://local.invalid').searchParams.entries());
         const service=new EmailService((name,data)=>supabaseRest(`rpc/${name}`,{method:'POST',body:JSON.stringify(data)},req),mailboxTransport,undefined,undefined,undefined,inboxAdapter);
         const reply=await service.handle({path:emailPath,method,body,raw,headers:Object.fromEntries(Object.entries(req.headers).map(([k,v])=>[k.toLowerCase(),Array.isArray(v)?v[0]??'':v??''])),actor:user?.id??'system',scope:user?.user_metadata?.role==='agent'?String(user.user_metadata.client_account_id??'__unassigned__'):null,authenticated});
         res.setHeader('Cache-Control','no-store');if(reply.text){res.statusCode=reply.status;res.setHeader('content-type','text/plain; charset=utf-8');res.end(reply.body);}else sendJson(res,reply.status,reply.body);

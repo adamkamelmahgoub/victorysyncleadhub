@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Users, CheckCircle2, TrendingUp, ExternalLink } from "lucide-react";
+import { ArrowLeft, Users, CheckCircle2, TrendingUp, ExternalLink, Rocket } from "lucide-react";
 
 
 const STATUS_COLORS: Record<string, string> = {
@@ -30,10 +30,12 @@ export default function CampaignDetail() {
   const convertedCount=leads.filter(l=>l.status==='converted').length;
   const convRate=leadCount?Math.round(convertedCount/leadCount*100):0;
   const [adding,setAdding]=useState(false),[search,setSearch]=useState(''),[selected,setSelected]=useState<Array<string|number>>([]),[visible,setVisible]=useState(100),[saving,setSaving]=useState(false),[saveError,setSaveError]=useState(''),[progress,setProgress]=useState(0);
+  const [launching,setLaunching]=useState(false),[launchResult,setLaunchResult]=useState('');
   const {data:contacts,isFetching:loadingContacts,error:contactsError}=useQuery({queryKey:['campaign-all-contacts'],enabled:adding,queryFn:({signal})=>allCampaignContacts(apiFetch,signal)});
   const members=new Set(leads.map(l=>String(l.id)));
   const available=(contacts?.leads??[]).filter(l=>!members.has(String(l.id))&&[l.firstName,l.lastName,l.email,l.company].join(' ').toLowerCase().includes(search.toLowerCase()));
   async function addSelected(){setSaving(true);setSaveError('');try{await addCampaignContacts(apiFetch,id,selected,setProgress);setSelected([]);setAdding(false);await cache.invalidateQueries({queryKey:['campaign-members',id]});await cache.invalidateQueries({queryKey:['/api/campaigns']});}catch(e){setSaveError(e instanceof Error?e.message:'Could not add contacts');}finally{setSaving(false);}}
+  async function launch(){setLaunching(true);setLaunchResult('');try{const r=await apiFetch(`/email/campaigns/${encodeURIComponent(id)}/launch`,{method:'POST',body:'{}'}) as {queued:number;skipped:number;alreadyQueued:number};setLaunchResult(`${r.queued} queued, ${r.skipped} skipped, ${r.alreadyQueued} already queued.`);await cache.invalidateQueries({queryKey:['campaign',id]});}catch(e){setLaunchResult(e instanceof Error?e.message:'Campaign launch failed');}finally{setLaunching(false);}}
 
   if (isLoading) {
     return (
@@ -68,7 +70,9 @@ export default function CampaignDetail() {
           <Badge variant="outline" className="ml-auto capitalize" style={{ borderColor: campaign.status === "active" ? "hsl(140 70% 50% / 0.5)" : "hsl(40 90% 60% / 0.5)", color: campaign.status === "active" ? "hsl(140 70% 50%)" : "hsl(40 90% 60%)" }}>
             {campaign.status}
           </Badge>
+          <Button onClick={launch} disabled={launching||!leadCount}><Rocket className="mr-2 h-4 w-4"/>{launching?'Queuing...':campaign.status==='active'?'Queue new leads':'Launch campaign'}</Button>
         </div>
+        {launchResult&&<p className="rounded border bg-card p-3 text-sm" role="status">{launchResult}</p>}
 
         <div className="grid grid-cols-3 gap-4">
           {[
