@@ -2204,6 +2204,13 @@ async function getPipelineLeads(req: VercelRequest, res: VercelResponse) {
 }
 
 async function updateLeadStage(path: string, method: string, req: VercelRequest, res: VercelResponse) {
+  if(path==='/api/pipeline/leads/stage'&&(method==='PATCH'||method==='PUT')){
+    const body=await readJson(req) as {leadIds?:unknown[];stageId?:string|number|null;pipelineId?:string|number};const ids=[...new Set((body.leadIds??[]).map(String))];
+    if(!ids.length||ids.length>1000||ids.some(id=>!/^[a-zA-Z0-9-]{1,80}$/.test(id))){sendJson(res,400,{error:'Choose 1 to 1,000 contacts'});return true;}
+    if(body.stageId){const stages=await supabaseRest(`pipeline_stages?id=eq.${encodeURIComponent(String(body.stageId))}&select=id,pipeline_id&limit=1`,{method:'GET'},req) as Array<{id:string;pipeline_id:string}>;if(!stages.length||body.pipelineId&&String(stages[0].pipeline_id)!==String(body.pipelineId)){sendJson(res,400,{error:'Choose a stage in this pipeline'});return true;}}
+    let updated=0;for(let start=0;start<ids.length;start+=200){const values=ids.slice(start,start+200).join(',');const rows=await supabaseRest(`leads?id=in.(${values})`,{method:'PATCH',body:JSON.stringify({pipeline_stage_id:body.stageId??null})},req) as LeadRow[];updated+=rows.length;}
+    sendJson(res,200,{updated});return true;
+  }
   const match = path.match(/^\/api\/pipeline\/leads\/([^/]+)\/stage$/);
   if (!match || (method !== "PATCH" && method !== "PUT")) return false;
   const leadId = decodeURIComponent(match[1] ?? "");

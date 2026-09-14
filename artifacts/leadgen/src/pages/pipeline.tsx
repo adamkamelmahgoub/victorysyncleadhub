@@ -6,10 +6,12 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Building2, Star, GripVertical, LayoutDashboard, Columns3, Trash2 } from "lucide-react";
+import { Plus, Building2, Star, GripVertical, LayoutDashboard, Columns3, Trash2, Users } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { asArray } from "@/lib/data-shape";
 import { Link } from "wouter";
+import {allCampaignContacts,type CampaignContact} from '@/lib/campaign-membership';
+import {useQuery} from '@tanstack/react-query';
 
 type Lead = {
   id: string;
@@ -144,14 +146,18 @@ export default function PipelinePage() {
   const [loading, setLoading] = useState(true);
   const [showPipelineDialog, setShowPipelineDialog] = useState(false);
   const [showStageDialog, setShowStageDialog] = useState(false);
-  const [newPipeline, setNewPipeline] = useState({ name: "", description: "" });
+  const [showContactsDialog,setShowContactsDialog]=useState(false);
+  const [newPipeline, setNewPipeline] = useState({ name: "", description: "",initialStage:"New opportunity" });
   const [newStage, setNewStage] = useState({ name: "", color: STAGE_COLORS[0] });
   const [pipelineError, setPipelineError] = useState("");
   const [stageError, setStageError] = useState("");
   const [creatingPipeline, setCreatingPipeline] = useState(false);
   const [creatingStage, setCreatingStage] = useState(false);
   const [deletingPipeline, setDeletingPipeline] = useState(false);
+  const [contactSearch,setContactSearch]=useState('');const [selectedLeadIds,setSelectedLeadIds]=useState<string[]>([]);const [targetStageId,setTargetStageId]=useState('');const [assigning,setAssigning]=useState(false);
   const { toast } = useToast();
+  const {data:contactData,isFetching:contactsLoading,error:contactsError}=useQuery({queryKey:['pipeline-all-contacts'],enabled:showContactsDialog||showPipelineDialog,queryFn:({signal})=>allCampaignContacts(apiFetch,signal)});
+  const selectableContacts=useMemo(()=>asArray<CampaignContact>(contactData?.leads).filter(l=>[l.firstName,l.lastName,l.email,l.company].join(' ').toLowerCase().includes(contactSearch.toLowerCase())),[contactData,contactSearch]);
 
   const selectedPipeline = useMemo(
     () => pipelines.find((pipeline) => pipeline.id === selectedPipelineId),
@@ -209,8 +215,10 @@ export default function PipelinePage() {
         method: "POST",
         body: JSON.stringify({ name: newPipeline.name.trim(), description: newPipeline.description.trim() || null }),
       }) as Pipeline;
+      const stage=await apiFetch('/api/pipeline/stages',{method:'POST',body:JSON.stringify({name:newPipeline.initialStage.trim()||'New opportunity',color:STAGE_COLORS[0],pipelineId:pipeline.id,position:0})}) as Stage;
+      if(selectedLeadIds.length)await apiFetch('/api/pipeline/leads/stage',{method:'PATCH',body:JSON.stringify({leadIds:selectedLeadIds,stageId:stage.id,pipelineId:pipeline.id})});
       setShowPipelineDialog(false);
-      setNewPipeline({ name: "", description: "" });
+      setNewPipeline({ name: "", description: "",initialStage:"New opportunity" });setSelectedLeadIds([]);setContactSearch('');
       await loadPipelines();
       setSelectedPipelineId(pipeline.id);
       toast({ title: "Pipeline created" });
@@ -220,6 +228,8 @@ export default function PipelinePage() {
       setCreatingPipeline(false);
     }
   }
+
+  async function assignSelected(){if(!selectedLeadIds.length||!targetStageId)return;setAssigning(true);try{const result=await apiFetch('/api/pipeline/leads/stage',{method:'PATCH',body:JSON.stringify({leadIds:selectedLeadIds,stageId:targetStageId,pipelineId:selectedPipelineId})}) as {updated:number};setShowContactsDialog(false);setSelectedLeadIds([]);setContactSearch('');await loadBoard(selectedPipelineId);toast({title:`${result.updated} contacts added to the pipeline`});}finally{setAssigning(false);}}
 
   async function createStage() {
     if (!newStage.name.trim() || !selectedPipelineId) return;
@@ -283,6 +293,7 @@ export default function PipelinePage() {
           <Button variant="outline" size="sm" onClick={() => setShowPipelineDialog(true)}>
             <Plus className="w-4 h-4 mr-1.5" /> Pipeline
           </Button>
+          <Button variant="outline" size="sm" onClick={()=>{setTargetStageId(data.stages[0]?.id??'');setSelectedLeadIds([]);setShowContactsDialog(true);}} disabled={!selectedPipelineId||!data.stages.length}><Users className="w-4 h-4 mr-1.5"/>Choose contacts</Button>
           <Button size="sm" onClick={() => setShowStageDialog(true)} disabled={!selectedPipelineId}>
             <Plus className="w-4 h-4 mr-1.5" /> Stage
           </Button>
@@ -374,10 +385,14 @@ export default function PipelinePage() {
               <Button variant="outline" onClick={() => setShowPipelineDialog(false)}>Cancel</Button>
               <Button onClick={createPipeline} disabled={!newPipeline.name.trim() || creatingPipeline}>{creatingPipeline ? "Creating..." : "Create"}</Button>
             </div>
+            <div><Label className="text-xs text-muted-foreground">First stage</Label><Input className="mt-1" value={newPipeline.initialStage} onChange={e=>setNewPipeline(p=>({...p,initialStage:e.target.value}))}/></div>
+            <ContactPicker contacts={selectableContacts} loading={contactsLoading} error={contactsError instanceof Error?contactsError.message:''} search={contactSearch} setSearch={setContactSearch} selected={selectedLeadIds} setSelected={setSelectedLeadIds}/>
             {pipelineError && <p className="text-sm text-red-600">{pipelineError}</p>}
           </div>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={showContactsDialog} onOpenChange={setShowContactsDialog}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>Choose contacts for {selectedPipeline?.name}</DialogTitle></DialogHeader><div><Label className="text-xs text-muted-foreground">Add selected contacts to</Label><Select value={targetStageId} onValueChange={setTargetStageId}><SelectTrigger className="mt-1"><SelectValue placeholder="Choose a stage"/></SelectTrigger><SelectContent>{data.stages.map(stage=><SelectItem key={stage.id} value={stage.id}>{stage.name}</SelectItem>)}</SelectContent></Select></div><ContactPicker contacts={selectableContacts} loading={contactsLoading} error={contactsError instanceof Error?contactsError.message:''} search={contactSearch} setSearch={setContactSearch} selected={selectedLeadIds} setSelected={setSelectedLeadIds}/><div className="flex justify-end gap-2"><Button variant="outline" onClick={()=>setShowContactsDialog(false)}>Cancel</Button><Button onClick={assignSelected} disabled={!selectedLeadIds.length||!targetStageId||assigning}>{assigning?'Adding...':`Add ${selectedLeadIds.length} contacts`}</Button></div></DialogContent></Dialog>
 
       <Dialog open={showStageDialog} onOpenChange={setShowStageDialog}>
         <DialogContent>
@@ -412,3 +427,5 @@ export default function PipelinePage() {
     </div>
   );
 }
+
+function ContactPicker({contacts,loading,error,search,setSearch,selected,setSelected}:{contacts:CampaignContact[];loading:boolean;error:string;search:string;setSearch:(v:string)=>void;selected:string[];setSelected:(v:string[])=>void}){const visible=contacts.slice(0,500);const allSelected=visible.length>0&&visible.every(l=>selected.includes(String(l.id)));return <div className="space-y-2"><div className="flex gap-2"><Input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search contacts by name, email, or company"/><Button type="button" variant="outline" onClick={()=>setSelected(allSelected?selected.filter(id=>!visible.some(l=>String(l.id)===id)):[...new Set([...selected,...visible.map(l=>String(l.id))])])}>{allSelected?'Clear shown':`Select shown (${visible.length})`}</Button></div><p className="text-xs text-muted-foreground">{selected.length} selected. Selecting a contact already in another pipeline moves it to this pipeline.</p>{loading&&<p className="text-sm">Loading all contacts...</p>}{error&&<p className="text-sm text-red-600">{error}</p>}<div className="max-h-64 overflow-y-auto rounded border p-2">{visible.map(l=>{const id=String(l.id);return <label key={id} className="flex items-center gap-3 border-b px-2 py-2 text-sm last:border-0"><input type="checkbox" checked={selected.includes(id)} onChange={e=>setSelected(e.target.checked?[...selected,id]:selected.filter(x=>x!==id))}/><span className="min-w-0"><span className="font-medium">{l.firstName} {l.lastName}</span><span className="block truncate text-xs text-muted-foreground">{l.email}{l.company?` · ${l.company}`:''}</span></span></label>;})}{!loading&&!visible.length&&<p className="p-4 text-center text-sm text-muted-foreground">No matching contacts.</p>}</div>{contacts.length>500&&<p className="text-xs text-muted-foreground">Refine your search to narrow the {contacts.length} matching contacts.</p>}</div>;}
