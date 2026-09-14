@@ -35,7 +35,8 @@ end $$;
 do $$ declare definition text;changed text;begin
  select pg_get_functiondef('public.outreach_campaign_launch(text,text,text)'::regprocedure) into definition;
  changed:=replace(definition,'coalesce(l.city,'''')','coalesce(l.custom_fields->>''city'','''')');
- if changed=definition then raise exception 'Campaign city compatibility patch did not match';end if;execute changed;
+ if changed<>definition then execute changed;
+ elsif position('l.custom_fields ->> ''city''' in definition)=0 and position('l.custom_fields->>''city''' in definition)=0 then raise exception 'Campaign city compatibility patch could not be verified';end if;
  select pg_get_functiondef('public.outreach_email_claim_phase2()'::regprocedure) into definition;
  changed:=replace(definition,'cap:=public.outreach_mailbox_cap(m.status,m.daily_cap,m.warmup_started_at,now());','cap:=least(public.outreach_mailbox_cap(m.status,m.daily_cap,m.warmup_started_at,now()),coalesce(m.warmup_daily_cap,2147483647));');
  if changed<>definition then execute changed;end if;
