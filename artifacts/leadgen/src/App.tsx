@@ -8,6 +8,7 @@ import Dashboard from "@/pages/dashboard";
 import Scraper from "@/pages/scraper";
 import OutreachWeekly from '@/pages/outreach-weekly';
 import EmailAccounts from "@/pages/email-accounts";
+import EmailUnsubscribes from "@/pages/email-unsubscribes";
 import Pipeline from "@/pages/pipeline";
 import Companies from "@/pages/companies";
 import CompanyDetail from "@/pages/company-detail";
@@ -97,6 +98,7 @@ function Router() {
       <Route path="/leadgen/analytics" component={Analytics} />
       <Route path="/leadgen/scraper" component={Scraper} />
       <Route path="/leadgen/email-accounts" component={EmailAccounts} />
+      <Route path="/leadgen/email-unsubscribes" component={EmailUnsubscribes} />
       <Route path="/leadgen/integrations" component={Integrations} />
       <Route path="/leadgen/company-import" component={() => <LeadImport companyMode />} />
       <Route path="/leadgen/lead-import" component={() => <LeadImport />} />
@@ -131,6 +133,7 @@ function Router() {
       <Route path="/outreach-weekly" component={OutreachWeekly} />
       <Route path="/leadgen/outreach-weekly" component={OutreachWeekly} />
       <Route path="/email-accounts" component={EmailAccounts} />
+      <Route path="/email-unsubscribes" component={EmailUnsubscribes} />
       <Route path="/settings" component={Settings} />
       <Route path="/team" component={Team} />
       <Route path="/integrations" component={Integrations} />
