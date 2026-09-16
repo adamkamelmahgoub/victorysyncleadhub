@@ -67,7 +67,7 @@
 
 :root {
   /* ── GHL Light Mode ── */
-  --background: 210 40% 98%;
+  --background: 216 33% 97%;
   --foreground: 222 47% 11%;
 
   --card: 0 0% 100%;
@@ -116,7 +116,7 @@
 
   --app-font-sans: 'Inter', sans-serif;
   --app-font-mono: 'JetBrains Mono', monospace;
-  --radius: 0.5rem;
+  --radius: 0.75rem;
   --opaque-button-border-intensity: 10;
 }
 
@@ -134,4 +134,22 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 99px; }
   ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.4); }
+}
+
+@layer base {
+  button, summary, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+  button:not(:disabled), summary { cursor: pointer; }
+  :where(a, button, summary, input, select, textarea):focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
+  input[type="checkbox"] { accent-color: hsl(var(--primary)); }
+  ::selection { background: hsl(var(--primary) / 0.15); }
+}
+@layer components {
+  .workspace-content h1 { letter-spacing: -0.035em; }
+  .workspace-content :where(th) { white-space: nowrap; }
+  .workspace-content :where(td) { vertical-align: middle; }
+  .workspace-content :where(tbody tr) { transition: background-color 120ms ease; }
+  .workspace-content :where(input, select, textarea) { max-width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

@@ -1,11 +1,6 @@
 import type { ReactNode } from "react";
-import { Link, useLocation } from "wouter";
-import {
-  ArrowUpRight,
-  Building2,
-  CalendarClock,
-  ChartNoAxesCombined,
-} from "lucide-react";
+import { Link } from "wouter";
+import { ArrowUpRight } from "lucide-react";
 import { label, stageColors } from "@/lib/company-crm";
 export function CrmHeader({
   title,
@@ -16,52 +11,22 @@ export function CrmHeader({
   description: string;
   action?: ReactNode;
 }) {
-  const [location] = useLocation();
-  const normalized = location.replace(/^\/leadgen/, "");
-  const path =
-    normalized === "/" || normalized === "/dashboard"
-      ? "/companies"
-      : normalized;
   return (
     <div className="space-y-4">
-      <header className="py-1">
+      <header className="pb-2 pt-1">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
-              Victory Sync CRM
+              Relationship management
             </p>
-            <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
+            <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
               {description}
             </p>
           </div>
           {action}
         </div>
       </header>
-      <nav
-        aria-label="Company CRM"
-        className="flex gap-5 overflow-x-auto border-b"
-      >
-        {[
-          { href: "/companies", label: "Companies", icon: Building2 },
-          { href: "/trial-queue", label: "Trial queue", icon: CalendarClock },
-          {
-            href: "/company-kpis",
-            label: "Daily performance",
-            icon: ChartNoAxesCombined,
-          },
-        ].map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-1 pb-3 pt-1 text-sm font-medium ${path.startsWith(item.href) ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-            aria-current={path.startsWith(item.href) ? "page" : undefined}
-          >
-            <item.icon className="h-4 w-4" />
-            {item.label}
-          </Link>
-        ))}
-      </nav>
     </div>
   );
 }

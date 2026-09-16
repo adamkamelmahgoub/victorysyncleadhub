@@ -219,12 +219,12 @@ export default function CompanyWorkspace() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <CrmHeader
         title="Companies"
         description="Your prospect book, conversations, trials, and next steps."
         action={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
               variant="outline"
@@ -245,7 +245,7 @@ export default function CompanyWorkspace() {
           </div>
         }
       />
-      <div className="flex flex-wrap items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-200/80 bg-white p-1.5 shadow-sm">
         {[
           ["all", "All companies"],
           ["due", "Follow-up due"],
@@ -255,18 +255,19 @@ export default function CompanyWorkspace() {
         ].map(([value, title]) => (
           <button
             key={value}
+            aria-pressed={scope === value}
             onClick={() => setScope(value)}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium ${scope === value ? "bg-slate-200/70 text-slate-900" : "text-slate-500 hover:bg-slate-100"}`}
+            className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${scope === value ? "bg-blue-50 text-blue-700" : "text-slate-500 hover:bg-slate-50"}`}
           >
             {title}
           </button>
         ))}
-        <span className="ml-auto text-xs text-slate-400">
+        <span className="ml-auto px-3 text-xs tabular-nums text-slate-500">
           {rows.length} {rows.length === 1 ? "company" : "companies"}
         </span>
       </div>
-      <section className="rounded-lg border border-slate-200 bg-white">
-        <div className="flex flex-wrap items-center gap-2 border-b p-3">
+      <section className="rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center gap-3 border-b p-4">
           <div className="relative min-w-48 flex-1 sm:max-w-xs">
             <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
             <Input
@@ -347,7 +348,7 @@ export default function CompanyWorkspace() {
             ))}
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3 border-b bg-slate-50/50 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-3 border-b bg-slate-50/50 px-4 py-3">
           <select
             aria-label="Saved views"
             value=""
@@ -388,7 +389,7 @@ export default function CompanyWorkspace() {
             </button>
           )}
           {visibleSelected.length > 0 && !readOnly && (
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex flex-wrap items-center gap-2">
               <span className="text-xs">{visibleSelected.length} selected</span>
               <DeleteCompanies bulk companies={rows.filter(row => visibleSelected.includes(row.id))} onDeleted={() => { setSelected([]); setActive(null); }} />
               <select
@@ -445,8 +446,8 @@ export default function CompanyWorkspace() {
           </div>
         ) : view === "table" ? (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-xs">
-              <thead className="border-b bg-slate-50 text-[10px] uppercase tracking-wider text-slate-400">
+            <table className="w-full min-w-[760px] text-left text-[13px]">
+              <thead className="border-b bg-slate-50/70 text-[11px] uppercase tracking-wider text-slate-500">
                 <tr>
                   <th className="w-10 px-3 py-3">
                     <input
