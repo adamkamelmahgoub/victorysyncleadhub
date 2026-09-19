@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useGetAnalyticsOverview, useGetAnalyticsByStatus, useGetAnalyticsTimeline, useGetTopLeads, useListCampaigns } from "@workspace/api-client-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -58,10 +59,10 @@ export default function Dashboard() {
 
   return (
 
-      <div className="space-y-6">
+      <div className="page-stack">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">CRM Overview</h1>
-          <p className="text-sm text-muted-foreground mt-1">Your VictorySync contacts, campaigns, and pipeline overview</p>
+          <PageTitle>CRM Overview</PageTitle>
+          <PageDescription>Your VictorySync contacts, campaigns, and pipeline overview</PageDescription>
         </div>
 
         {/* Stats row */}

@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState } from "react";
 import { CompanyReport } from "@/components/company-report";
 import { CrmError } from "@/components/company-crm";
@@ -39,7 +40,7 @@ const tooltipStyle = {
 
 export default function Analytics() {
   const [dataset, setDataset] = useState("contacts");
-  return <div className="space-y-5"><div><h1 className="text-2xl font-bold">CRM Analytics</h1><p className="text-sm text-muted-foreground">Reports from your saved contacts and prospect companies.</p></div><div className="flex gap-2" role="tablist" aria-label="Report data"><button role="tab" aria-selected={dataset === "contacts"} className={"rounded-md px-4 py-2 text-sm " + (dataset === "contacts" ? "bg-blue-50 text-primary" : "text-muted-foreground")} onClick={() => setDataset("contacts")}>Contacts</button><button role="tab" aria-selected={dataset === "companies"} className={"rounded-md px-4 py-2 text-sm " + (dataset === "companies" ? "bg-blue-50 text-primary" : "text-muted-foreground")} onClick={() => setDataset("companies")}>Companies</button></div>{dataset === "contacts" ? <ContactAnalytics /> : <CompanyReport />}</div>;
+  return <div className="page-stack"><div><PageTitle>CRM Analytics</PageTitle><PageDescription>Reports from your saved contacts and prospect companies.</PageDescription></div><div className="flex gap-2" role="tablist" aria-label="Report data"><button role="tab" aria-selected={dataset === "contacts"} className={"rounded-md px-4 py-2 text-sm " + (dataset === "contacts" ? "bg-blue-50 text-primary" : "text-muted-foreground")} onClick={() => setDataset("contacts")}>Contacts</button><button role="tab" aria-selected={dataset === "companies"} className={"rounded-md px-4 py-2 text-sm " + (dataset === "companies" ? "bg-blue-50 text-primary" : "text-muted-foreground")} onClick={() => setDataset("companies")}>Companies</button></div>{dataset === "contacts" ? <ContactAnalytics /> : <CompanyReport />}</div>;
 }
 
 function ContactAnalytics() {

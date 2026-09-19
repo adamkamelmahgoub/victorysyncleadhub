@@ -219,7 +219,7 @@ export default function CompanyWorkspace() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   return (
-    <div className="space-y-6">
+    <div className="page-stack">
       <CrmHeader
         title="Companies"
         description="Your prospect book, conversations, trials, and next steps."
@@ -352,7 +352,7 @@ export default function CompanyWorkspace() {
           <select
             aria-label="Saved views"
             value=""
-            className="max-w-48 bg-transparent text-xs text-slate-500"
+            className="workspace-control max-w-48 bg-transparent text-xs text-slate-500"
             onChange={(event) => {
               const saved = savedViews[Number(event.target.value)];
               if (saved) {
@@ -394,7 +394,7 @@ export default function CompanyWorkspace() {
               <DeleteCompanies bulk companies={rows.filter(row => visibleSelected.includes(row.id))} onDeleted={() => { setSelected([]); setActive(null); }} />
               <select
                 aria-label="Bulk stage"
-                className="max-w-36 rounded border bg-white px-2 py-1 text-xs"
+                className="workspace-control max-w-36 rounded border bg-white px-2 py-1 text-xs"
                 value={bulkStage}
                 onChange={(event) => setBulkStage(event.target.value)}
               >
@@ -446,7 +446,7 @@ export default function CompanyWorkspace() {
           </div>
         ) : view === "table" ? (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-[13px]">
+            <table className="workspace-table w-full min-w-[760px] text-left text-[13px]">
               <thead className="border-b bg-slate-50/70 text-[11px] uppercase tracking-wider text-slate-500">
                 <tr>
                   <th className="w-10 px-3 py-3">

@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -245,11 +246,11 @@ export default function ScraperPage() {
 
   return (
 
-      <div className="max-w-2xl space-y-5">
+      <div className="page-stack">
         {/* Header */}
         <div>
-          <h1 className="text-xl font-bold text-foreground">Lead Finder</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Find and import contacts from the web</p>
+          <PageTitle>Lead Finder</PageTitle>
+          <PageDescription>Find and import contacts from the web</PageDescription>
         </div>
 
         {/* Tab bar */}

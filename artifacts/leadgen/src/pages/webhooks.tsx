@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -87,24 +88,24 @@ export default function Webhooks() {
 
   return (
     <>
-      <div className="space-y-5">
+      <div className="page-stack ">
         {toast && (
           <div className="fixed top-5 right-5 z-50 px-4 py-3 rounded-xl shadow-lg bg-green-50 border border-green-200 text-green-700 text-sm font-medium flex items-center gap-2">
             <CheckCircle className="w-4 h-4" />{toast}
           </div>
         )}
 
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
           <div>
-            <h1 className="text-xl font-bold text-foreground">Webhooks</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Send real-time event data to external systems when contacts and deals change</p>
+            <PageTitle>Webhooks</PageTitle>
+            <PageDescription>Send real-time event data to external systems when contacts and deals change</PageDescription>
           </div>
           <button onClick={() => setShowCreate(true)} className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90">
             <Plus className="w-4 h-4" /> New Webhook
           </button>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {[
             { label: "Total Webhooks", value: webhooks.length, color: "text-blue-600" },
             { label: "Successful Calls", value: webhooks.reduce((s, w) => s + w.successCount, 0), color: "text-green-600" },
@@ -191,19 +192,19 @@ export default function Webhooks() {
               <button onClick={() => setShowCreate(false)} className="text-muted-foreground hover:text-foreground">✕</button>
             </div>
             <div className="p-6 space-y-5">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Name *</label>
-                  <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="e.g. Zapier Lead Sync" />
+                  <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="e.g. Zapier Lead Sync" />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Secret (optional)</label>
-                  <input value={form.secret} onChange={(e) => setForm((f) => ({ ...f, secret: e.target.value }))} type="password" className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="HMAC signing secret" />
+                  <input value={form.secret} onChange={(e) => setForm((f) => ({ ...f, secret: e.target.value }))} type="password" className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="HMAC signing secret" />
                 </div>
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1.5">Endpoint URL *</label>
-                <input value={form.url} onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 font-mono" placeholder="https://hooks.zapier.com/hooks/catch/..." />
+                <input value={form.url} onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 font-mono" placeholder="https://hooks.zapier.com/hooks/catch/..." />
               </div>
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -221,7 +222,7 @@ export default function Webhooks() {
                           {group.events.every((e) => form.events.includes(e)) ? "Deselect all" : "Select all"}
                         </button>
                       </div>
-                      <div className="grid grid-cols-2 gap-1.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                         {group.events.map((event) => (
                           <label key={event} className="flex items-center gap-2 cursor-pointer">
                             <input type="checkbox" checked={form.events.includes(event)} onChange={() => toggleEvent(event)} className="rounded" />

@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,10 +30,10 @@ export default function Settings() {
 
   return (
 
-      <div className="space-y-6 max-w-2xl">
+      <div className="page-stack">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Settings</h1>
-          <p className="text-sm text-muted-foreground mt-1">Organization and notification preferences</p>
+          <PageTitle>Settings</PageTitle>
+          <PageDescription>Organization and notification preferences</PageDescription>
         </div>
 
         {/* Organization */}
@@ -46,7 +47,7 @@ export default function Settings() {
               <Label className="text-xs text-muted-foreground">Organization Name</Label>
               <Input className="mt-1" value={org.name} onChange={(e) => setOrg((o) => ({ ...o, name: e.target.value }))} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label className="text-xs text-muted-foreground">Domain</Label>
                 <Input className="mt-1" value={org.domain} onChange={(e) => setOrg((o) => ({ ...o, domain: e.target.value }))} />

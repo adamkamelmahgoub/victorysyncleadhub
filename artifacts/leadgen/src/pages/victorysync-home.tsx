@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { Link } from "wouter";
 import {
   BarChart3,
@@ -50,20 +51,20 @@ export default function VictorySyncHome() {
     "there";
 
   return (
-    <div className="space-y-6">
+    <div className="page-stack">
       <section className="rounded-lg border border-border bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between flex-wrap gap-4 min-w-0">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
               <ShieldCheck className="h-3.5 w-3.5" />
               VictorySync Command Center
             </div>
-            <h1 className="mt-4 text-2xl font-bold text-foreground">Welcome, {name}</h1>
-            <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+            <PageTitle className="mt-4">Welcome, {name}</PageTitle>
+            <PageDescription className="max-w-2xl">
               Manage your platform, clients, team access, and lead generation workflows from one dashboard.
-            </p>
+            </PageDescription>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:flex">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:flex">
             <Link href="/companies">
               <button className="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90">
                 Open Company CRM

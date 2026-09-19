@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
@@ -34,11 +35,11 @@ export default function Onboarding() {
   const steps = asArray<Step>(progress.steps);
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
-      <div className="flex items-start justify-between">
+    <div className="page-stack">
+      <div className="flex items-start justify-between flex-wrap gap-4 min-w-0">
         <div>
-          <h1 className="text-2xl font-bold">Getting Started</h1>
-          <p className="text-muted-foreground text-sm">Complete these steps to get the most out of VictorySync</p>
+          <PageTitle>Getting Started</PageTitle>
+          <PageDescription>Complete these steps to get the most out of VictorySync</PageDescription>
         </div>
         <button onClick={() => reset.mutate()} className="text-xs text-muted-foreground hover:text-foreground">Reset progress</button>
       </div>

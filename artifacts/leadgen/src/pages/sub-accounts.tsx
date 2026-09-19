@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
@@ -72,11 +73,11 @@ export default function SubAccounts() {
   const atRisk = filtered.filter(a => a.healthScore < 50);
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="page-stack">
+      <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
         <div>
-          <h1 className="text-2xl font-bold">Sub-Accounts</h1>
-          <p className="text-muted-foreground text-sm">Manage all client accounts in one place</p>
+          <PageTitle>Sub-Accounts</PageTitle>
+          <PageDescription>Manage all client accounts in one place</PageDescription>
         </div>
         <Button onClick={() => setShowAdd(true)} className="bg-primary text-white">
           <Plus className="w-4 h-4 mr-2" /> Add Account
@@ -123,7 +124,7 @@ export default function SubAccounts() {
       </div>
 
       <div className="bg-card border rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
+        <table className="workspace-table w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/30">
               {["Account", "Owner", "Plan", "Status", "Health", "Leads", "Campaigns", "Last Active", ""].map(h => (
@@ -180,7 +181,7 @@ export default function SubAccounts() {
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Add Sub-Account</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="col-span-2 space-y-1"><Label>Agency / Business Name *</Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Enter business name" /></div>
               <div className="space-y-1"><Label>Owner Name *</Label><Input value={form.ownerName} onChange={e => setForm(f => ({ ...f, ownerName: e.target.value }))} placeholder="Enter owner name" /></div>
               <div className="space-y-1"><Label>Owner Email *</Label><Input value={form.ownerEmail} onChange={e => setForm(f => ({ ...f, ownerEmail: e.target.value }))} placeholder="Enter owner email" /></div>

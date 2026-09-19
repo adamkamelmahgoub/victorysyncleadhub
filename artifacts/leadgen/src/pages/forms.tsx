@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState } from "react";
 import { useListForms, useCreateForm, useDeleteForm, getListFormsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -76,11 +77,11 @@ export default function Forms() {
 
   return (
     <>
-      <div className="space-y-5">
-        <div className="flex items-center justify-between">
+      <div className="page-stack ">
+        <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Forms</h1>
-            <p className="text-sm text-muted-foreground mt-1">Embeddable lead capture forms</p>
+            <PageTitle>Forms</PageTitle>
+            <PageDescription>Embeddable lead capture forms</PageDescription>
           </div>
           <Button size="sm" onClick={() => setShowCreate(true)} className="gap-1.5">
             <Plus className="w-4 h-4" /> New Form
@@ -170,7 +171,7 @@ export default function Forms() {
               <Label className="text-xs text-muted-foreground">Description</Label>
               <Textarea className="mt-1 resize-none" rows={2} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs text-muted-foreground">Campaign</Label>
                 <Select value={form.campaignId} onValueChange={(v) => setForm((f) => ({ ...f, campaignId: v }))}>

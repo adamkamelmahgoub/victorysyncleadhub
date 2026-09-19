@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Upload, FileText, CheckCircle, AlertCircle, X, Download, ChevronRight, Plus } from "lucide-react";
@@ -177,10 +178,10 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
 
   return (
 
-      <div className="max-w-3xl mx-auto space-y-6">
+      <div className="page-stack">
         <div>
-          <h1 className="text-xl font-bold text-foreground">{companyMode ? "Import Companies" : "Import Leads"}</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Upload a CSV or XLSX file to bulk-import {noun} into VictorySync</p>
+          <PageTitle>{companyMode ? "Import Companies" : "Import Leads"}</PageTitle>
+          <PageDescription>Upload a CSV or XLSX file to bulk-import {noun} into VictorySync</PageDescription>
         </div>
 
         {companyMode && <p className="text-sm text-muted-foreground">Imports create new companies. All fields are optional. Missing names become ?Unnamed company? and are flagged for verification. Use YYYY-MM-DD for trial dates and timestamps with a timezone for follow-ups. Tags can be separated by commas or semicolons. Existing records are never overwritten.</p>}
@@ -248,7 +249,7 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
                     <select
                       value={mapping[f.key] ?? ""}
                       onChange={(e) => setMapping((m) => ({ ...m, [f.key]: e.target.value }))}
-                      className="flex-1 px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 bg-background"
+                      className="workspace-control flex-1 px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 bg-background"
                     >
                       <option value="">— Skip this field —</option>
                       {parsed.headers.map((h) => <option key={h} value={h}>{h}</option>)}
@@ -259,7 +260,7 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
               {companyMode && <section className="border-t border-border pt-4 space-y-4" aria-label="Decision-maker column mapping">
                 <div className="flex items-center justify-between gap-3"><div><h2 className="text-sm font-semibold">Decision-makers</h2><p className="text-xs text-muted-foreground">Map each person's columns to save them under the company's People tab. All fields are optional. People without names are labeled Unnamed contact and flagged for verification. Empty people are skipped.</p></div><button type="button" disabled={personMappings.length >= 30} onClick={() => setPersonMappings(groups => [...groups, {}])} className="shrink-0 rounded-md border px-3 py-2 text-xs disabled:opacity-40">Add decision-maker</button></div>
                 <p className="text-xs text-muted-foreground">Each spreadsheet row creates one company. Add a mapping group for each decision-maker on that row. Generic Email and Phone columns default to company fields; map them here if they belong to a person.</p>
-                {personMappings.map((personMapping, index) => <fieldset key={index} className="rounded-lg border p-3 space-y-3"><legend className="px-1 text-sm font-medium">Decision-maker {index + 1}</legend><div className="grid gap-3 sm:grid-cols-2">{PERSON_FIELDS.map(([key, title]) => <label key={key} className="text-xs font-medium">{title}<select aria-label={`Decision-maker ${index + 1} ${title}`} value={personMapping[key] ?? ""} onChange={event => setPersonMappings(groups => groups.map((group, item) => item === index ? { ...group, [key]: event.target.value } : group))} className="mt-1 block w-full min-w-0 rounded-md border bg-white px-2 py-2"><option value="">Skip this field</option>{parsed.headers.map(header => <option key={header} value={header}>{header}</option>)}</select></label>)}</div><button type="button" aria-label={`Remove decision-maker ${index + 1}`} onClick={() => setPersonMappings(groups => groups.filter((_, item) => item !== index))} className="text-xs text-muted-foreground hover:text-red-600">Remove decision-maker</button></fieldset>)}
+                {personMappings.map((personMapping, index) => <fieldset key={index} className="rounded-lg border p-3 space-y-3"><legend className="px-1 text-sm font-medium">Decision-maker {index + 1}</legend><div className="grid gap-3 sm:grid-cols-2">{PERSON_FIELDS.map(([key, title]) => <label key={key} className="text-xs font-medium">{title}<select aria-label={`Decision-maker ${index + 1} ${title}`} value={personMapping[key] ?? ""} onChange={event => setPersonMappings(groups => groups.map((group, item) => item === index ? { ...group, [key]: event.target.value } : group))} className="workspace-control mt-1 block w-full min-w-0 rounded-md border bg-white px-2 py-2"><option value="">Skip this field</option>{parsed.headers.map(header => <option key={header} value={header}>{header}</option>)}</select></label>)}</div><button type="button" aria-label={`Remove decision-maker ${index + 1}`} onClick={() => setPersonMappings(groups => groups.filter((_, item) => item !== index))} className="text-xs text-muted-foreground hover:text-red-600">Remove decision-maker</button></fieldset>)}
               </section>}
               <div className="border-t border-border pt-4">
                 <div className="flex items-center justify-between mb-3">
@@ -282,12 +283,12 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
                         value={field.name}
                         onChange={(e) => setCustomMappings((fields) => fields.map((item) => item.id === field.id ? { ...item, name: e.target.value } : item))}
                         placeholder="CRM field name"
-                        className="px-3 py-2 text-sm border border-border rounded-lg"
+                        className="workspace-control px-3 py-2 text-sm border border-border rounded-lg"
                       />
                       <select
                         value={field.column}
                         onChange={(e) => setCustomMappings((fields) => fields.map((item) => item.id === field.id ? { ...item, column: e.target.value } : item))}
-                        className="px-3 py-2 text-sm border border-border rounded-lg bg-background"
+                        className="workspace-control px-3 py-2 text-sm border border-border rounded-lg bg-background"
                       >
                         <option value="">Select file column</option>
                         {parsed.headers.map((header) => <option key={header} value={header}>{header}</option>)}
@@ -324,7 +325,7 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
               <div className="text-xs text-muted-foreground mt-0.5">{parsed.rows.length} {noun} will be imported</div>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="workspace-table w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
                     {fields.filter((f) => mapping[f.key]).map((f) => (

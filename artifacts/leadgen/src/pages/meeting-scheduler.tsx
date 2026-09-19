@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
@@ -55,11 +56,11 @@ export default function MeetingScheduler() {
   const appUrl = typeof window !== "undefined" ? window.location.origin : "";
 
   return (
-    <div className="p-6 max-w-[1200px] mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="page-stack">
+      <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
         <div>
-          <h1 className="text-2xl font-bold">Meeting Scheduler</h1>
-          <p className="text-muted-foreground text-sm">Create booking pages and manage appointments</p>
+          <PageTitle>Meeting Scheduler</PageTitle>
+          <PageDescription>Create booking pages and manage appointments</PageDescription>
         </div>
         <Button className="bg-primary text-white" onClick={() => setShowAdd(true)}><Plus className="w-4 h-4 mr-2" /> New Event Type</Button>
       </div>
@@ -147,7 +148,7 @@ export default function MeetingScheduler() {
           <div className="space-y-4 py-2">
             <div className="space-y-1"><Label>Title *</Label><Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="30 Min Strategy Call" /></div>
             <div className="space-y-1"><Label>Description</Label><Textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={2} placeholder="Brief description shown to invitees" /></div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1"><Label>Duration (min)</Label>
                 <Select value={String(form.durationMinutes)} onValueChange={v => setForm(f => ({ ...f, durationMinutes: parseInt(v) }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
@@ -170,7 +171,7 @@ export default function MeetingScheduler() {
               <Label>Available Days</Label>
               <div className="flex gap-1">{DAYS.map(d => <button key={d} onClick={() => toggleDay(d)} className={`px-2 py-1 rounded text-xs font-medium transition-colors ${form.availableDays.includes(d) ? "bg-primary text-white" : "bg-muted text-muted-foreground hover:bg-muted/70"}`}>{DAY_LABELS[d]}</button>)}</div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1"><Label>Start Time</Label><Input type="time" value={form.availableStart} onChange={e => setForm(f => ({ ...f, availableStart: e.target.value }))} /></div>
               <div className="space-y-1"><Label>End Time</Label><Input type="time" value={form.availableEnd} onChange={e => setForm(f => ({ ...f, availableEnd: e.target.value }))} /></div>
             </div>

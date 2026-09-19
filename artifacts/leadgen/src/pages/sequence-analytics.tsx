@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { CrmError } from "@/components/company-crm";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
@@ -64,7 +65,7 @@ function SequenceCard({ seq }: { seq: Sequence }) {
           <FunnelStep label="Sent" value={totalSent} total={totalEnrolled} iconColor="bg-blue-100 text-blue-600" barColor="#3b82f6" icon={Mail} />
           <FunnelStep label="Opened" value={totalOpened} total={totalSent} iconColor="bg-purple-100 text-purple-600" barColor="#8b5cf6" icon={Eye} />
           <FunnelStep label="Replied" value={totalReplied} total={totalSent} iconColor="bg-green-100 text-green-600" barColor="#10b981" icon={MessageSquare} />
-          <div className="mt-4 grid grid-cols-3 gap-3 pt-3 border-t">
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3 pt-3 border-t">
             {[{ label: "Delivery Rate", value: `${pct(totalSent, totalEnrolled)}%` }, { label: "Open Rate", value: `${openRate}%` }, { label: "Reply Rate", value: `${replyRate}%` }].map(m => (
               <div key={m.label} className="text-center bg-muted/30 rounded-lg p-3">
                 <div className="font-bold text-lg">{m.value}</div>
@@ -97,9 +98,9 @@ export default function SequenceAnalytics() {
   if (query.error) return <CrmError error={query.error} retry={() => void query.refetch()} />;
   if (query.isPending) return <p role="status">Loading sequence reports?</p>;
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div><h1 className="text-2xl font-bold">Sequence Analytics</h1><p className="text-muted-foreground text-sm">Recorded sequence activity. Importing contacts does not send email or generate opens and replies.</p></div>
+    <div className="page-stack">
+      <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
+        <div><PageTitle>Sequence Analytics</PageTitle><PageDescription>Recorded sequence activity. Importing contacts does not send email or generate opens and replies.</PageDescription></div>
         <Select value={sortBy} onValueChange={setSortBy}>
           <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
           <SelectContent>

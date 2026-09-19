@@ -1,3 +1,4 @@
+import { PageTitle } from "@/components/page-layout";
 import { useState, useEffect, useRef } from "react";
 import { useRoute, Link } from "wouter";
 import {
@@ -180,7 +181,7 @@ function EditableField({ label, value, placeholder, onSave, type = "text", icon:
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") cancel(); }}
-              className="flex-1 px-2 py-1 text-sm border border-primary/50 rounded outline-none focus:ring-2 focus:ring-primary/30"
+              className="workspace-control flex-1 px-2 py-1 text-sm border border-primary/50 rounded outline-none focus:ring-2 focus:ring-primary/30"
             />
             <button onClick={save} className="p-1 rounded bg-primary text-white hover:bg-primary/90"><Check className="w-3 h-3" /></button>
             <button onClick={cancel} className="p-1 rounded border border-border text-muted-foreground hover:bg-muted"><X className="w-3 h-3" /></button>
@@ -327,7 +328,7 @@ export default function LeadDetail() {
 
         <div className="space-y-4">
           <Skeleton className="h-32 rounded-2xl" />
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Skeleton className="h-96 rounded-xl" />
             <Skeleton className="col-span-2 h-96 rounded-xl" />
           </div>
@@ -355,7 +356,7 @@ export default function LeadDetail() {
 
   return (
 
-      <div className="space-y-4">
+      <div className="page-stack">
         {/* ── Back nav ─────────────────────────────────────────────────────── */}
         <div className="flex items-center gap-2">
             <Link href="/leads">
@@ -380,9 +381,9 @@ export default function LeadDetail() {
 
               {/* Identity */}
               <div className="flex-1 min-w-0">
-                <div className="flex items-start gap-3 flex-wrap">
+                <div className="flex items-start gap-3 flex-wrap flex-wrap gap-4 min-w-0">
                   <div>
-                    <h1 className="text-2xl font-bold text-foreground leading-tight">{fullName}</h1>
+                    <PageTitle className="leading-tight">{fullName}</PageTitle>
                     <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-0.5 flex-wrap">
                       {lead.title && <span>{lead.title}</span>}
                       {lead.title && lead.company && <span className="text-muted-foreground/40">·</span>}
@@ -530,7 +531,7 @@ export default function LeadDetail() {
                       onKeyDown={(e) => { if (e.key === "Enter") addTag(); if (e.key === "Escape") { setAddingTag(false); setNewTag(""); } }}
                       autoFocus
                       placeholder="tag name"
-                      className="w-20 text-xs px-2 py-0.5 border border-primary/50 rounded-full outline-none"
+                      className="workspace-control w-20 text-xs px-2 py-0.5 border border-primary/50 rounded-full outline-none"
                     />
                     <button onClick={addTag} className="text-primary"><Check className="w-3 h-3" /></button>
                     <button onClick={() => { setAddingTag(false); setNewTag(""); }} className="text-muted-foreground"><X className="w-3 h-3" /></button>
@@ -602,11 +603,11 @@ export default function LeadDetail() {
                   <div className="bg-muted/30 rounded-xl p-4 border border-border">
                     <div className="text-xs font-semibold text-muted-foreground mb-3">Log Activity</div>
                     <div className="flex gap-2">
-                      <select value={newActivityType} onChange={(e) => setNewActivityType(e.target.value as typeof ACTIVITY_TYPES[number])} className="px-2 py-1.5 text-xs border border-border rounded-lg bg-white outline-none capitalize w-36">
+                      <select value={newActivityType} onChange={(e) => setNewActivityType(e.target.value as typeof ACTIVITY_TYPES[number])} className="workspace-control px-2 py-1.5 text-xs border border-border rounded-lg bg-white outline-none capitalize w-36">
                         {ACTIVITY_TYPES.map((t) => <option key={t} value={t} className="capitalize">{t.replace("_", " ")}</option>)}
                       </select>
                       <input
-                        className="flex-1 px-3 py-1.5 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
+                        className="workspace-control flex-1 px-3 py-1.5 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
                         placeholder="Describe what happened..."
                         value={newActivityDesc}
                         onChange={(e) => setNewActivityDesc(e.target.value)}
@@ -665,7 +666,7 @@ export default function LeadDetail() {
                 <div className="space-y-4">
                   <div className="bg-muted/30 rounded-xl p-4 border border-border">
                     <textarea
-                      className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 resize-none bg-white min-h-[80px]"
+                      className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 resize-none bg-white min-h-[80px]"
                       placeholder="Write a note... (supports markdown)"
                       value={newNote}
                       onChange={(e) => setNewNote(e.target.value)}
@@ -713,28 +714,28 @@ export default function LeadDetail() {
                         onChange={(e) => setNewTask((t) => ({ ...t, title: e.target.value }))}
                         placeholder="Task title..."
                         autoFocus
-                        className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
+                        className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
                       />
                       <textarea
                         value={newTask.description}
                         onChange={(e) => setNewTask((t) => ({ ...t, description: e.target.value }))}
                         placeholder="Description (optional)"
                         rows={2}
-                        className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+                        className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 resize-none"
                       />
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="text-xs text-muted-foreground block mb-1">Due Date</label>
                           <input
                             type="datetime-local"
                             value={newTask.dueDate}
                             onChange={(e) => setNewTask((t) => ({ ...t, dueDate: e.target.value }))}
-                            className="w-full px-3 py-1.5 text-sm border border-border rounded-lg outline-none"
+                            className="workspace-control w-full px-3 py-1.5 text-sm border border-border rounded-lg outline-none"
                           />
                         </div>
                         <div>
                           <label className="text-xs text-muted-foreground block mb-1">Priority</label>
-                          <select value={newTask.priority} onChange={(e) => setNewTask((t) => ({ ...t, priority: e.target.value as typeof PRIORITY_OPTIONS[number] }))} className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-white outline-none capitalize">
+                          <select value={newTask.priority} onChange={(e) => setNewTask((t) => ({ ...t, priority: e.target.value as typeof PRIORITY_OPTIONS[number] }))} className="workspace-control w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-white outline-none capitalize">
                             {PRIORITY_OPTIONS.map((p) => <option key={p} value={p} className="capitalize">{p}</option>)}
                           </select>
                         </div>
@@ -818,7 +819,7 @@ export default function LeadDetail() {
 
               {/* ── Details ────────────────────────────────────────────── */}
               {tab === "details" && (
-                <div className="grid grid-cols-2 gap-x-8 gap-y-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
                   <div className="space-y-4">
                     <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b border-border pb-2">Contact Information</div>
                     <div className="space-y-3">

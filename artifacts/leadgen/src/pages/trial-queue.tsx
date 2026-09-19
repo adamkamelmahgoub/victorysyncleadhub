@@ -49,7 +49,7 @@ export default function TrialQueue() {
     (company) => company.stage === "trial_completed",
   );
   return (
-    <div className="space-y-5">
+    <div className="page-stack">
       <CrmHeader
         title="Trial schedule"
         description="Booked and active trials, in start-date order. One live inbound trial at a time."
@@ -115,7 +115,7 @@ export default function TrialQueue() {
               </p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-left text-sm">
+                <table className="workspace-table w-full min-w-[720px] text-left text-sm">
                   <thead className="bg-slate-50 text-xs text-muted-foreground">
                     <tr>
                       {[

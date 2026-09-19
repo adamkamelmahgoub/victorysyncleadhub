@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Mail, Plus, Search, Edit3, Trash2, Copy, Eye, Save, X, Star } from "lucide-react";
@@ -93,24 +94,24 @@ export default function EmailTemplates() {
 
   return (
     <>
-      <div className="space-y-5">
+      <div className="page-stack ">
         {toast && (
           <div className="fixed top-5 right-5 z-50 px-4 py-3 rounded-xl shadow-lg bg-green-50 border border-green-200 text-green-700 text-sm font-medium">
             {toast}
           </div>
         )}
 
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
           <div>
-            <h1 className="text-xl font-bold text-foreground">Email Templates</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Reusable email templates for sequences, automations and campaigns</p>
+            <PageTitle>Email Templates</PageTitle>
+            <PageDescription>Reusable email templates for sequences, automations and campaigns</PageDescription>
           </div>
           <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90">
             <Plus className="w-4 h-4" /> New Template
           </button>
         </div>
 
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
           {[
             { label: "Total", value: templates.length, color: "text-blue-600" },
             { label: "Default", value: templates.filter((t) => t.isDefault).length, color: "text-amber-500" },
@@ -127,7 +128,7 @@ export default function EmailTemplates() {
         <div className="flex gap-3 items-center">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search templates..." className="pl-9 pr-3 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30 w-48" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search templates..." className="workspace-control pl-9 pr-3 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30 w-48" />
           </div>
           <div className="flex gap-1 flex-wrap">
             {CATEGORIES.map((c) => (
@@ -148,7 +149,7 @@ export default function EmailTemplates() {
             <button onClick={openCreate} className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90">Create Template</button>
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {filtered.map((t) => {
               const catColor = CATEGORY_COLORS[t.category] ?? CATEGORY_COLORS.general!;
               return (
@@ -228,25 +229,25 @@ export default function EmailTemplates() {
               <button onClick={() => setModal({ type: "none" })} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Template Name *</label>
-                  <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="e.g. Welcome Email" />
+                  <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="e.g. Welcome Email" />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Category</label>
-                  <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none">
+                  <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none">
                     {CATEGORIES.slice(1).map((c) => <option key={c} value={c} className="capitalize">{c}</option>)}
                   </select>
                 </div>
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1.5">Subject Line *</label>
-                <input value={form.subject} onChange={(e) => setForm((f) => ({ ...f, subject: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="e.g. Welcome to {{company}}!" />
+                <input value={form.subject} onChange={(e) => setForm((f) => ({ ...f, subject: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="e.g. Welcome to {{company}}!" />
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1.5">Preview Text</label>
-                <input value={form.previewText} onChange={(e) => setForm((f) => ({ ...f, previewText: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="Short summary shown in inbox preview..." />
+                <input value={form.previewText} onChange={(e) => setForm((f) => ({ ...f, previewText: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="Short summary shown in inbox preview..." />
               </div>
               <div>
                 <div className="flex items-center justify-between mb-1.5">
@@ -263,7 +264,7 @@ export default function EmailTemplates() {
                   value={form.body}
                   onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
                   rows={10}
-                  className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 resize-none font-mono"
+                  className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 resize-none font-mono"
                   placeholder={`Hi {{firstName}},\n\nYour email content here...\n\nBest,\n{{senderName}}`}
                 />
               </div>

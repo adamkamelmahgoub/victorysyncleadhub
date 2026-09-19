@@ -42,7 +42,7 @@ export default function CompanyKpiPage() {
     { dials: 0, leads: 0, appointments: 0, samples: 0, response: 0 },
   );
   return (
-    <div className="space-y-5">
+    <div className="page-stack">
       <CrmHeader
         title="Daily performance"
         description="Daily calls and leads, response speed, appointments, and the trials that need your attention."
@@ -131,7 +131,7 @@ export default function CompanyKpiPage() {
             ))}
           </div>
           <div className="overflow-x-auto rounded-xl border bg-white">
-            <table className="w-full min-w-[650px] text-left text-sm">
+            <table className="workspace-table w-full min-w-[650px] text-left text-sm">
               <caption className="p-5 text-left font-semibold">
                 Daily activity
               </caption>

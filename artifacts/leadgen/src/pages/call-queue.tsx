@@ -1,3 +1,11 @@
+import {
+  PageHeader,
+  PageEmpty,
+  workspaceInput,
+} from "@/components/page-layout";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Phone, RefreshCw, Search, ChevronRight } from "lucide-react";
 import { useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -32,12 +40,12 @@ type Queue = {
   needsTimezone: number;
   asOf: string;
 };
-const inputStyle =
-  "rounded border border-border bg-background px-3 py-2 text-sm";
+const inputStyle = workspaceInput;
 function CallCard({ lead }: { lead: Lead }) {
   const cache = useQueryClient();
   const { toast } = useToast();
   const [notes, setNotes] = useState("");
+  const [disposition, setDisposition] = useState<Disposition>("no_answer");
   const [next, setNext] = useState("");
   const [error, setError] = useState("");
   const [job, setJob] = useState(lead.avg_job_value ?? "");
@@ -69,9 +77,10 @@ function CallCard({ lead }: { lead: Lead }) {
     onSuccess: async (saved) => {
       toast({
         title: "Call logged",
-        description: saved.disposition === 'not_interested' && saved.revisit_at
-          ? `Attempt limit reached. Revisit on ${new Date(saved.revisit_at).toLocaleDateString()}.`
-          : 'Disposition and next action saved.',
+        description:
+          saved.disposition === "not_interested" && saved.revisit_at
+            ? `Attempt limit reached. Revisit on ${new Date(saved.revisit_at).toLocaleDateString()}.`
+            : "Disposition and next action saved.",
       });
       pending.current = null;
       await cache.invalidateQueries();
@@ -117,12 +126,12 @@ function CallCard({ lead }: { lead: Lead }) {
     log.mutate({ ...pending.current.body, requestId: pending.current.id });
   }
   return (
-    <article className="rounded-lg border border-border bg-card p-4 space-y-3">
+    <article className="workspace-panel p-5 sm:p-6 space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <Link
             href={`/leads/${lead.id}`}
-            className="font-semibold hover:underline"
+            className="text-xl font-semibold tracking-tight hover:underline"
           >
             {lead.first_name} {lead.last_name}
           </Link>
@@ -131,7 +140,11 @@ function CallCard({ lead }: { lead: Lead }) {
           </p>
         </div>
         <div className="text-right">
-          <a className="font-semibold text-primary" href={`tel:${lead.phone}`}>
+          <a
+            className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-50 px-3 text-sm font-semibold text-primary"
+            href={`tel:${lead.phone}`}
+          >
+            <Phone className="h-4 w-4" />
             {lead.phone}
           </a>
           <p className="text-xs text-muted-foreground">
@@ -146,14 +159,24 @@ function CallCard({ lead }: { lead: Lead }) {
       </div>
       {(lead.attempt_count > 0 || lead.email_context) && (
         <p className="text-xs text-muted-foreground">
-          Due {new Date(lead.queue_due_at ?? lead.next_action_at).toLocaleString()}
+          Due{" "}
+          {new Date(lead.queue_due_at ?? lead.next_action_at).toLocaleString()}
         </p>
       )}
-      {lead.email_context && <details className="rounded border border-border p-3 text-sm"><summary className="cursor-pointer font-medium">Email to reference on this call</summary><p className="mt-2 whitespace-pre-wrap">{lead.email_context}</p></details>}
-      <div className="flex flex-wrap gap-3">
-        <label className="flex-1 min-w-48 text-xs">
-          Optional notes
-          <input
+      {lead.email_context && (
+        <details className="rounded border border-border p-3 text-sm">
+          <summary className="cursor-pointer font-medium">
+            Email to reference on this call
+          </summary>
+          <p className="mt-2 whitespace-pre-wrap">{lead.email_context}</p>
+        </details>
+      )}
+      <div className="grid gap-4">
+        <label className="min-w-0 text-sm font-medium">
+          Call notes
+          <Textarea
+            rows={3}
+            placeholder="Capture the conversation and next steps..."
             aria-label="Call notes"
             className={`${inputStyle} mt-1 w-full`}
             value={notes}
@@ -161,7 +184,7 @@ function CallCard({ lead }: { lead: Lead }) {
             onChange={(e) => setNotes(e.target.value)}
           />
         </label>
-        <label className="text-xs">
+        <label className="text-sm font-medium">
           Next action ({Intl.DateTimeFormat().resolvedOptions().timeZone})
           <input
             aria-label="Next action"
@@ -176,17 +199,39 @@ function CallCard({ lead }: { lead: Lead }) {
         Retry defaults to tomorrow. Callbacks and meeting follow-ups require a
         time. Terminal outcomes clear the next action.
       </p>
-      <div className="flex flex-wrap gap-2">
-        {DISPOSITIONS.map((d) => (
-          <button
-            key={d}
+      <div className="grid gap-3 rounded-xl bg-slate-50 p-4 sm:grid-cols-[1fr_auto] sm:items-end">
+        <label className="space-y-2 text-sm font-medium">
+          Call outcome
+          <select
+            aria-label="Call outcome"
+            className={inputStyle}
+            value={disposition}
+            onChange={(e) => setDisposition(e.target.value as Disposition)}
             disabled={log.isPending}
-            onClick={() => record(d)}
-            className={`rounded border px-3 py-2 text-sm disabled:opacity-50 ${d === "dnc" ? "border-red-300 text-red-700" : "border-border hover:bg-muted"}`}
           >
-            {d.replaceAll("_", " ")}
-          </button>
-        ))}
+            {DISPOSITIONS.map((d) => (
+              <option key={d} value={d}>
+                {d === "dnc"
+                  ? "Do not call"
+                  : d
+                      .replaceAll("_", " ")
+                      .replace(/^./, (c) => c.toUpperCase())}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Button disabled={log.isPending} onClick={() => record(disposition)}>
+          {log.isPending ? "Saving..." : "Save call outcome"}
+        </Button>
+        {terminal(disposition) && (
+          <p className="text-xs text-amber-800 sm:col-span-2">
+            This outcome clears the next action
+            {disposition === "dnc"
+              ? " and marks this contact as do not call"
+              : ""}
+            .
+          </p>
+        )}
       </div>
       {log.isPending && (
         <p role="status" className="text-sm">
@@ -198,12 +243,12 @@ function CallCard({ lead }: { lead: Lead }) {
           {error}
         </p>
       )}
-      <details>
+      <details className="rounded-xl border border-border p-4">
         <summary className="cursor-pointer text-sm text-muted-foreground">
           Discovery fields
         </summary>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <label className="text-xs">
+          <label className="text-sm font-medium">
             Average job value ($)
             <input
               className={`${inputStyle} block w-full`}
@@ -214,7 +259,7 @@ function CallCard({ lead }: { lead: Lead }) {
               onChange={(e) => setJob(e.target.value)}
             />
           </label>
-          <label className="text-xs">
+          <label className="text-sm font-medium">
             Missed calls per week
             <input
               className={`${inputStyle} block w-full`}
@@ -225,7 +270,7 @@ function CallCard({ lead }: { lead: Lead }) {
               onChange={(e) => setMissed(e.target.value)}
             />
           </label>
-          <label className="text-xs">
+          <label className="text-sm font-medium">
             After-hours coverage
             <input
               className={`${inputStyle} block w-full`}
@@ -233,7 +278,7 @@ function CallCard({ lead }: { lead: Lead }) {
               onChange={(e) => setCoverage(e.target.value)}
             />
           </label>
-          <label className="text-xs">
+          <label className="text-sm font-medium">
             Uses answering service
             <select
               className={`${inputStyle} block w-full`}
@@ -315,6 +360,9 @@ function TimezoneReview() {
 export default function CallQueue() {
   const [timezone, setTimezone] = useState("");
   const [review, setReview] = useState(false);
+  const [section, setSection] = useState<"due" | "fresh">("due");
+  const [search, setSearch] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const { data, isLoading, error, refetch } = useQuery<Queue>({
     queryKey: ["call-queue", timezone],
     queryFn: () =>
@@ -323,17 +371,80 @@ export default function CallQueue() {
       ),
     refetchInterval: 30000,
   });
+  const leads = (data?.[section] ?? []).filter((lead) =>
+    [lead.first_name, lead.last_name, lead.company, lead.phone]
+      .join(" ")
+      .toLowerCase()
+      .includes(search.toLowerCase()),
+  );
+  const selected =
+    leads.find((lead) => String(lead.id) === selectedId) ?? leads[0];
   return (
-    <main className="mx-auto max-w-5xl p-6 space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Call queue</h1>
-          <p className="text-sm text-muted-foreground">
-            Due callbacks and retries first, then fresh leads. Local calling
-            hours: 7 AM–6 PM.
-          </p>
+    <div className="page-stack">
+      <PageHeader
+        title="Call queue"
+        description="Work through callbacks and new leads, one conversation at a time."
+        actions={
+          <Button variant="outline" onClick={() => void refetch()}>
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+        }
+      />
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          ["Due callbacks & retries", data?.due.length],
+          ["Fresh leads", data?.fresh.length],
+          ["Need timezone", data?.needsTimezone],
+        ].map(([title, value]) => (
+          <div key={title} className="workspace-panel p-3 sm:p-5">
+            <p className="text-xs sm:text-sm text-muted-foreground">{title}</p>
+            <p className="mt-2 text-2xl font-semibold tabular-nums">
+              {value ?? "-"}
+            </p>
+          </div>
+        ))}
+      </div>
+      {!!data?.needsTimezone && (
+        <aside className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <button
+            aria-expanded={review}
+            onClick={() => setReview(!review)}
+            className="flex items-center gap-2 text-sm font-medium text-amber-900"
+          >
+            <ChevronRight
+              className={`h-4 w-4 transition-transform ${review ? "rotate-90" : ""}`}
+            />
+            {data.needsTimezone} leads need a timezone -{" "}
+            {review ? "Hide review" : "Review leads"}
+          </button>
+          {review && <TimezoneReview />}
+        </aside>
+      )}
+      <div className="workspace-panel flex flex-wrap items-center justify-between gap-3 p-3">
+        <div
+          role="group"
+          aria-label="Call queue section"
+          className="flex flex-wrap gap-1"
+        >
+          {(["due", "fresh"] as const).map((value) => (
+            <Button
+              key={value}
+              variant="ghost"
+              aria-pressed={section === value}
+              className={
+                section === value
+                  ? "bg-blue-50 text-blue-700"
+                  : "text-muted-foreground"
+              }
+              onClick={() => setSection(value)}
+            >
+              {value === "due" ? "Callbacks & retries" : "Fresh leads"}
+            </Button>
+          ))}
         </div>
-        <div className="flex gap-2">
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span className="shrink-0">Timezone</span>
           <select
             aria-label="Filter timezone"
             className={inputStyle}
@@ -345,55 +456,121 @@ export default function CallQueue() {
               <option key={t}>{t}</option>
             ))}
           </select>
-          <button className={inputStyle} onClick={() => refetch()}>
-            Refresh
-          </button>
-        </div>
+        </label>
       </div>
-      {isLoading && <p role="status">Loading call queue…</p>}
-      {error && (
-        <p role="alert" className="text-red-600">
-          {error.message}
-        </p>
+      {isLoading && (
+        <div
+          role="status"
+          className="workspace-panel p-8 text-sm text-muted-foreground"
+        >
+          Loading call queue...
+        </div>
       )}
-      {!!data?.needsTimezone && (
-        <aside className="rounded border border-amber-300 bg-amber-50 p-4">
-          <button
-            onClick={() => setReview(!review)}
-            className="text-sm font-medium"
-          >
-            {data.needsTimezone} leads need a timezone ·{" "}
-            {review ? "Hide" : "Review"}
-          </button>
-          {review && <TimezoneReview />}
-        </aside>
+      {error && (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+        >
+          {error.message}
+        </div>
       )}
       {data && (
-        <>
-          {(["due", "fresh"] as const).map((section) => (
-            <section key={section} className="space-y-3">
-              <h2 className="text-lg font-semibold">
-                {section === "due" ? "Due callbacks & retries" : "Fresh leads"}{" "}
+        <div className="grid items-start gap-5 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)]">
+          <section
+            aria-label="Queued leads"
+            className="workspace-panel overflow-hidden"
+          >
+            <div className="space-y-3 border-b p-4">
+              <div className="flex justify-between text-sm">
+                <h2 className="font-semibold">
+                  {section === "due" ? "Up next" : "New conversations"}
+                </h2>
                 <span className="text-muted-foreground">
-                  ({data[section].length}
-                  {data[section].length === 100 ? "+" : ""})
+                  {leads.length} leads{data[section].length === 100 ? "+" : ""}
                 </span>
-              </h2>
-              {data[section].length ? (
-                data[section].map((l) => <CallCard key={l.id} lead={l} />)
-              ) : (
-                <p className="rounded border border-dashed p-6 text-sm text-muted-foreground">
-                  No eligible leads in this section during local calling hours.
+              </div>
+              <div className="relative">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <input
+                  aria-label="Search queued leads"
+                  className={inputStyle + " pl-9"}
+                  placeholder="Search name, company, phone..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="max-h-[360px] overflow-y-auto p-2 lg:max-h-[640px]">
+              {leads.map((lead) => (
+                <button
+                  key={lead.id}
+                  aria-pressed={selected?.id === lead.id}
+                  onClick={() => setSelectedId(String(lead.id))}
+                  className={`mb-1 flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors ${selected?.id === lead.id ? "bg-blue-50 ring-1 ring-inset ring-blue-100" : "hover:bg-slate-50"}`}
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-white text-xs font-semibold text-primary">
+                    {lead.first_name?.[0]}
+                    {lead.last_name?.[0]}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold">
+                      {lead.first_name} {lead.last_name}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {lead.company || lead.phone}
+                    </span>
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      {lead.attempt_count} attempts
+                    </span>
+                  </span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                </button>
+              ))}
+              {!leads.length && (
+                <p className="px-3 py-8 text-center text-sm text-muted-foreground">
+                  {search
+                    ? "No leads match your search."
+                    : "No eligible leads in this queue."}
                 </p>
               )}
-            </section>
-          ))}
-          <p className="text-xs text-muted-foreground">
-            Updated {new Date(data.asOf).toLocaleTimeString()}. Up to 100 leads
-            per section; more appear as calls are resolved.
-          </p>
-        </>
+            </div>
+          </section>
+          <section aria-label="Call workspace" className="min-w-0">
+            {[...data.due, ...data.fresh]
+              .filter(
+                (lead, index, all) =>
+                  all.findIndex(
+                    (item) => String(item.id) === String(lead.id),
+                  ) === index,
+              )
+              .map((lead) => (
+                <div
+                  key={lead.id}
+                  hidden={String(selected?.id) !== String(lead.id)}
+                >
+                  <CallCard lead={lead} />
+                </div>
+              ))}
+            {!selected && (
+              <PageEmpty
+                title={search ? "No matching leads" : "Queue complete"}
+                description={
+                  search
+                    ? "Try a different name, company, or phone number."
+                    : "Switch queues or check back during local calling hours: 7 AM to 6 PM."
+                }
+              />
+            )}
+          </section>
+        </div>
       )}
-    </main>
+      {data && (
+        <p className="text-xs text-muted-foreground">
+          Updated {new Date(data.asOf).toLocaleTimeString()} - Local calling
+          hours: 7 AM to 6 PM - Up to 100 leads per queue; more appear as calls
+          are resolved.
+        </p>
+      )}
+    </div>
   );
 }

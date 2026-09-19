@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useListLeads } from "@workspace/api-client-react";
@@ -96,11 +97,11 @@ export default function Segments() {
 
   return (
     <>
-      <div className="space-y-5">
-        <div className="flex items-center justify-between">
+      <div className="page-stack ">
+        <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
           <div>
-            <h1 className="text-xl font-bold text-foreground">Segments & Smart Lists</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Save contact filters as reusable segments for targeting and automation</p>
+            <PageTitle>Segments & Smart Lists</PageTitle>
+            <PageDescription>Save contact filters as reusable segments for targeting and automation</PageDescription>
           </div>
           <button onClick={() => setShowCreate(true)} className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90">
             <Plus className="w-4 h-4" /> New Segment
@@ -110,7 +111,7 @@ export default function Segments() {
         {/* Preset segments */}
         <div>
           <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Quick Segments</div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {PRESET_SEGMENTS.map((preset, i) => {
               const count = applyFilters(allLeads, preset.filters).length;
               return (
@@ -149,7 +150,7 @@ export default function Segments() {
               <button onClick={() => setShowCreate(true)} className="text-sm text-primary hover:underline">Create your first segment</button>
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {segments.map((seg, i) => (
                 <div key={seg.id} className="bg-white rounded-xl border border-border shadow-sm p-4 group">
                   <div className="flex items-start gap-3 mb-3">
@@ -198,14 +199,14 @@ export default function Segments() {
               <button onClick={() => setShowCreate(false)} className="text-muted-foreground hover:text-foreground">✕</button>
             </div>
             <div className="p-6 space-y-5">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Segment Name *</label>
-                  <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="e.g. Hot Leads Q3" />
+                  <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="e.g. Hot Leads Q3" />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Description</label>
-                  <input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="Optional description" />
+                  <input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="Optional description" />
                 </div>
               </div>
 
@@ -214,34 +215,34 @@ export default function Segments() {
                   <SlidersHorizontal className="w-4 h-4 text-muted-foreground" />
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Filters</span>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs font-medium text-muted-foreground block mb-1.5">Status</label>
-                    <select value={previewFilters.status ?? ""} onChange={(e) => e.target.value ? updateFilter("status", e.target.value) : clearFilter("status")} className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30">
+                    <select value={previewFilters.status ?? ""} onChange={(e) => e.target.value ? updateFilter("status", e.target.value) : clearFilter("status")} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30">
                       <option value="">Any status</option>
                       {STATUS_OPTIONS.map((s) => <option key={s} value={s} className="capitalize">{s}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="text-xs font-medium text-muted-foreground block mb-1.5">Source</label>
-                    <select value={previewFilters.source ?? ""} onChange={(e) => e.target.value ? updateFilter("source", e.target.value) : clearFilter("source")} className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30">
+                    <select value={previewFilters.source ?? ""} onChange={(e) => e.target.value ? updateFilter("source", e.target.value) : clearFilter("source")} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30">
                       <option value="">Any source</option>
                       {SOURCE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="text-xs font-medium text-muted-foreground block mb-1.5">Min Score</label>
-                    <input type="number" min={0} max={100} value={previewFilters.scoreMin ?? ""} onChange={(e) => e.target.value ? updateFilter("scoreMin", parseInt(e.target.value)) : clearFilter("scoreMin")} placeholder="0" className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" />
+                    <input type="number" min={0} max={100} value={previewFilters.scoreMin ?? ""} onChange={(e) => e.target.value ? updateFilter("scoreMin", parseInt(e.target.value)) : clearFilter("scoreMin")} placeholder="0" className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" />
                   </div>
                   <div>
                     <label className="text-xs font-medium text-muted-foreground block mb-1.5">Max Score</label>
-                    <input type="number" min={0} max={100} value={previewFilters.scoreMax ?? ""} onChange={(e) => e.target.value ? updateFilter("scoreMax", parseInt(e.target.value)) : clearFilter("scoreMax")} placeholder="100" className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" />
+                    <input type="number" min={0} max={100} value={previewFilters.scoreMax ?? ""} onChange={(e) => e.target.value ? updateFilter("scoreMax", parseInt(e.target.value)) : clearFilter("scoreMax")} placeholder="100" className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" />
                   </div>
                   <div className="col-span-2">
                     <label className="text-xs font-medium text-muted-foreground block mb-1.5">Name / Email / Company Contains</label>
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                      <input value={previewFilters.search ?? ""} onChange={(e) => e.target.value ? updateFilter("search", e.target.value) : clearFilter("search")} placeholder="Search keywords..." className="w-full pl-9 pr-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" />
+                      <input value={previewFilters.search ?? ""} onChange={(e) => e.target.value ? updateFilter("search", e.target.value) : clearFilter("search")} placeholder="Search keywords..." className="workspace-control w-full pl-9 pr-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" />
                     </div>
                   </div>
                 </div>

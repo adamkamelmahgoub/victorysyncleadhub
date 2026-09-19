@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
@@ -54,9 +55,9 @@ export default function Affiliates() {
   const statusColor: Record<string, string> = { pending: "bg-amber-100 text-amber-700", converted: "bg-green-100 text-green-700", lost: "bg-red-100 text-red-700" };
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div><h1 className="text-2xl font-bold">Affiliate Program</h1><p className="text-muted-foreground text-sm">Manage partners, referral links, and commission payouts</p></div>
+    <div className="page-stack">
+      <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
+        <div><PageTitle>Affiliate Program</PageTitle><PageDescription>Manage partners, referral links, and commission payouts</PageDescription></div>
         <Button className="bg-primary text-white" onClick={() => setShowAdd(true)}><Plus className="w-4 h-4 mr-2" /> Add Affiliate</Button>
       </div>
 
@@ -87,7 +88,7 @@ export default function Affiliates() {
             <h2 className="font-semibold text-lg">{selected.name}</h2>
             <Badge className="capitalize">{selected.status}</Badge>
           </div>
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             {[
               { label: "Referrals", value: selected.totalReferrals },
               { label: "Converted", value: selected.totalConverted },
@@ -106,7 +107,7 @@ export default function Affiliates() {
           </div>
           <div className="flex items-center justify-between"><h3 className="font-semibold">Referrals</h3><Button size="sm" className="bg-primary text-white" onClick={() => setShowReferral(true)}><Plus className="w-3.5 h-3.5 mr-1.5" /> Log Referral</Button></div>
           <div className="bg-card border rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="workspace-table w-full text-sm">
               <thead><tr className="border-b bg-muted/30"><th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground">Referred</th><th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground">Company</th><th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground">Status</th><th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground">Deal Value</th><th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground">Commission</th><th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground">Date</th><th /></tr></thead>
               <tbody>
                 {referrals.length === 0 ? <tr><td colSpan={7} className="text-center py-10 text-muted-foreground">No referrals yet</td></tr> : referrals.map(r => (
@@ -128,7 +129,7 @@ export default function Affiliates() {
         </div>
       ) : (
         <div className="bg-card border rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
+          <table className="workspace-table w-full text-sm">
             <thead><tr className="border-b bg-muted/30">{["Affiliate", "Code", "Commission", "Referrals", "Converted", "Earned", "Status", ""].map(h => <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">{h}</th>)}</tr></thead>
             <tbody>
               {affiliates.length === 0 ? <tr><td colSpan={8} className="text-center py-12 text-muted-foreground">No affiliates yet</td></tr> : affiliates.map(a => (
@@ -152,7 +153,7 @@ export default function Affiliates() {
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Add Affiliate</DialogTitle></DialogHeader>
           <div className="space-y-3 py-2">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="col-span-2 space-y-1"><Label>Full Name *</Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Enter full name" /></div>
               <div className="space-y-1"><Label>Email *</Label><Input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="Enter email address" /></div>
               <div className="space-y-1"><Label>Phone</Label><Input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} /></div>

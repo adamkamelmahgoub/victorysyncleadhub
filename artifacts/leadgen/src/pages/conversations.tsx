@@ -1,3 +1,4 @@
+import { PageHeader } from "@/components/page-layout";
 import { useState } from "react";
 import { useListLeads } from "@workspace/api-client-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -100,10 +101,10 @@ export default function Conversations() {
 
   return (
 
-      <div className="flex -m-6 overflow-hidden" style={{ height: "calc(100vh - 3.5rem)" }}>
+      <div className="page-stack"><PageHeader title="Inbox" description="Conversations and contact activity in one workspace."/><div className="workspace-panel flex min-h-[600px] flex-col overflow-hidden lg:h-[calc(100dvh-230px)] lg:flex-row">
 
         {/* ── Left: conversation list ── */}
-        <div className="w-72 flex-shrink-0 border-r border-border bg-white flex flex-col">
+        <div className="w-full max-h-80 shrink-0 border-b border-border bg-white flex flex-col lg:max-h-none lg:w-72 lg:border-b-0 lg:border-r">
           <div className="px-4 py-3 border-b border-border">
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-semibold text-foreground text-sm">Conversations</h2>
@@ -118,7 +119,7 @@ export default function Conversations() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search conversations..."
-                className="w-full pl-8 pr-3 py-1.5 text-sm bg-muted rounded-lg border-0 outline-none text-foreground placeholder:text-muted-foreground"
+                className="workspace-control w-full pl-8 pr-3 py-1.5 text-sm bg-muted rounded-lg border-0 outline-none text-foreground placeholder:text-muted-foreground"
               />
             </div>
           </div>
@@ -294,20 +295,20 @@ export default function Conversations() {
                 <div className="px-3 py-1.5 border-b border-border bg-muted/30 flex items-center gap-2 text-xs">
                   <span className="text-muted-foreground">Subject:</span>
                   <input
-                    className="flex-1 outline-none bg-transparent text-foreground placeholder:text-muted-foreground"
+                    className="workspace-control flex-1 outline-none bg-transparent text-foreground placeholder:text-muted-foreground"
                     value={replySubject}
                     onChange={(e) => setReplySubject(e.target.value)}
                     placeholder="Re: Follow up"
                   />
                 </div>
-                <div className="px-3 py-1.5 border-b border-border bg-muted/30 flex items-center gap-2 text-xs"><span className="text-muted-foreground">From:</span><select aria-label="Sending mailbox" className="flex-1 bg-transparent outline-none" value={mailboxId} onChange={e=>setMailboxId(e.target.value)}><option value="">Automatically rotate sender</option>{availableMailboxes.map(m=><option key={m.id} value={String(m.id)}>{m.from_email} · {m.sent_today}/{m.effective_cap}</option>)}</select></div>
+                <div className="px-3 py-1.5 border-b border-border bg-muted/30 flex items-center gap-2 text-xs"><span className="text-muted-foreground">From:</span><select aria-label="Sending mailbox" className="workspace-control flex-1 bg-transparent outline-none" value={mailboxId} onChange={e=>setMailboxId(e.target.value)}><option value="">Automatically rotate sender</option>{availableMailboxes.map(m=><option key={m.id} value={String(m.id)}>{m.from_email} · {m.sent_today}/{m.effective_cap}</option>)}</select></div>
                 <textarea
                   value={reply}
                   onChange={(e) => setReply(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && e.metaKey && sendReply()}
                   placeholder="Write your message... (⌘+Enter to send)"
                   rows={3}
-                  className="w-full px-3 py-2 text-sm outline-none resize-none bg-white text-foreground placeholder:text-muted-foreground"
+                  className="workspace-control w-full px-3 py-2 text-sm outline-none resize-none bg-white text-foreground placeholder:text-muted-foreground"
                 />
                 <div className="px-3 py-2 flex items-center justify-between bg-muted/20">
                   <div className="flex gap-1 text-xs text-muted-foreground">
@@ -379,7 +380,7 @@ export default function Conversations() {
             </div>
           </div>
         )}
-      </div>
+      </div></div>
 
   );
 }

@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
@@ -55,11 +56,11 @@ export default function ProspectSearch() {
   const clearFilters = () => setFilters({ search: "", title: "", industry: "", companySize: "", seniority: "", minIntent: "0" });
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="page-stack">
+      <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
         <div>
-          <h1 className="text-2xl font-bold">Prospect Search</h1>
-          <p className="text-muted-foreground text-sm">Find and save high-intent prospects to your contacts</p>
+          <PageTitle>Prospect Search</PageTitle>
+          <PageDescription>Find and save high-intent prospects to your contacts</PageDescription>
         </div>
         {selected.size > 0 && (
           <Button className="bg-primary text-white" onClick={() => saveMutation.mutate(selectedProspects)} disabled={saveMutation.isPending}>
@@ -68,9 +69,9 @@ export default function ProspectSearch() {
         )}
       </div>
 
-      <div className="flex gap-4">
+      <div className="flex flex-col gap-4 lg:flex-row">
         {showFilters && (
-          <div className="w-64 shrink-0 space-y-4 bg-card border rounded-xl p-4 h-fit sticky top-4">
+          <div className="w-full shrink-0 space-y-4 workspace-panel p-4 h-fit lg:sticky lg:top-4 lg:w-64">
             <div className="flex items-center justify-between">
               <span className="font-semibold text-sm">Filters</span>
               <button onClick={clearFilters} className="text-xs text-muted-foreground hover:text-foreground">Clear all</button>
@@ -118,8 +119,8 @@ export default function ProspectSearch() {
           </div>
         )}
 
-        <div className="flex-1 space-y-4">
-          <div className="flex gap-2">
+        <div className="min-w-0 flex-1 space-y-4">
+          <div className="flex flex-wrap gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input placeholder="Search name, company, email…" className="pl-9" value={filters.search} onChange={e => setFilter("search", e.target.value)} />
@@ -139,8 +140,8 @@ export default function ProspectSearch() {
             </div>
           )}
 
-          <div className="bg-card border rounded-xl overflow-hidden">
-            <div className="flex items-center gap-3 px-4 py-3 border-b bg-muted/30">
+          <div className="workspace-panel overflow-x-auto">
+            <div className="flex min-w-[720px] items-center gap-3 px-4 py-3 border-b bg-muted/30">
               <button onClick={toggleAll} className="text-muted-foreground hover:text-foreground">
                 {selected.size === prospects.length && prospects.length > 0 ? <CheckSquare className="w-4 h-4 text-primary" /> : <Square className="w-4 h-4" />}
               </button>
@@ -156,7 +157,7 @@ export default function ProspectSearch() {
             ) : prospects.length === 0 ? (
               <div className="text-center py-16 text-muted-foreground">No prospects found — try adjusting your filters</div>
             ) : prospects.map(p => (
-              <div key={p.id} className={`flex items-center gap-3 px-4 py-3 border-b last:border-0 hover:bg-muted/20 transition-colors ${selected.has(p.id) ? "bg-primary/5" : ""}`}>
+              <div key={p.id} className={`flex min-w-[720px] items-center gap-3 px-4 py-3 border-b last:border-0 hover:bg-muted/20 transition-colors ${selected.has(p.id) ? "bg-primary/5" : ""}`}>
                 <button onClick={() => toggleSelect(p.id)} className="text-muted-foreground hover:text-foreground">
                   {selected.has(p.id) ? <CheckSquare className="w-4 h-4 text-primary" /> : <Square className="w-4 h-4" />}
                 </button>

@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -389,7 +390,7 @@ export default function Integrations() {
 
   return (
     <>
-      <div className="space-y-5">
+      <div className="page-stack ">
         {/* Toast */}
         {toast && (
           <div className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium flex items-center gap-2 ${toast.type === "success" ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700"}`}>
@@ -398,10 +399,10 @@ export default function Integrations() {
           </div>
         )}
 
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
           <div>
-            <h1 className="text-xl font-bold text-foreground">Integrations & Connections</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Connect your real accounts to unify conversations and automate workflows</p>
+            <PageTitle>Integrations & Connections</PageTitle>
+            <PageDescription>Connect your real accounts to unify conversations and automate workflows</PageDescription>
           </div>
           <div className="flex items-center gap-2 text-sm">
             <CheckCircle className="w-4 h-4 text-green-500" />
@@ -410,7 +411,7 @@ export default function Integrations() {
           </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           {[
             { label: "Connected", value: connectedCount, color: "text-green-600", bg: "bg-green-50", icon: CheckCircle },
             { label: "Available", value: ALL_INTEGRATIONS.length, color: "text-blue-600", bg: "bg-blue-50", icon: Plug },
@@ -437,7 +438,7 @@ export default function Integrations() {
           ))}
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {filtered.map((def) => {
             const conn = connectedMap.get(def.type);
             const isConnected = conn?.status === "connected";
@@ -526,7 +527,7 @@ export default function Integrations() {
                     value={fieldValues[f.key] ?? ""}
                     onChange={(e) => setFieldValues((v) => ({ ...v, [f.key]: e.target.value }))}
                     placeholder={f.placeholder}
-                    className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 font-mono"
+                    className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 font-mono"
                   />
                 </div>
               ))}

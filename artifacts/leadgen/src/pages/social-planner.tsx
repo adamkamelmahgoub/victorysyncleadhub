@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState } from "react";
 import {
   Calendar, Plus, Image, Link2, Clock, CheckCircle,
@@ -71,11 +72,11 @@ export default function SocialPlanner() {
 
   return (
     <>
-      <div className="space-y-5">
-        <div className="flex items-center justify-between">
+      <div className="page-stack ">
+        <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
           <div>
-            <h1 className="text-xl font-bold text-foreground">Social Planner</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Schedule and manage posts across all your social channels</p>
+            <PageTitle>Social Planner</PageTitle>
+            <PageDescription>Schedule and manage posts across all your social channels</PageDescription>
           </div>
           <div className="flex gap-2">
             <div className="flex rounded-lg border border-border overflow-hidden bg-white">
@@ -91,7 +92,7 @@ export default function SocialPlanner() {
           </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           {[
             { label: "Total Reach", value: totalReach.toLocaleString(), sub: "Across all platforms", color: "text-blue-600", bg: "bg-blue-50" },
             { label: "Engagement", value: totalEngagement.toLocaleString(), sub: "Likes + comments + shares", color: "text-purple-600", bg: "bg-purple-50" },
@@ -229,7 +230,7 @@ export default function SocialPlanner() {
                   value={newPost.content}
                   onChange={(e) => setNewPost((n) => ({ ...n, content: e.target.value }))}
                   rows={5}
-                  className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+                  className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 resize-none"
                   placeholder="What do you want to share?"
                 />
                 <div className="flex justify-between mt-1">
@@ -240,14 +241,14 @@ export default function SocialPlanner() {
                   <span className="text-xs text-muted-foreground">{newPost.content.length}/280</span>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Schedule Date & Time</label>
                   <input
                     type="datetime-local"
                     value={newPost.scheduledAt}
                     onChange={(e) => setNewPost((n) => ({ ...n, scheduledAt: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
+                    className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
                   />
                 </div>
               </div>

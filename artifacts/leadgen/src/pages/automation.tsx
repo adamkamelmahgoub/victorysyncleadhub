@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -212,9 +213,9 @@ function ActionCard({
         </div>
         {editing && (
           <div className="border-t border-border p-3 space-y-3 bg-muted/20">
-            {action.type==='send_email'&&<div><label className="text-[11px] font-medium">Sending mailbox</label><select aria-label="Sending mailbox" className="w-full border rounded p-2 text-xs" value={action.config.mailboxId??''} onChange={e=>onChange({...action.config,mailboxId:e.target.value})}><option value="">Choose mailbox</option>{asArray<{id:string;fromEmail:string;status:string}>(mailboxes).map(m=><option key={m.id} value={m.id}>{m.fromEmail} ({m.status})</option>)}</select></div>}
-            {action.type==='enroll_sequence'&&<div><label className="text-[11px] font-medium">Sequence</label><select aria-label="Sequence" className="w-full border rounded p-2 text-xs" value={action.config.sequenceId??''} onChange={e=>onChange({...action.config,sequenceId:e.target.value})}><option value="">Choose active sequence</option>{asArray<{id:string;name:string;status:string}>(sequences).filter(s=>s.status==='active').map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></div>}
-            {action.type==='move_pipeline_stage'&&<div><label className="text-[11px] font-medium">Pipeline stage</label><select aria-label="Pipeline stage" className="w-full border rounded p-2 text-xs" value={action.config.stageId??''} onChange={e=>onChange({...action.config,stageId:e.target.value})}><option value="">Choose stage</option>{asArray<{id:string;name:string}>(stages).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></div>}
+            {action.type==='send_email'&&<div><label className="text-[11px] font-medium">Sending mailbox</label><select aria-label="Sending mailbox" className="workspace-control w-full border rounded p-2 text-xs" value={action.config.mailboxId??''} onChange={e=>onChange({...action.config,mailboxId:e.target.value})}><option value="">Choose mailbox</option>{asArray<{id:string;fromEmail:string;status:string}>(mailboxes).map(m=><option key={m.id} value={m.id}>{m.fromEmail} ({m.status})</option>)}</select></div>}
+            {action.type==='enroll_sequence'&&<div><label className="text-[11px] font-medium">Sequence</label><select aria-label="Sequence" className="workspace-control w-full border rounded p-2 text-xs" value={action.config.sequenceId??''} onChange={e=>onChange({...action.config,sequenceId:e.target.value})}><option value="">Choose active sequence</option>{asArray<{id:string;name:string;status:string}>(sequences).filter(s=>s.status==='active').map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></div>}
+            {action.type==='move_pipeline_stage'&&<div><label className="text-[11px] font-medium">Pipeline stage</label><select aria-label="Pipeline stage" className="workspace-control w-full border rounded p-2 text-xs" value={action.config.stageId??''} onChange={e=>onChange({...action.config,stageId:e.target.value})}><option value="">Choose stage</option>{asArray<{id:string;name:string}>(stages).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></div>}
             {meta.fields.map((f) => (
               <div key={f.key}>
                 <label className="text-[11px] font-medium text-muted-foreground block mb-1">{f.label}</label>
@@ -222,7 +223,7 @@ function ActionCard({
                   <select
                     value={action.config[f.key] ?? ""}
                     onChange={(e) => onChange({ ...action.config, [f.key]: e.target.value })}
-                    className="w-full px-2 py-1.5 text-xs border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30"
+                    className="workspace-control w-full px-2 py-1.5 text-xs border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30"
                   >
                     <option value="">{f.placeholder}</option>
                     {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -233,14 +234,14 @@ function ActionCard({
                     onChange={(e) => onChange({ ...action.config, [f.key]: e.target.value })}
                     placeholder={f.placeholder}
                     rows={3}
-                    className="w-full px-2 py-1.5 text-xs border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+                    className="workspace-control w-full px-2 py-1.5 text-xs border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30 resize-none"
                   />
                 ) : (
                   <input
                     value={action.config[f.key] ?? ""}
                     onChange={(e) => onChange({ ...action.config, [f.key]: e.target.value })}
                     placeholder={f.placeholder}
-                    className="w-full px-2 py-1.5 text-xs border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30"
+                    className="workspace-control w-full px-2 py-1.5 text-xs border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30"
                   />
                 )}
               </div>
@@ -373,18 +374,18 @@ export default function Automation() {
 
   return (
     <>
-      <div className="space-y-5">
-        <div className="flex items-center justify-between">
+      <div className="page-stack ">
+        <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
           <div>
-            <h1 className="text-xl font-bold text-foreground">Automation</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Build visual workflows that run inside Victory Sync.</p>
+            <PageTitle>Automation</PageTitle>
+            <PageDescription>Build visual workflows that run inside Victory Sync.</PageDescription>
           </div>
           <button onClick={() => setShowNew(true)} className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90">
             <Plus className="w-4 h-4" /> Create Workflow
           </button>
         </div>
 
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           {[
             { label: "Active Workflows", value: automations.filter((a) => a.isActive).length, color: "text-green-600" },
             { label: "Total Enrolled", value: automations.reduce((s, a) => s + a.enrolledCount, 0), color: "text-blue-600" },
@@ -414,7 +415,7 @@ export default function Automation() {
                   <input
                     value={editName}
                     onChange={(e) => { setEditName(e.target.value); setHasChanges(true); }}
-                    className="flex-1 text-base font-semibold text-foreground bg-transparent border-0 outline-none focus:ring-2 focus:ring-primary/20 rounded px-1"
+                    className="workspace-control flex-1 text-base font-semibold text-foreground bg-transparent border-0 outline-none focus:ring-2 focus:ring-primary/20 rounded px-1"
                   />
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${STATUS_STYLES[status(selected)]}`}>{status(selected)}</span>
                   <div className="flex gap-2 ml-2">
@@ -445,7 +446,7 @@ export default function Automation() {
                       <select
                         value={editTrigger}
                         onChange={(e) => { setEditTrigger(e.target.value as TriggerType); setEditTriggerConfig({}); setHasChanges(true); }}
-                        className="w-full px-2 py-1.5 text-sm font-semibold text-foreground border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30"
+                        className="workspace-control w-full px-2 py-1.5 text-sm font-semibold text-foreground border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30"
                       >
                         {Object.entries(TRIGGER_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                       </select>
@@ -455,7 +456,7 @@ export default function Automation() {
                             value={editTriggerConfig[f.key] ?? ""}
                             onChange={(e) => { setEditTriggerConfig((c) => ({ ...c, [f.key]: e.target.value })); setHasChanges(true); }}
                             placeholder={f.placeholder}
-                            className="w-full px-2 py-1.5 text-xs border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30"
+                            className="workspace-control w-full px-2 py-1.5 text-xs border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30"
                           />
                         </div>
                       ))}
@@ -489,7 +490,7 @@ export default function Automation() {
                         <Plus className="w-4 h-4" /> Add node
                       </button>
                       {showAddStep && (
-                        <div className="mt-2 bg-white border border-border rounded-xl p-3 shadow-lg"><div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Node library · {Object.keys(ACTION_META).length} nodes</div><div className="grid grid-cols-2 gap-2">
+                        <div className="mt-2 bg-white border border-border rounded-xl p-3 shadow-lg"><div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Node library · {Object.keys(ACTION_META).length} nodes</div><div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {Object.entries(ACTION_META).map(([type, meta]) => {
                             const Icon = meta.icon;
                             return (
@@ -517,7 +518,7 @@ export default function Automation() {
                 <div className="bg-white rounded-xl border border-border shadow-sm p-4 space-y-2">
                   <h3 className="text-sm font-semibold">Native engine</h3>
                   <p className="text-xs text-muted-foreground">Runs inside Victory Sync. Queued: {engineStatus?.queued??0} · Running: {engineStatus?.running??0} · Failed: {engineStatus?.failed??0}</p>
-                  {editTrigger==='manual'&&<><form onSubmit={async e=>{e.preventDefault();const result=await apiFetch(`/api/leads?search=${encodeURIComponent(manualSearch)}&limit=20`);setManualContacts(result.leads??[]);}} className="flex gap-1"><input className="min-w-0 flex-1 border rounded px-2 py-1 text-xs" value={manualSearch} onChange={e=>setManualSearch(e.target.value)} placeholder="Find contact"/><button className="border rounded px-2 text-xs">Find</button></form><select className="w-full border rounded px-2 py-1 text-xs" value={manualLeadId} onChange={e=>setManualLeadId(e.target.value)}><option value="">Choose contact</option>{manualContacts.map(c=><option key={c.id} value={c.id}>{c.firstName} {c.lastName} · {c.email}</option>)}</select><button className="w-full bg-primary text-white rounded px-2 py-1.5 text-xs disabled:opacity-50" disabled={!selected.isActive||!manualLeadId||runWorkflow.isPending} onClick={()=>runWorkflow.mutate()}>{runWorkflow.isPending?'Running…':'Run now'}</button></>}
+                  {editTrigger==='manual'&&<><form onSubmit={async e=>{e.preventDefault();const result=await apiFetch(`/api/leads?search=${encodeURIComponent(manualSearch)}&limit=20`);setManualContacts(result.leads??[]);}} className="flex gap-1"><input className="workspace-control min-w-0 flex-1 border rounded px-2 py-1 text-xs" value={manualSearch} onChange={e=>setManualSearch(e.target.value)} placeholder="Find contact"/><button className="border rounded px-2 text-xs">Find</button></form><select className="workspace-control w-full border rounded px-2 py-1 text-xs" value={manualLeadId} onChange={e=>setManualLeadId(e.target.value)}><option value="">Choose contact</option>{manualContacts.map(c=><option key={c.id} value={c.id}>{c.firstName} {c.lastName} · {c.email}</option>)}</select><button className="w-full bg-primary text-white rounded px-2 py-1.5 text-xs disabled:opacity-50" disabled={!selected.isActive||!manualLeadId||runWorkflow.isPending} onClick={()=>runWorkflow.mutate()}>{runWorkflow.isPending?'Running…':'Run now'}</button></>}
                   {runWorkflow.error&&<p className="text-xs text-red-600">{runWorkflow.error.message}</p>}
                 </div>
                 {update.error&&<div className="px-5 py-2 text-xs text-red-600 bg-red-50 border-b">{update.error.message}</div>}
@@ -563,12 +564,12 @@ export default function Automation() {
             <div className="flex gap-3">
               <div className="relative max-w-xs">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search workflows..." className="w-full pl-9 pr-3 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30" />
+                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search workflows..." className="workspace-control w-full pl-9 pr-3 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30" />
               </div>
             </div>
 
             <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
-              <table className="w-full">
+              <table className="workspace-table w-full">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
                     <th className="text-left text-xs font-semibold text-muted-foreground px-5 py-3">Workflow</th>
@@ -638,7 +639,7 @@ export default function Automation() {
             <div className="p-6 space-y-4">
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1.5">Workflow Name</label>
-                <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && createWorkflow()} autoFocus className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="e.g. New Lead Welcome Series" />
+                <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && createWorkflow()} autoFocus className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="e.g. New Lead Welcome Series" />
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-2">Start from a template</label>

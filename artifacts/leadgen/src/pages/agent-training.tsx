@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { Link } from "wouter";
 import {
   BookOpen, CheckCircle2, Clock, Contact, FileSpreadsheet, GitBranch,
@@ -83,14 +84,14 @@ const MODULES = [
 
 export default function AgentTraining() {
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="page-stack">
+      <div className="flex flex-wrap items-start justify-between gap-4 flex-wrap gap-4 min-w-0">
         <div>
           <div className="flex items-center gap-2 text-sm text-primary font-medium mb-1">
             <BookOpen className="w-4 h-4" /> VictorySync Agent Training
           </div>
-          <h1 className="text-2xl font-bold text-foreground">Lead Generation Hub Playbook</h1>
-          <p className="text-sm text-muted-foreground mt-1">The required workflow for accurate outreach, follow-up, and pipeline management.</p>
+          <PageTitle>Lead Generation Hub Playbook</PageTitle>
+          <PageDescription>The required workflow for accurate outreach, follow-up, and pipeline management.</PageDescription>
         </div>
         <Link href="/leads"><Button><Target className="w-4 h-4 mr-2" /> Start working contacts</Button></Link>
       </div>

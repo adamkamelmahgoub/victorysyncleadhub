@@ -279,7 +279,7 @@ export default function CompanyDetail() {
     return <CrmError error={query.error} retry={() => void query.refetch()} />;
   const company = query.data;
   return (
-    <div className="space-y-5">
+    <div className="page-stack">
       <Link
         href="/companies"
         className="inline-flex items-center gap-2 text-sm text-muted-foreground"

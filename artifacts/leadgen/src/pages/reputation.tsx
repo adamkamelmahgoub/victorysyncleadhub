@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -133,7 +134,7 @@ function ReviewCard({ review, onReply, onDelete }: { review: Review; onReply: (i
                 onChange={(e) => setReplyText(e.target.value)}
                 placeholder="Write a professional reply..."
                 rows={3}
-                className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+                className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 resize-none"
               />
               <div className="flex gap-2">
                 <button onClick={() => { onReply(review.id, replyText); setShowReply(false); }} disabled={!replyText.trim()} className="px-3 py-1.5 text-xs bg-primary text-white rounded-lg font-medium hover:bg-primary/90 disabled:opacity-40">Post Reply</button>
@@ -230,17 +231,17 @@ export default function Reputation() {
 
   return (
     <>
-      <div className="space-y-5">
+      <div className="page-stack ">
         {toast && (
           <div className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium flex items-center gap-2 ${toast.type === "success" ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700"}`}>
             {toast.type === "success" ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}{toast.msg}
           </div>
         )}
 
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
           <div>
-            <h1 className="text-xl font-bold text-foreground">Reputation Management</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Monitor and manage your reviews across all platforms</p>
+            <PageTitle>Reputation Management</PageTitle>
+            <PageDescription>Monitor and manage your reviews across all platforms</PageDescription>
           </div>
           <div className="flex gap-2">
             <button onClick={() => { setTab("reviews"); setShowAddReview(true); }} className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-lg text-muted-foreground hover:bg-muted">
@@ -263,7 +264,7 @@ export default function Reputation() {
         {/* ── Overview ── */}
         {tab === "overview" && (
           <div className="space-y-5">
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
               <div className="bg-white rounded-xl border border-border shadow-sm p-5 col-span-1">
                 <div className="text-xs text-muted-foreground mb-2">Overall Rating</div>
                 <div className="text-4xl font-bold text-foreground mb-1">{avgRating.toFixed(1)}</div>
@@ -287,7 +288,7 @@ export default function Reputation() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
               <div className="bg-white rounded-xl border border-border shadow-sm p-5">
                 <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-muted-foreground" /> Rating Distribution</h3>
                 <div className="space-y-3">
@@ -356,7 +357,7 @@ export default function Reputation() {
                 <button onClick={() => setShowAddSource(true)} className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90">Add Your First Source</button>
               </div>
             ) : (
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {sources.map((source) => {
                   const cfg = PLATFORM_CONFIG[source.platform] ?? PLATFORM_CONFIG.google!;
                   const avg = parseFloat(source.avgRating ?? "0");
@@ -375,7 +376,7 @@ export default function Reputation() {
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
-                      <div className="grid grid-cols-2 gap-3 mb-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                         <div className="bg-muted/40 rounded-lg p-3">
                           <div className="text-xs text-muted-foreground">Reviews</div>
                           <div className="text-xl font-bold text-foreground">{source.reviewCount}</div>
@@ -399,7 +400,7 @@ export default function Reputation() {
             {/* Available platforms not yet added */}
             <div>
               <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Available Platforms</div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {AVAILABLE_PLATFORMS.filter((p) => !sources.find((s) => s.platform === p.key)).map((p) => (
                   <button key={p.key} onClick={() => { setAddSourcePlatform(p.key); setShowAddSource(true); }} className="flex items-center gap-3 bg-white rounded-xl border border-border shadow-sm p-4 hover:border-primary/40 transition-colors text-left group">
                     <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-xs flex-shrink-0 ${p.logoColor}`}>{p.logo}</div>
@@ -421,13 +422,13 @@ export default function Reputation() {
             <div className="flex items-center gap-3 flex-wrap">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search reviews..." className="pl-9 pr-3 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30 w-52" />
+                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search reviews..." className="workspace-control pl-9 pr-3 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30 w-52" />
               </div>
-              <select value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value as PlatformFilter)} className="px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none">
+              <select value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value as PlatformFilter)} className="workspace-control px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none">
                 <option value="all">All Platforms</option>
                 {AVAILABLE_PLATFORMS.map((p) => <option key={p.key} value={p.key} className="capitalize">{p.key}</option>)}
               </select>
-              <select value={ratingFilter} onChange={(e) => setRatingFilter(e.target.value as RatingFilter)} className="px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none">
+              <select value={ratingFilter} onChange={(e) => setRatingFilter(e.target.value as RatingFilter)} className="workspace-control px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none">
                 <option value="all">All Ratings</option>
                 {[5, 4, 3, 2, 1].map((r) => <option key={r} value={String(r)}>{r} Star{r !== 1 ? "s" : ""}</option>)}
               </select>
@@ -461,25 +462,25 @@ export default function Reputation() {
 
         {/* ── Request Reviews ── */}
         {tab === "request" && (
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div className="bg-white rounded-xl border border-border shadow-sm p-6 space-y-5">
               <h3 className="font-semibold text-foreground">Send a Review Request</h3>
               <div className="space-y-3">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Contact Name *</label>
-                  <input value={requestForm.contactName} onChange={(e) => setRequestForm((f) => ({ ...f, contactName: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="Enter contact name" />
+                  <input value={requestForm.contactName} onChange={(e) => setRequestForm((f) => ({ ...f, contactName: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="Enter contact name" />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs font-medium text-muted-foreground block mb-1.5">Email</label>
-                    <input type="email" value={requestForm.contactEmail} onChange={(e) => setRequestForm((f) => ({ ...f, contactEmail: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="sarah@company.com" />
+                    <input type="email" value={requestForm.contactEmail} onChange={(e) => setRequestForm((f) => ({ ...f, contactEmail: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="sarah@company.com" />
                   </div>
                   <div>
                     <label className="text-xs font-medium text-muted-foreground block mb-1.5">Phone</label>
-                    <input type="tel" value={requestForm.contactPhone} onChange={(e) => setRequestForm((f) => ({ ...f, contactPhone: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="+1 555 0100" />
+                    <input type="tel" value={requestForm.contactPhone} onChange={(e) => setRequestForm((f) => ({ ...f, contactPhone: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="+1 555 0100" />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs font-medium text-muted-foreground block mb-1.5">Send via</label>
                     <div className="flex gap-2">
@@ -492,7 +493,7 @@ export default function Reputation() {
                   </div>
                   <div>
                     <label className="text-xs font-medium text-muted-foreground block mb-1.5">Review Platform</label>
-                    <select value={requestForm.platform} onChange={(e) => setRequestForm((f) => ({ ...f, platform: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none">
+                    <select value={requestForm.platform} onChange={(e) => setRequestForm((f) => ({ ...f, platform: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none">
                       {AVAILABLE_PLATFORMS.map((p) => <option key={p.key} value={p.key} className="capitalize">{p.key.charAt(0).toUpperCase() + p.key.slice(1)}</option>)}
                     </select>
                   </div>
@@ -544,7 +545,7 @@ export default function Reputation() {
             <div className="p-6 space-y-4">
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1.5">Platform</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                   {AVAILABLE_PLATFORMS.map((p) => (
                     <button key={p.key} onClick={() => setAddSourcePlatform(p.key)} className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-xs font-medium transition-colors ${addSourcePlatform === p.key ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold ${p.logoColor}`}>{p.logo}</div>
@@ -555,15 +556,15 @@ export default function Reputation() {
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1.5">Display Name *</label>
-                <input value={addSourceFields.name} onChange={(e) => setAddSourceFields((f) => ({ ...f, name: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder={`My ${addSourcePlatform.charAt(0).toUpperCase() + addSourcePlatform.slice(1)} Reviews`} />
+                <input value={addSourceFields.name} onChange={(e) => setAddSourceFields((f) => ({ ...f, name: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder={`My ${addSourcePlatform.charAt(0).toUpperCase() + addSourcePlatform.slice(1)} Reviews`} />
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1.5">Business / Profile ID</label>
-                <input value={addSourceFields.businessId} onChange={(e) => setAddSourceFields((f) => ({ ...f, businessId: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="e.g. ChIJ... for Google" />
+                <input value={addSourceFields.businessId} onChange={(e) => setAddSourceFields((f) => ({ ...f, businessId: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="e.g. ChIJ... for Google" />
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1.5">Review Link URL</label>
-                <input value={addSourceFields.reviewUrl} onChange={(e) => setAddSourceFields((f) => ({ ...f, reviewUrl: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder={PLATFORM_CONFIG[addSourcePlatform]?.urlPattern ?? "https://"} />
+                <input value={addSourceFields.reviewUrl} onChange={(e) => setAddSourceFields((f) => ({ ...f, reviewUrl: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder={PLATFORM_CONFIG[addSourcePlatform]?.urlPattern ?? "https://"} />
               </div>
             </div>
             <div className="px-6 pb-6 flex gap-2 justify-end">
@@ -585,10 +586,10 @@ export default function Reputation() {
               <button onClick={() => setShowAddReview(false)} className="text-muted-foreground hover:text-foreground">✕</button>
             </div>
             <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Platform</label>
-                  <select value={newReview.platform} onChange={(e) => setNewReview((r) => ({ ...r, platform: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none">
+                  <select value={newReview.platform} onChange={(e) => setNewReview((r) => ({ ...r, platform: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none">
                     {AVAILABLE_PLATFORMS.map((p) => <option key={p.key} value={p.key} className="capitalize">{p.key}</option>)}
                   </select>
                 </div>
@@ -605,11 +606,11 @@ export default function Reputation() {
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1.5">Reviewer Name *</label>
-                <input value={newReview.reviewer} onChange={(e) => setNewReview((r) => ({ ...r, reviewer: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="John Smith" />
+                <input value={newReview.reviewer} onChange={(e) => setNewReview((r) => ({ ...r, reviewer: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="John Smith" />
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1.5">Review Text</label>
-                <textarea value={newReview.text} onChange={(e) => setNewReview((r) => ({ ...r, text: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 resize-none" rows={3} placeholder="Great service!" />
+                <textarea value={newReview.text} onChange={(e) => setNewReview((r) => ({ ...r, text: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 resize-none" rows={3} placeholder="Great service!" />
               </div>
             </div>
             <div className="px-6 pb-6 flex gap-2 justify-end">

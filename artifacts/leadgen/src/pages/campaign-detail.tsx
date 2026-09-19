@@ -1,3 +1,4 @@
+import { PageTitle } from "@/components/page-layout";
 import { useParams, Link } from "wouter";
 import {useState} from 'react';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
@@ -42,7 +43,7 @@ export default function CampaignDetail() {
 
         <div className="space-y-5">
           <Skeleton className="h-8 w-64" />
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24" />)}
           </div>
         </div>
@@ -56,15 +57,15 @@ export default function CampaignDetail() {
 
   return (
 
-      <div className="space-y-5">
-        <div className="flex items-center gap-3">
+      <div className="page-stack">
+        <div className="flex items-center gap-3 flex-wrap gap-4 min-w-0">
             <Link href="/campaigns">
             <Button variant="ghost" size="icon" className="w-8 h-8">
               <ArrowLeft className="w-4 h-4" />
             </Button>
           </Link>
           <div>
-            <h1 className="text-xl font-bold text-foreground">{campaign.name}</h1>
+            <PageTitle>{campaign.name}</PageTitle>
             {campaign.description && <p className="text-xs text-muted-foreground mt-0.5">{campaign.description}</p>}
           </div>
           <Badge variant="outline" className="ml-auto capitalize" style={{ borderColor: campaign.status === "active" ? "hsl(140 70% 50% / 0.5)" : "hsl(40 90% 60% / 0.5)", color: campaign.status === "active" ? "hsl(140 70% 50%)" : "hsl(40 90% 60%)" }}>
@@ -72,9 +73,9 @@ export default function CampaignDetail() {
           </Badge>
           <Button onClick={launch} disabled={launching||!leadCount}><Rocket className="mr-2 h-4 w-4"/>{launching?'Queuing...':campaign.status==='active'?'Queue new leads':'Launch campaign'}</Button>
         </div>
-        {launchResult&&<p className="rounded border bg-card p-3 text-sm" role="status">{launchResult}</p>}
+        {launchResult&&<p className="workspace-panel p-3 text-sm" role="status">{launchResult}</p>}
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {[
             { label: "Total Leads", value: leadCount, icon: Users },
             { label: "Converted", value: convertedCount, icon: CheckCircle2 },
@@ -95,10 +96,10 @@ export default function CampaignDetail() {
         <Card className="border border-border bg-card overflow-hidden">
           <div className="px-5 py-4 border-b border-border">
             <p className="text-sm font-semibold text-foreground">Leads in Campaign</p><Button className="mt-2" onClick={()=>setAdding(!adding)}>{adding?'Close':'Add leads'}</Button>{membersError&&<p role="alert">{membersError.message}</p>}
-            {adding&&<div className="mt-3 space-y-2"><input className="rounded border bg-background p-2" aria-label="Search contacts" placeholder="Search contacts" value={search} onChange={e=>{setSearch(e.target.value);setVisible(100);}}/><Button variant="outline" disabled={loadingContacts} onClick={()=>setSelected([...new Set([...selected,...available.map(l=>l.id)])])}>Select all {available.length} matching leads</Button><Button variant="outline" onClick={()=>setSelected([])}>Clear selection</Button><p>{selected.length} selected</p>{loadingContacts&&<p>Loading all contacts...</p>}{contactsError&&<p role="alert">{contactsError.message}</p>}<div className="max-h-72 overflow-y-auto">{available.slice(0,visible).map(l=><label key={l.id} className="flex gap-2 py-2"><input type="checkbox" checked={selected.includes(l.id)} onChange={e=>setSelected(ids=>e.target.checked?[...ids,l.id]:ids.filter(id=>id!==l.id))}/>{l.firstName} {l.lastName} - {l.email}</label>)}</div>{available.length>visible&&<Button variant="outline" onClick={()=>setVisible(n=>n+100)}>Show more</Button>}<Button disabled={saving||!selected.length} onClick={addSelected}>{saving?'Adding '+progress+' / '+selected.length:'Add selected leads'}</Button>{saveError&&<p role="alert">{saveError} Retry to continue; existing campaign members are preserved.</p>}</div>}
+            {adding&&<div className="mt-3 space-y-2"><input className="workspace-control rounded border bg-background p-2" aria-label="Search contacts" placeholder="Search contacts" value={search} onChange={e=>{setSearch(e.target.value);setVisible(100);}}/><Button variant="outline" disabled={loadingContacts} onClick={()=>setSelected([...new Set([...selected,...available.map(l=>l.id)])])}>Select all {available.length} matching leads</Button><Button variant="outline" onClick={()=>setSelected([])}>Clear selection</Button><p>{selected.length} selected</p>{loadingContacts&&<p>Loading all contacts...</p>}{contactsError&&<p role="alert">{contactsError.message}</p>}<div className="max-h-72 overflow-y-auto">{available.slice(0,visible).map(l=><label key={l.id} className="flex gap-2 py-2"><input type="checkbox" checked={selected.includes(l.id)} onChange={e=>setSelected(ids=>e.target.checked?[...ids,l.id]:ids.filter(id=>id!==l.id))}/>{l.firstName} {l.lastName} - {l.email}</label>)}</div>{available.length>visible&&<Button variant="outline" onClick={()=>setVisible(n=>n+100)}>Show more</Button>}<Button disabled={saving||!selected.length} onClick={addSelected}>{saving?'Adding '+progress+' / '+selected.length:'Add selected leads'}</Button>{saveError&&<p role="alert">{saveError} Retry to continue; existing campaign members are preserved.</p>}</div>}
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="workspace-table w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
                   <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Lead</th>

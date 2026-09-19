@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -274,19 +275,19 @@ export default function PipelinePage() {
   const totalLeads = data.stages.reduce((sum, stage) => sum + stage.leads.length, 0) + data.unassigned.length;
 
   return (
-    <div className="p-6 h-full flex flex-col gap-5">
-      <div className="flex items-start justify-between gap-4">
+    <div className="page-stack h-full flex flex-col gap-5">
+      <div className="flex items-start justify-between gap-4 flex-wrap min-w-0">
         <div>
           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
             <LayoutDashboard className="w-4 h-4" />
             CRM
           </div>
-          <h1 className="text-2xl font-bold text-foreground">Deals / Pipeline</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <PageTitle>Deals / Pipeline</PageTitle>
+          <PageDescription>
             {totalLeads} contacts across {data.stages.length} stages{selectedPipeline ? ` in ${selectedPipeline.name}` : ""}
-          </p>
+          </PageDescription>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={deletePipeline} disabled={!selectedPipelineId || deletingPipeline}>
             <Trash2 className="w-4 h-4 mr-1.5" />{deletingPipeline ? "Deleting..." : "Delete pipeline"}
           </Button>
@@ -300,12 +301,12 @@ export default function PipelinePage() {
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 workspace-panel px-4 py-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
           <Columns3 className="w-4 h-4 text-muted-foreground" />
           <Label className="text-xs text-muted-foreground uppercase tracking-wide">Pipeline</Label>
           <Select value={selectedPipelineId} onValueChange={setSelectedPipelineId}>
-            <SelectTrigger className="w-64 h-9">
+            <SelectTrigger className="w-full min-w-0 sm:w-64 h-10">
               <SelectValue placeholder="Create your first pipeline" />
             </SelectTrigger>
             <SelectContent>
@@ -342,7 +343,7 @@ export default function PipelinePage() {
               <span className="font-semibold text-muted-foreground text-sm">Unassigned</span>
               <Badge variant="secondary" className="text-xs bg-muted text-muted-foreground">{data.unassigned.length}</Badge>
             </div>
-            <div className="flex-1 rounded-lg border border-border bg-card p-2 space-y-2 min-h-[360px]">
+            <div className="flex-1 workspace-panel p-2 space-y-2 min-h-[360px]">
               {data.unassigned.map((lead) => (
                 <LeadCard key={lead.id} lead={lead} onDragStart={setDraggingId} />
               ))}
@@ -428,4 +429,4 @@ export default function PipelinePage() {
   );
 }
 
-function ContactPicker({contacts,loading,error,search,setSearch,selected,setSelected}:{contacts:CampaignContact[];loading:boolean;error:string;search:string;setSearch:(v:string)=>void;selected:string[];setSelected:(v:string[])=>void}){const visible=contacts.slice(0,500);const allSelected=visible.length>0&&visible.every(l=>selected.includes(String(l.id)));return <div className="space-y-2"><div className="flex gap-2"><Input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search contacts by name, email, or company"/><Button type="button" variant="outline" onClick={()=>setSelected(allSelected?selected.filter(id=>!visible.some(l=>String(l.id)===id)):[...new Set([...selected,...visible.map(l=>String(l.id))])])}>{allSelected?'Clear shown':`Select shown (${visible.length})`}</Button></div><p className="text-xs text-muted-foreground">{selected.length} selected. Selecting a contact already in another pipeline moves it to this pipeline.</p>{loading&&<p className="text-sm">Loading all contacts...</p>}{error&&<p className="text-sm text-red-600">{error}</p>}<div className="max-h-64 overflow-y-auto rounded border p-2">{visible.map(l=>{const id=String(l.id);return <label key={id} className="flex items-center gap-3 border-b px-2 py-2 text-sm last:border-0"><input type="checkbox" checked={selected.includes(id)} onChange={e=>setSelected(e.target.checked?[...selected,id]:selected.filter(x=>x!==id))}/><span className="min-w-0"><span className="font-medium">{l.firstName} {l.lastName}</span><span className="block truncate text-xs text-muted-foreground">{l.email}{l.company?` · ${l.company}`:''}</span></span></label>;})}{!loading&&!visible.length&&<p className="p-4 text-center text-sm text-muted-foreground">No matching contacts.</p>}</div>{contacts.length>500&&<p className="text-xs text-muted-foreground">Refine your search to narrow the {contacts.length} matching contacts.</p>}</div>;}
+function ContactPicker({contacts,loading,error,search,setSearch,selected,setSelected}:{contacts:CampaignContact[];loading:boolean;error:string;search:string;setSearch:(v:string)=>void;selected:string[];setSelected:(v:string[])=>void}){const visible=contacts.slice(0,500);const allSelected=visible.length>0&&visible.every(l=>selected.includes(String(l.id)));return <div className="space-y-2"><div className="flex flex-wrap gap-2"><Input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search contacts by name, email, or company"/><Button type="button" variant="outline" onClick={()=>setSelected(allSelected?selected.filter(id=>!visible.some(l=>String(l.id)===id)):[...new Set([...selected,...visible.map(l=>String(l.id))])])}>{allSelected?'Clear shown':`Select shown (${visible.length})`}</Button></div><p className="text-xs text-muted-foreground">{selected.length} selected. Selecting a contact already in another pipeline moves it to this pipeline.</p>{loading&&<p className="text-sm">Loading all contacts...</p>}{error&&<p className="text-sm text-red-600">{error}</p>}<div className="max-h-64 overflow-y-auto rounded border p-2">{visible.map(l=>{const id=String(l.id);return <label key={id} className="flex items-center gap-3 border-b px-2 py-2 text-sm last:border-0"><input type="checkbox" checked={selected.includes(id)} onChange={e=>setSelected(e.target.checked?[...selected,id]:selected.filter(x=>x!==id))}/><span className="min-w-0"><span className="font-medium">{l.firstName} {l.lastName}</span><span className="block truncate text-xs text-muted-foreground">{l.email}{l.company?` · ${l.company}`:''}</span></span></label>;})}{!loading&&!visible.length&&<p className="p-4 text-center text-sm text-muted-foreground">No matching contacts.</p>}</div>{contacts.length>500&&<p className="text-xs text-muted-foreground">Refine your search to narrow the {contacts.length} matching contacts.</p>}</div>;}

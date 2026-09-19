@@ -1,3 +1,4 @@
+import { PageHeader } from "@/components/page-layout";
 import { useState, useEffect } from "react";
 import { useRoute, Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
@@ -133,18 +134,18 @@ export default function FormEditor() {
 
   return (
 
-      <div className="space-y-5">
-        <div className="flex items-center gap-3">
+      <div className="page-stack"><PageHeader title="Form editor" description="Build your form, preview the fields, and manage submissions."/>
+        <div className="flex flex-wrap items-center gap-3">
             <Link href="/forms">
             <Button variant="ghost" size="icon" className="w-8 h-8"><ArrowLeft className="w-4 h-4" /></Button>
           </Link>
           <Input
-            className="text-lg font-bold bg-transparent border-transparent hover:border-border focus:border-border h-9 px-2 w-80"
+            className="text-lg font-bold bg-transparent border-transparent hover:border-border focus:border-border h-9 px-2 w-full sm:w-80"
             value={formName}
             onChange={(e) => { setFormName(e.target.value); setDirty(true); }}
           />
           <span className="text-xs text-muted-foreground">{form.submissionCount} submissions</span>
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex flex-wrap gap-2">
             <Button variant="outline" size="sm" className="gap-1.5" onClick={copyEmbed}>
               {copiedEmbed ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
               {copiedEmbed ? "Copied!" : "Copy Embed Code"}
@@ -178,7 +179,7 @@ export default function FormEditor() {
                 <Card key={field.id} className="p-4 border border-border bg-card">
                   <div className="flex items-center gap-2 mb-3">
                     <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
-                    <div className="flex-1 grid grid-cols-3 gap-2">
+                    <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
                       <div className="col-span-2">
                         <Label className="text-xs text-muted-foreground">Label</Label>
                         <Input
@@ -201,7 +202,7 @@ export default function FormEditor() {
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div>
                       <Label className="text-xs text-muted-foreground">Placeholder</Label>
                       <Input

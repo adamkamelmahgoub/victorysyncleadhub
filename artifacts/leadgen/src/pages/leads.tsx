@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
@@ -303,11 +304,11 @@ export default function Leads() {
 
   return (
     <>
-      <div className="space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="page-stack ">
+        <div className="flex flex-wrap items-center justify-between gap-3 flex-wrap gap-4 min-w-0">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Contacts</h1>
-            <p className="text-sm text-muted-foreground mt-1">Manage people, companies, activity, source, and pipeline context.</p>
+            <PageTitle>Contacts</PageTitle>
+            <PageDescription>Manage people, companies, activity, source, and pipeline context.</PageDescription>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => void scanDuplicates()} disabled={scanningDuplicates} className="gap-1.5">
@@ -372,7 +373,7 @@ export default function Leads() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="workspace-table w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   <th className="px-4 py-3"><Checkbox checked={allSelected} onCheckedChange={() => setSelected(allSelected ? new Set() : new Set(leads.map((lead) => lead.id)))} aria-label="Select all contacts" /></th>
@@ -562,7 +563,7 @@ export default function Leads() {
                 </div>
               </>
             )}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs text-muted-foreground">Assign to client</Label>
                 <Select value={groupForm.clientAccountId || "none"} onValueChange={(value) => setGroupForm((form) => ({ ...form, clientAccountId: value === "none" ? "" : value }))}>
@@ -597,7 +598,7 @@ export default function Leads() {
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Add contact</DialogTitle></DialogHeader>
-          <div className="grid grid-cols-2 gap-4 py-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-2">
             <div>
               <Label className="text-xs text-muted-foreground">First name *</Label>
               <Input className="mt-1" value={form.firstName} onChange={(event) => setForm((f) => ({ ...f, firstName: event.target.value }))} />

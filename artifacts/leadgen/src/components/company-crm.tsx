@@ -1,3 +1,4 @@
+import { PageHeader } from "@/components/page-layout";
 import type { ReactNode } from "react";
 import { Link } from "wouter";
 import { ArrowUpRight } from "lucide-react";
@@ -12,22 +13,7 @@ export function CrmHeader({
   action?: ReactNode;
 }) {
   return (
-    <div className="space-y-4">
-      <header className="pb-2 pt-1">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
-              Relationship management
-            </p>
-            <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
-            <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-              {description}
-            </p>
-          </div>
-          {action}
-        </div>
-      </header>
-    </div>
+    <PageHeader title={title} description={description} actions={action} />
   );
 }
 export function StageBadge({ stage }: { stage: string }) {

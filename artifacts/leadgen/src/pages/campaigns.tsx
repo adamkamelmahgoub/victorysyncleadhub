@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState, useMemo } from "react";
 import { useListCampaigns, useCreateCampaign, useDeleteCampaign,  getListCampaignsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -168,11 +169,11 @@ export default function Campaigns() {
 
   return (
     <>
-      <div className="space-y-5">
-        <div className="flex items-center justify-between">
+      <div className="page-stack ">
+        <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Campaigns</h1>
-            <p className="text-sm text-muted-foreground mt-1">{campaigns.length} campaigns</p>
+            <PageTitle>Campaigns</PageTitle>
+            <PageDescription>{campaigns.length} campaigns</PageDescription>
           </div>
           <Button size="sm" onClick={openWizard} className="gap-1.5">
             <Plus className="w-4 h-4" /> New Campaign
@@ -216,7 +217,7 @@ export default function Campaigns() {
                     </Button>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-3 py-3 border-y border-border my-3">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 py-3 border-y border-border my-3">
                     <div className="text-center">
                       <p className="text-lg font-bold text-foreground">{c.leadCount}</p>
                       <p className="text-xs text-muted-foreground">Leads</p>
@@ -287,7 +288,7 @@ export default function Campaigns() {
                   <Label className="text-xs font-medium text-muted-foreground">Description</Label>
                   <Textarea className="mt-1 resize-none" rows={2} placeholder="Internal notes about this campaign..." value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <Label className="text-xs font-medium text-muted-foreground">From Name</Label>
                     <Input className="mt-1" placeholder="John at VictorySync" value={form.fromName} onChange={(e) => setForm((f) => ({ ...f, fromName: e.target.value }))} />
@@ -441,7 +442,7 @@ export default function Campaigns() {
                 <div>
                   <Label className="text-xs font-medium text-muted-foreground">Sending Window</Label>
                   <p className="text-xs text-muted-foreground mb-2">Only send emails during these hours (in your account timezone)</p>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <Label className="text-xs text-muted-foreground">Start time</Label>
                       <Input
@@ -465,7 +466,7 @@ export default function Campaigns() {
 
                 <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-2 text-sm">
                   <p className="font-medium text-foreground">Campaign Summary</p>
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-xs">
                     <span className="text-muted-foreground">Campaign</span><span className="font-medium truncate">{form.name}</span>
                     <span className="text-muted-foreground">Subject</span><span className="font-medium truncate">{form.subject || "—"}</span>
                     <span className="text-muted-foreground">Recipients</span><span className="font-medium">{selectedLeadIds.length} leads</span>

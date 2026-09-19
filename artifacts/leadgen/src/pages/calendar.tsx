@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState } from "react";
 import {
   ChevronLeft, ChevronRight, Plus, Calendar as CalIcon,
@@ -54,12 +55,12 @@ export default function CalendarPage() {
 
   return (
     <>
-      <div className="space-y-5">
+      <div className="page-stack ">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
           <div>
-            <h1 className="text-xl font-bold text-foreground">Calendars</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Schedule and manage appointments</p>
+            <PageTitle>Calendars</PageTitle>
+            <PageDescription>Schedule and manage appointments</PageDescription>
           </div>
           <div className="flex gap-2">
             <div className="flex rounded-lg border border-border overflow-hidden bg-white">
@@ -206,23 +207,23 @@ export default function CalendarPage() {
             <div className="p-6 space-y-4">
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1.5">Title</label>
-                <input className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 bg-background" placeholder="Discovery Call" />
+                <input className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 bg-background" placeholder="Discovery Call" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Date</label>
-                  <input type="date" className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 bg-background" defaultValue={format(new Date(), "yyyy-MM-dd")} />
+                  <input type="date" className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 bg-background" defaultValue={format(new Date(), "yyyy-MM-dd")} />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Time</label>
-                  <input type="time" className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 bg-background" defaultValue="10:00" />
+                  <input type="time" className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 bg-background" defaultValue="10:00" />
                 </div>
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1.5">Contact</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                  <input className="w-full pl-8 pr-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 bg-background" placeholder="Search contacts..." />
+                  <input className="workspace-control w-full pl-8 pr-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 bg-background" placeholder="Search contacts..." />
                 </div>
               </div>
               <div>

@@ -56,7 +56,7 @@ export default function CompanyTaskPage() {
         .includes(search.toLowerCase()),
   );
   return (
-    <div className="space-y-4">
+    <div className="page-stack">
       <CrmHeader
         title="Tasks & follow-ups"
         description="Callbacks, meetings, and the next action for every company."
@@ -102,7 +102,7 @@ export default function CompanyTaskPage() {
         <CrmError error={query.error} retry={() => void query.refetch()} />
       ) : (
         <div className="overflow-x-auto rounded-lg border bg-white">
-          <table className="w-full min-w-[680px] text-left text-xs">
+          <table className="workspace-table w-full min-w-[680px] text-left text-xs">
             <thead className="border-b bg-slate-50 text-[10px] uppercase tracking-wider text-slate-400">
               <tr>
                 {[

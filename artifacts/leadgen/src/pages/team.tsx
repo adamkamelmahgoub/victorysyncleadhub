@@ -1,3 +1,4 @@
+import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -120,11 +121,11 @@ export default function Team() {
 
   return (
     <>
-      <div className="space-y-5">
-        <div className="flex items-center justify-between">
+      <div className="page-stack ">
+        <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
           <div>
-            <h1 className="text-xl font-bold text-foreground">Team Management</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Manage your team members and their permissions</p>
+            <PageTitle>Team Management</PageTitle>
+            <PageDescription>Manage your team members and their permissions</PageDescription>
           </div>
           <button
             onClick={() => setShowInvite(true)}
@@ -134,7 +135,7 @@ export default function Team() {
           </button>
         </div>
 
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           {stats.map((s) => (
             <div key={s.label} className="bg-white rounded-xl border border-border shadow-sm p-4 flex gap-3 items-center">
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${s.bg} flex-shrink-0`}>
@@ -155,7 +156,7 @@ export default function Team() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search members..."
-              className="pl-9 pr-3 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30 w-64"
+              className="workspace-control pl-9 pr-3 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30 w-64"
             />
           </div>
         </div>
@@ -166,7 +167,7 @@ export default function Team() {
               Team synchronization failed: {membersError instanceof Error ? membersError.message : String(membersError)}
             </div>
           )}
-          <table className="w-full">
+          <table className="workspace-table w-full">
             <thead>
               <tr className="border-b border-border bg-muted/30">
                 <th className="text-left text-xs font-semibold text-muted-foreground px-5 py-3">Member</th>
@@ -256,7 +257,7 @@ export default function Team() {
         {/* Roles reference */}
         <div className="bg-white rounded-xl border border-border shadow-sm p-5">
           <h3 className="text-sm font-semibold text-foreground mb-4">Role Permissions</h3>
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             {(["owner", "admin", "agent", "member", "viewer"] as const).map((role) => (
               <div key={role} className="p-3 rounded-lg bg-muted/40 border border-border">
                 <div className={`inline-flex items-center text-xs px-2 py-0.5 rounded-full font-medium border mb-2 capitalize ${ROLE_STYLES[role]}`}>
@@ -301,7 +302,7 @@ export default function Team() {
                     <div className="rounded-lg border border-border bg-muted/40 p-3">
                       <label className="text-xs font-medium text-muted-foreground">Invite link</label>
                       <div className="mt-1 flex items-center gap-2">
-                        <input readOnly value={createdInvite.url} className="flex-1 text-xs bg-transparent outline-none" />
+                        <input readOnly value={createdInvite.url} className="workspace-control flex-1 text-xs bg-transparent outline-none" />
                         <button type="button" onClick={() => void navigator.clipboard.writeText(createdInvite.url ?? "")} className="p-2 rounded border border-border hover:bg-white" title="Copy link">
                           <Copy className="w-4 h-4" />
                         </button>
@@ -324,7 +325,7 @@ export default function Team() {
                     <input
                       value={form.name}
                       onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
+                      className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
                       placeholder="Enter full name"
                     />
                   </div>
@@ -334,13 +335,13 @@ export default function Team() {
                       type="email"
                       value={form.email}
                       onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
+                      className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
                       placeholder="jane@company.com"
                     />
                   </div>
                   <div>
                     <label className="text-xs font-medium text-muted-foreground block mb-2">Role</label>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {(["admin", "agent", "member", "viewer"] as const).map((role) => (
                         <button
                           key={role}
@@ -360,7 +361,7 @@ export default function Team() {
                         value={form.clientAccountId ?? ""}
                         onChange={(e) => setForm((f) => ({ ...f, clientAccountId: e.target.value || null }))}
                         disabled={accountsLoading}
-                        className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-white"
+                        className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg bg-white"
                       >
                         <option value="">{accountsLoading ? "Loading clients..." : "Select a client account"}</option>
                         {clientAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
@@ -375,7 +376,7 @@ export default function Team() {
                         {form.pagePermissions.length === ALL_PAGE_PERMISSION_KEYS.length ? "Clear all" : "Select all"}
                       </button>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 max-h-44 overflow-y-auto rounded-lg border border-border p-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto rounded-lg border border-border p-3">
                       {PAGE_PERMISSIONS.map((permission) => (
                         <label key={permission.key} className="flex items-center gap-2 text-xs text-foreground">
                           <input
@@ -437,7 +438,7 @@ export default function Team() {
                     {(editMember.pagePermissions ?? ALL_PAGE_PERMISSION_KEYS).length === ALL_PAGE_PERMISSION_KEYS.length ? "Clear all" : "Select all"}
                   </button>
                 </div>
-                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto rounded-lg border border-border p-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto rounded-lg border border-border p-3">
                   {PAGE_PERMISSIONS.map((permission) => {
                     const selected = editMember.pagePermissions ?? ALL_PAGE_PERMISSION_KEYS;
                     return (
