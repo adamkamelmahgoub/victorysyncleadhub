@@ -1287,12 +1287,6 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   }
   if (status) query.set("status", `eq.${status}`);
   if (status) countQuery.set("status", `eq.${status}`);
-  if (sequenceEligible) {
-    query.set("email_verification_status", "eq.valid");
-    query.set("timezone_confirmed", "eq.true");
-    countQuery.set("email_verification_status", "eq.valid");
-    countQuery.set("timezone_confirmed", "eq.true");
-  }
   if (search) {
     const searchFilter = `(first_name.ilike.*${search}*,last_name.ilike.*${search}*,email.ilike.*${search}*,company.ilike.*${search}*)`;
     query.set("or", searchFilter);
@@ -1401,12 +1395,12 @@ async function enrollSequenceCompanies(sequenceId: string, currentUser: Authenti
   const scope = role === "agent" ? clientAccountId || "__unassigned__" : null;
   // Mailbox assignment runs safety and capacity checks for every recipient.
   // Keep each RPC below the hosted database execution window.
-  for (let start = 0; start < leadIds.length; start += 10) {
+  for (let start = 0; start < leadIds.length; start += 1) {
     const result = await supabaseRest("rpc/outreach_sequence_admin", {
       method: "POST",
       body: JSON.stringify({
         p_action: "enroll",
-        p_data: { id: sequenceId, leadIds: leadIds.slice(start, start + 10) },
+        p_data: { id: sequenceId, leadIds: leadIds.slice(start, start + 1) },
         p_actor: currentUser.id,
         p_scope: scope,
       }),
@@ -2586,7 +2580,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const service=new EmailService((name,data)=>supabaseRest(`rpc/${name}`,{method:'POST',body:JSON.stringify(data)},req),mailboxTransport,undefined,undefined,undefined,inboxAdapter);
         const reply=await service.handle({path:emailPath,method,body,raw,headers:Object.fromEntries(Object.entries(req.headers).map(([k,v])=>[k.toLowerCase(),Array.isArray(v)?v[0]??'':v??''])),actor:user?.id??'system',scope:user?.user_metadata?.role==='agent'?String(user.user_metadata.client_account_id??'__unassigned__'):null,authenticated});
         res.setHeader('Cache-Control','no-store');if(reply.text){res.statusCode=reply.status;res.setHeader('content-type','text/plain; charset=utf-8');res.end(reply.body);}else sendJson(res,reply.status,reply.body);
-      }catch(error){const failure=emailOperationError(error);sendJson(res,failure.status,{error:failure.error});}
+      }catch(error){console.error('Email operation failed',{path:emailPath,method,message:error instanceof Error?error.message:'unknown'});const failure=emailOperationError(error);sendJson(res,failure.status,{error:failure.error});}
     }
     async function runWorkflow(authenticated:boolean,user?:AuthenticatedUser) {
       try{
@@ -2595,7 +2589,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const workflows=new WorkflowService((name,data)=>supabaseRest(`rpc/${name}`,{method:'POST',body:JSON.stringify(data)},req),email);
         const reply=await workflows.handle({path:emailPath,method,body,raw:'',headers:Object.fromEntries(Object.entries(req.headers).map(([k,v])=>[k.toLowerCase(),Array.isArray(v)?v[0]??'':v??''])),actor:user?.id??'system',scope:user?.user_metadata?.role==='agent'?String(user.user_metadata.client_account_id??'__unassigned__'):null,authenticated});
         res.setHeader('Cache-Control','no-store');sendJson(res,reply.status,reply.body);
-      }catch(error){const failure=emailOperationError(error);sendJson(res,failure.status,{error:failure.error});}
+      }catch(error){console.error('Workflow operation failed',{path:emailPath,method,message:error instanceof Error?error.message:'unknown'});const failure=emailOperationError(error);sendJson(res,failure.status,{error:failure.error});}
     }
     if(isPublicEmailEndpoint(emailPath)) {await runEmail(false);return;}
     if(isPublicWorkflowEndpoint(emailPath)) {await runWorkflow(false);return;}

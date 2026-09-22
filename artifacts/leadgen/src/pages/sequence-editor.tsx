@@ -66,7 +66,7 @@ export default function SequenceEditor() {
       let total = Number.POSITIVE_INFINITY;
       const loaded: Contact[] = [];
       while (fetched < total) {
-        const params = new URLSearchParams({ page: String(page), limit: String(pageSize) });
+        const params = new URLSearchParams({ page: String(page), limit: String(pageSize), sequenceEligible: "true" });
         if (query.trim()) params.set("search", query.trim());
         const result = await apiFetch(`/leads?${params}`) as ContactList;
         const pageContacts = Array.isArray(result.leads) ? result.leads : [];
@@ -121,13 +121,13 @@ export default function SequenceEditor() {
     let enrolled = 0;
     try {
       const leadIds = Array.from(selected);
-      for (let start = 0; start < leadIds.length; start += 10) {
-        const result = await mutation.mutateAsync({ path: `/sequences/${id}/enroll`, body: { leadIds: leadIds.slice(start, start + 10) } }) as { enrolled?: number };
+      for (let start = 0; start < leadIds.length; start += 1) {
+        const result = await mutation.mutateAsync({ path: `/sequences/${id}/enroll`, body: { leadIds: leadIds.slice(start, start + 1) } }) as { enrolled?: number };
         enrolled += result.enrolled ?? 0;
       }
       const companyIds = Array.from(selectedCompanies);
-      for (let start = 0; start < companyIds.length; start += 10) {
-        const result = await mutation.mutateAsync({ path: `/sequences/${id}/enroll-companies`, body: { companyIds: companyIds.slice(start, start + 10) } }) as { enrolled?: number };
+      for (let start = 0; start < companyIds.length; start += 1) {
+        const result = await mutation.mutateAsync({ path: `/sequences/${id}/enroll-companies`, body: { companyIds: companyIds.slice(start, start + 1) } }) as { enrolled?: number };
         enrolled += result.enrolled ?? 0;
       }
       setSelected(new Set());
