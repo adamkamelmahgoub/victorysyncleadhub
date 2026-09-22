@@ -1316,8 +1316,9 @@ type SequenceCompanyRow = {
   id: string;
   name: string;
   email?: string | null;
+  phone?: string | null;
   contact_name?: string | null;
-  contacts?: Array<{ name?: string; email?: string }> | null;
+  contacts?: Array<{ name?: string; email?: string; phone?: string }> | null;
 };
 
 async function enrollSequenceCompanies(sequenceId: string, currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
@@ -1332,19 +1333,24 @@ async function enrollSequenceCompanies(sequenceId: string, currentUser: Authenti
 
   const filter = encodeURIComponent(`in.(${companyIds.join(",")})`);
   const companies = await supabaseRest(
-    `companies?id=${filter}&select=id,name,email,contact_name,contacts`,
+    `companies?id=${filter}&select=id,name,email,phone,contact_name,contacts`,
     { method: "GET" },
     req,
   ) as SequenceCompanyRow[];
-  const recipients = new Map<string, { email: string; name: string; company: string }>();
-  const addRecipient = (email: unknown, name: unknown, company: string) => {
+  const recipients = new Map<string, { email: string; name: string; phone: string; company: string }>();
+  const addRecipient = (email: unknown, name: unknown, phone: unknown, company: string) => {
     const normalized = String(email ?? "").trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) || recipients.has(normalized)) return;
-    recipients.set(normalized, { email: normalized, name: String(name ?? "").trim() || company, company });
+    recipients.set(normalized, {
+      email: normalized,
+      name: String(name ?? "").trim() || company,
+      phone: String(phone ?? "").trim(),
+      company,
+    });
   };
   for (const company of companies) {
-    addRecipient(company.email, company.contact_name, company.name);
-    for (const contact of company.contacts ?? []) addRecipient(contact.email, contact.name, company.name);
+    addRecipient(company.email, company.contact_name, company.phone, company.name);
+    for (const contact of company.contacts ?? []) addRecipient(contact.email, contact.name, contact.phone || company.phone, company.name);
   }
   if (!recipients.size) {
     sendJson(res, 400, { error: "The selected companies do not have email recipients" });
@@ -1375,6 +1381,7 @@ async function enrollSequenceCompanies(sequenceId: string, currentUser: Authenti
       first_name: words.shift() || recipient.company,
       last_name: words.join(" ") || "Contact",
       email: recipient.email,
+      phone: recipient.phone,
       company: recipient.company,
       source: "company_crm",
       ...(clientAccountId ? { client_account_id: clientAccountId } : {}),
