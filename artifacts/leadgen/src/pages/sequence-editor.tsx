@@ -1,6 +1,6 @@
 import { workspaceInput, workspaceButton } from "@/components/page-layout";
 import { PageTitle, PageDescription } from "@/components/page-layout";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useRoute } from "wouter";
 import { apiFetch } from "@/lib/api";
@@ -37,12 +37,18 @@ export default function SequenceEditor() {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [loadedContactQuery, setLoadedContactQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loadingContacts, setLoadingContacts] = useState(false);
+  const [contactsLoaded, setContactsLoaded] = useState(false);
   const [contactsError, setContactsError] = useState<string | null>(null);
   const [enrolling, setEnrolling] = useState(false);
   const { data: sequence, error } = useQuery<Sequence>({ queryKey: ["sequence", id], enabled: !!id, queryFn: () => apiFetch(`/sequences/${id}`), refetchInterval: 30000 });
   const mutation = useMutation({ mutationFn: ({ path, method = "POST", body = {} }: { path: string; method?: string; body?: unknown }) => apiFetch(path, { method, body: JSON.stringify(body) }), onSuccess: () => { cache.invalidateQueries({ queryKey: ["sequence", id] }); cache.invalidateQueries({ queryKey: ["sequences"] }); } });
+
+  useEffect(() => {
+    void loadContacts("");
+  }, []);
 
   async function loadContacts(query: string, selectAll = false) {
     setLoadingContacts(true);
@@ -66,13 +72,20 @@ export default function SequenceEditor() {
       }
       const eligible = Array.from(new Map(loaded.filter(contact => !contact.disposition || !terminalDispositions.has(contact.disposition)).map(contact => [String(contact.id), contact])).values());
       setContacts(eligible);
+      setLoadedContactQuery(query.trim());
       setSelected(selectAll ? new Set(eligible.map(contact => String(contact.id))) : new Set());
+      if (selectAll) {
+        toast(eligible.length
+          ? { title: `${eligible.length} contact${eligible.length === 1 ? "" : "s"} selected` }
+          : { title: "No contacts are ready for a sequence", description: "Contacts need a valid verified email and confirmed timezone before enrollment." });
+      }
     } catch (loadError) {
       setContacts([]);
       setSelected(new Set());
       setContactsError(loadError instanceof Error ? loadError.message : "Contacts could not be loaded");
     } finally {
       setLoadingContacts(false);
+      setContactsLoaded(true);
     }
   }
 
@@ -109,8 +122,9 @@ export default function SequenceEditor() {
     {sequence.steps.map(step => <StepForm key={`${step.id}:${step.step_number}`} step={step} locked={locked} save={draft => mutation.mutateAsync({ path: `/sequences/${id}/steps/${step.id}`, method: "PUT", body: { stepNumber: draft.step_number, channel: draft.channel, delayDays: draft.delay_days, subject: draft.subject, body: draft.body } })} remove={() => mutation.mutateAsync({ path: `/sequences/${id}/steps/${step.id}`, method: "DELETE" })} />)}
     {!locked && <button className={button} disabled={mutation.isPending} onClick={() => mutation.mutate({ path: `/sequences/${id}/steps`, body: { stepNumber: sequence.steps.length + 1, channel: "email", delayDays: 3, subject: "Quick question for {{company}}", body: "Hi {{firstName}},\n\nHow does {{company}} handle missed calls?\n\nVictory Sync" } })}>Add sequence step</button>}
     <section className="workspace-panel p-4 space-y-3"><h2 className="font-semibold">Enroll verified contacts</h2><p className="text-sm text-muted-foreground">Sender selection uses active mailboxes with capacity. SMTP-only senders require manual outcome tracking. The assigned sender stays fixed for the whole sequence.</p>
-      <form className="flex gap-2 flex-wrap" onSubmit={event => { event.preventDefault(); void loadContacts(search); }}><input className={`${input} flex-1`} aria-label="Find contacts" placeholder="Search contacts" value={search} onChange={event => setSearch(event.target.value)} /><button className={button} disabled={loadingContacts}>{loadingContacts ? "Loading..." : "Find"}</button><button type="button" className={button} disabled={loadingContacts} onClick={() => void loadContacts("", true)}>Select all contacts</button></form>
+      <form className="flex gap-2 flex-wrap" onSubmit={event => { event.preventDefault(); void loadContacts(search); }}><input className={`${input} flex-1`} aria-label="Find contacts" placeholder="Search contacts" value={search} onChange={event => setSearch(event.target.value)} /><button className={button} disabled={loadingContacts}>{loadingContacts ? "Loading..." : "Find"}</button><button type="button" className={button} disabled={loadingContacts} onClick={() => { setSearch(""); if (allVisibleSelected && loadedContactQuery === "") setSelected(new Set()); else if (contactsLoaded && loadedContactQuery === "" && contacts.length) setSelected(new Set(contacts.map(contact => String(contact.id)))); else void loadContacts("", true); }}>{allVisibleSelected && loadedContactQuery === "" ? "Clear all contacts" : "Select all contacts"}</button></form>
       {contactsError && <p className="text-sm text-destructive" role="alert">{contactsError}</p>}
+      {!loadingContacts && contactsLoaded && !contactsError && contacts.length === 0 && <p className="text-sm text-muted-foreground" role="status">No contacts are ready for a sequence. Verify their email addresses and confirm their timezones first.</p>}
       {contacts.length > 0 && <div className="flex items-center justify-between gap-3"><span className="text-sm text-muted-foreground">{selected.size} of {contacts.length} selected</span><button type="button" className={button} onClick={() => setSelected(allVisibleSelected ? new Set() : new Set(contacts.map(contact => String(contact.id))))}>{allVisibleSelected ? "Clear all" : "Select all results"}</button></div>}
       <div className="max-h-72 overflow-y-auto space-y-2">{contacts.map(contact => <label key={contact.id} className="flex gap-2 text-sm"><input type="checkbox" checked={selected.has(String(contact.id))} onChange={event => setSelected(current => { const next = new Set(current); event.target.checked ? next.add(String(contact.id)) : next.delete(String(contact.id)); return next; })} />{contact.email || "No email"} · {contact.company}</label>)}</div>
       <button type="button" className={button} disabled={!selected.size || mutation.isPending || enrolling || sequence.status !== "active"} onClick={() => void enrollSelected()}>{enrolling ? "Enrolling..." : `Enroll ${selected.size || ""} selected contact${selected.size === 1 ? "" : "s"}`}</button>

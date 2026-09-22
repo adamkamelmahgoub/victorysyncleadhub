@@ -182,6 +182,11 @@ export default function CompanyWorkspace() {
   const visibleSelected = selected.filter((id) =>
     rows.some((company) => company.id === id),
   );
+  const selectedCompanies = (query.data ?? []).filter((company) =>
+    selected.includes(company.id),
+  );
+  const allCompaniesSelected =
+    !!query.data?.length && selectedCompanies.length === query.data.length;
   function exportCsv() {
     const keys = [
       "name",
@@ -376,6 +381,22 @@ export default function CompanyWorkspace() {
           >
             Save current view
           </button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!query.data?.length}
+            onClick={() =>
+              setSelected(
+                allCompaniesSelected
+                  ? []
+                  : (query.data ?? []).map((company) => company.id),
+              )
+            }
+          >
+            {allCompaniesSelected
+              ? "Clear all companies"
+              : `Select all companies (${query.data?.length ?? 0})`}
+          </Button>
           {(search || stage !== "all" || scope !== "all") && (
             <button
               className="text-xs text-slate-500 underline"
@@ -388,10 +409,10 @@ export default function CompanyWorkspace() {
               Clear filters
             </button>
           )}
-          {visibleSelected.length > 0 && !readOnly && (
+          {selectedCompanies.length > 0 && !readOnly && (
             <div className="ml-auto flex flex-wrap items-center gap-2">
-              <span className="text-xs">{visibleSelected.length} selected</span>
-              <DeleteCompanies bulk companies={rows.filter(row => visibleSelected.includes(row.id))} onDeleted={() => { setSelected([]); setActive(null); }} />
+              <span className="text-xs">{selectedCompanies.length} selected</span>
+              <DeleteCompanies bulk companies={selectedCompanies} onDeleted={() => { setSelected([]); setActive(null); }} />
               <select
                 aria-label="Bulk stage"
                 className="workspace-control max-w-36 rounded border bg-white px-2 py-1 text-xs"
@@ -408,7 +429,7 @@ export default function CompanyWorkspace() {
                 size="sm"
                 variant="outline"
                 disabled={updateStage.isPending}
-                onClick={() => updateStage.mutate(visibleSelected)}
+                onClick={() => updateStage.mutate(selected)}
               >
                 Update stage
               </Button>
@@ -457,13 +478,12 @@ export default function CompanyWorkspace() {
                         visibleSelected.length === rows.length &&
                         rows.length > 0
                       }
-                      onChange={(event) =>
-                        setSelected(
-                          event.target.checked
-                            ? rows.map((company) => company.id)
-                            : [],
-                        )
-                      }
+                      onChange={(event) => setSelected((current) => {
+                        const visibleIds = new Set(rows.map((company) => company.id));
+                        return event.target.checked
+                          ? Array.from(new Set([...current, ...visibleIds]))
+                          : current.filter((id) => !visibleIds.has(id));
+                      })}
                     />
                   </th>
                   <th className="min-w-52 px-3 py-3 font-medium">Company</th>
