@@ -1264,6 +1264,7 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   const offset = (page - 1) * limit;
   const search = url.searchParams.get("search")?.trim();
   const status = url.searchParams.get("status")?.trim();
+  const sequenceEligible = url.searchParams.get("sequenceEligible") === "true";
 
   const query = new URLSearchParams({
     select: "*",
@@ -1286,6 +1287,12 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   }
   if (status) query.set("status", `eq.${status}`);
   if (status) countQuery.set("status", `eq.${status}`);
+  if (sequenceEligible) {
+    query.set("email_verification_status", "eq.valid");
+    query.set("timezone_confirmed", "eq.true");
+    countQuery.set("email_verification_status", "eq.valid");
+    countQuery.set("timezone_confirmed", "eq.true");
+  }
   if (search) {
     const searchFilter = `(first_name.ilike.*${search}*,last_name.ilike.*${search}*,email.ilike.*${search}*,company.ilike.*${search}*)`;
     query.set("or", searchFilter);
@@ -1293,8 +1300,8 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   }
 
   const [rows, countRows] = await Promise.all([
-    supabaseRest(`leads?${query.toString()}`, { method: "GET" }, req) as Promise<LeadRow[]>,
-    supabaseRest(`leads?${countQuery.toString()}`, { method: "GET" }, req) as Promise<Array<{ id: string | number }>>,
+    supabaseRest(`${sequenceEligible ? "outreach_eligible_leads" : "leads"}?${query.toString()}`, { method: "GET" }, req) as Promise<LeadRow[]>,
+    supabaseRest(`${sequenceEligible ? "outreach_eligible_leads" : "leads"}?${countQuery.toString()}`, { method: "GET" }, req) as Promise<Array<{ id: string | number }>>,
   ]);
 
   sendJson(res, 200, {
