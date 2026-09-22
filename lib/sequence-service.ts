@@ -105,7 +105,7 @@ export class SequenceService {
   const [,id,operation,stepId]=match;
   if(c.method==='GET'){const seq=await this.admin('get',{id},c);if(!seq)return ok({error:'Sequence not found'},404);return ok(operation==='steps'?seq.steps:operation==='enrollments'?seq.enrollments:seq);}
   if(operation==='enroll'&&c.method==='POST'){
-   if(!Array.isArray(b.leadIds)||!b.leadIds.length||b.leadIds.length>100)throw new EmailInputError('Choose 1 to 100 verified contacts');
+   if(!Array.isArray(b.leadIds)||!b.leadIds.length||b.leadIds.length>100)throw new EmailInputError('Choose 1 to 100 contacts');
    return ok(await this.admin('enroll',{id,leadIds:b.leadIds.map(String)},c),201);
   }
   if(operation==='steps'){

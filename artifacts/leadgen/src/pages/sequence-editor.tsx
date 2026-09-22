@@ -121,13 +121,13 @@ export default function SequenceEditor() {
     let enrolled = 0;
     try {
       const leadIds = Array.from(selected);
-      for (let start = 0; start < leadIds.length; start += 100) {
-        const result = await mutation.mutateAsync({ path: `/sequences/${id}/enroll`, body: { leadIds: leadIds.slice(start, start + 100) } }) as { enrolled?: number };
+      for (let start = 0; start < leadIds.length; start += 10) {
+        const result = await mutation.mutateAsync({ path: `/sequences/${id}/enroll`, body: { leadIds: leadIds.slice(start, start + 10) } }) as { enrolled?: number };
         enrolled += result.enrolled ?? 0;
       }
       const companyIds = Array.from(selectedCompanies);
-      for (let start = 0; start < companyIds.length; start += 100) {
-        const result = await mutation.mutateAsync({ path: `/sequences/${id}/enroll-companies`, body: { companyIds: companyIds.slice(start, start + 100) } }) as { enrolled?: number };
+      for (let start = 0; start < companyIds.length; start += 10) {
+        const result = await mutation.mutateAsync({ path: `/sequences/${id}/enroll-companies`, body: { companyIds: companyIds.slice(start, start + 10) } }) as { enrolled?: number };
         enrolled += result.enrolled ?? 0;
       }
       setSelected(new Set());

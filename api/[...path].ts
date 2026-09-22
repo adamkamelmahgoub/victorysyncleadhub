@@ -1399,12 +1399,14 @@ async function enrollSequenceCompanies(sequenceId: string, currentUser: Authenti
   const leadIds = emails.map((email) => existing.get(email)).filter((id): id is string => !!id);
   let enrolled = 0;
   const scope = role === "agent" ? clientAccountId || "__unassigned__" : null;
-  for (let start = 0; start < leadIds.length; start += 100) {
+  // Mailbox assignment runs safety and capacity checks for every recipient.
+  // Keep each RPC below the hosted database execution window.
+  for (let start = 0; start < leadIds.length; start += 10) {
     const result = await supabaseRest("rpc/outreach_sequence_admin", {
       method: "POST",
       body: JSON.stringify({
         p_action: "enroll",
-        p_data: { id: sequenceId, leadIds: leadIds.slice(start, start + 100) },
+        p_data: { id: sequenceId, leadIds: leadIds.slice(start, start + 10) },
         p_actor: currentUser.id,
         p_scope: scope,
       }),
