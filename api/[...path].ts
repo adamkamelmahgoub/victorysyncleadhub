@@ -1300,7 +1300,9 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
 
   sendJson(res, 200, {
     leads: rows.map(leadFromRow),
-    total: countRows.length,
+    total: sequenceEligible
+      ? (rows.length === limit ? offset + rows.length + 1 : offset + rows.length)
+      : countRows.length,
     page,
     limit,
   });
@@ -1393,14 +1395,12 @@ async function enrollSequenceCompanies(sequenceId: string, currentUser: Authenti
   const leadIds = emails.map((email) => existing.get(email)).filter((id): id is string => !!id);
   let enrolled = 0;
   const scope = role === "agent" ? clientAccountId || "__unassigned__" : null;
-  // Mailbox assignment runs safety and capacity checks for every recipient.
-  // Keep each RPC below the hosted database execution window.
-  for (let start = 0; start < leadIds.length; start += 1) {
-    const result = await supabaseRest("rpc/outreach_sequence_admin", {
+  for (let start = 0; start < leadIds.length; start += 500) {
+    const result = await supabaseRest("rpc/outreach_sequence_bulk_enroll", {
       method: "POST",
       body: JSON.stringify({
-        p_action: "enroll",
-        p_data: { id: sequenceId, leadIds: leadIds.slice(start, start + 1) },
+        p_sequence: sequenceId,
+        p_leads: leadIds.slice(start, start + 500),
         p_actor: currentUser.id,
         p_scope: scope,
       }),
