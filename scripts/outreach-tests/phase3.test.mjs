@@ -28,7 +28,7 @@ async function fixture(uuid=false){
  create table sequence_enrollments(id ${pk},sequence_id ${id} references sequences(id),lead_id ${id},current_step int default 1,status text default 'active',next_send_at timestamptz,completed_at timestamptz,created_at timestamptz default now());
  create table contact_tasks(id ${pk},lead_id ${id},title text,description text,due_date timestamptz,priority text,is_completed boolean default false,completed_at timestamptz,created_at timestamptz default now());
  create table email_logs(id ${pk},lead_id ${id},status text default 'queued');create table campaign_leads(id ${pk},lead_id ${id},status text default 'queued');`);
- for(const name of ['20260911_outreach_phase1.sql','20260912_outreach_phase2.sql','20260912_outreach_phase2_admin.sql','20260913_outreach_phase3.sql','20260913_outreach_phase3_admin.sql'])await db.exec(await sql('migrations/'+name));
+ for(const name of ['20260911_outreach_phase1.sql','20260912_outreach_phase2.sql','20260912_outreach_phase2_admin.sql','20260913_outreach_phase3.sql','20260913_outreach_phase3_admin.sql','20260924_manual_email_without_verification.sql','20261001_unverified_sequence_recipients.sql'])await db.exec(await sql('migrations/'+name));
  await db.exec("create or replace function outreach_email_window(p_at timestamptz,p_timezone text) returns boolean language sql stable as $$select true$$;create or replace function outreach_call_window(p_at timestamptz,p_timezone outreach_timezone) returns boolean language sql stable as $$select true$$");
  await rpc(db)('outreach_email_admin',{p_action:'settings',p_data:{primaryDomains:['primary.test'],engineEnabled:true}});
  const d=await rpc(db)('outreach_email_admin',{p_action:'domain_create',p_data:{domain:'sender.test'}});
@@ -153,6 +153,17 @@ for(const uuid of [false,true])test(`Phase 3 state machine (${uuid?'UUID':'integ
   await reply(f,l.email);assert.equal((await db.query('select status from sequence_enrollments where id=$1',[e.id])).rows[0].status,'replied');
   assert.equal((await db.query("select count(*)::int n from contact_tasks where lead_id=$1 and outreach_status='pending'",[l.id])).rows[0].n,0);
   assert.equal((await db.query("select count(*)::int n from activities where lead_id=$1 and description like 'Inbound reply:%'",[l.id])).rows[0].n,1);
+ });
+ await t.test('unverified contacts enroll and queue while suppression guardrails remain active',async()=>{
+  const email=`unverified-${randomUUID()}@example.test`;
+  const lead=(await db.query("insert into leads(email,phone,custom_fields) values($1,$2,'{}') returning *",[email,`212${Math.floor(1000000+Math.random()*8999999)}`])).rows[0];
+  assert.equal(lead.email_verification_status,'unverified');
+  await admin(db,'enroll',{id:String(f.sequence.id),leadIds:[String(lead.id)]});
+  const enrollment=(await db.query('select * from sequence_enrollments where lead_id=$1',[lead.id])).rows[0];
+  await db.query('update sequence_enrollments set next_send_at=now() where id=$1',[enrollment.id]);
+  await rpc(db)('outreach_sequence_tick');
+  const job=(await db.query('select * from outreach_email_jobs where enrollment_id=$1',[String(enrollment.id)])).rows[0];
+  assert.ok(job);assert.equal(job.operator_verification_override,true);
  });
  await t.test('inbox reconfiguration retains the original scan start and clears health',async()=>{
   const before=(await db.query('select inbox_configured_at from email_accounts where id=$1',[f.m.id])).rows[0].inbox_configured_at;

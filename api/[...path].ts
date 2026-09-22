@@ -1312,6 +1312,101 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   });
 }
 
+type SequenceCompanyRow = {
+  id: string;
+  name: string;
+  email?: string | null;
+  contact_name?: string | null;
+  contacts?: Array<{ name?: string; email?: string }> | null;
+};
+
+async function enrollSequenceCompanies(sequenceId: string, currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
+  const body = await readJson(req) as { companyIds?: unknown };
+  const companyIds = Array.isArray(body.companyIds)
+    ? Array.from(new Set(body.companyIds.map(String))).filter((id) => /^[0-9a-f-]{36}$/i.test(id)).slice(0, 100)
+    : [];
+  if (!companyIds.length) {
+    sendJson(res, 400, { error: "Choose at least one company" });
+    return;
+  }
+
+  const filter = encodeURIComponent(`in.(${companyIds.join(",")})`);
+  const companies = await supabaseRest(
+    `companies?id=${filter}&select=id,name,email,contact_name,contacts`,
+    { method: "GET" },
+    req,
+  ) as SequenceCompanyRow[];
+  const recipients = new Map<string, { email: string; name: string; company: string }>();
+  const addRecipient = (email: unknown, name: unknown, company: string) => {
+    const normalized = String(email ?? "").trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) || recipients.has(normalized)) return;
+    recipients.set(normalized, { email: normalized, name: String(name ?? "").trim() || company, company });
+  };
+  for (const company of companies) {
+    addRecipient(company.email, company.contact_name, company.name);
+    for (const contact of company.contacts ?? []) addRecipient(contact.email, contact.name, company.name);
+  }
+  if (!recipients.size) {
+    sendJson(res, 400, { error: "The selected companies do not have email recipients" });
+    return;
+  }
+
+  const emails = Array.from(recipients.keys());
+  const existing = new Map<string, string>();
+  const role = normalizeDashboardRole(currentUser.user_metadata?.role ?? currentUser.app_metadata?.role);
+  const clientAccountId = role === "agent"
+    ? String(currentUser.user_metadata?.client_account_id ?? currentUser.app_metadata?.client_account_id ?? "")
+    : "";
+  for (let start = 0; start < emails.length; start += 50) {
+    const values = emails.slice(start, start + 50).map((email) => `"${email.replace(/["\\]/g, "")}"`).join(",");
+    const scope = clientAccountId ? `&client_account_id=eq.${encodeURIComponent(clientAccountId)}` : "";
+    const rows = await supabaseRest(
+      `leads?normalized_email=${encodeURIComponent(`in.(${values})`)}${scope}&select=id,normalized_email`,
+      { method: "GET" },
+      req,
+    ) as Array<{ id: string | number; normalized_email: string }>;
+    for (const row of rows) if (!existing.has(row.normalized_email)) existing.set(row.normalized_email, String(row.id));
+  }
+
+  const missing = emails.filter((email) => !existing.has(email)).map((email) => {
+    const recipient = recipients.get(email)!;
+    const words = recipient.name.split(/\s+/).filter(Boolean);
+    return {
+      first_name: words.shift() || recipient.company,
+      last_name: words.join(" ") || "Contact",
+      email: recipient.email,
+      company: recipient.company,
+      source: "company_crm",
+      ...(clientAccountId ? { client_account_id: clientAccountId } : {}),
+    };
+  });
+  for (let start = 0; start < missing.length; start += 100) {
+    const rows = await supabaseRest("leads", {
+      method: "POST",
+      body: JSON.stringify(missing.slice(start, start + 100)),
+      headers: { prefer: "resolution=ignore-duplicates,return=representation" },
+    }, req) as LeadRow[];
+    for (const row of rows) existing.set(String(row.email).trim().toLowerCase(), String(row.id));
+  }
+
+  const leadIds = emails.map((email) => existing.get(email)).filter((id): id is string => !!id);
+  let enrolled = 0;
+  const scope = role === "agent" ? clientAccountId || "__unassigned__" : null;
+  for (let start = 0; start < leadIds.length; start += 100) {
+    const result = await supabaseRest("rpc/outreach_sequence_admin", {
+      method: "POST",
+      body: JSON.stringify({
+        p_action: "enroll",
+        p_data: { id: sequenceId, leadIds: leadIds.slice(start, start + 100) },
+        p_actor: currentUser.id,
+        p_scope: scope,
+      }),
+    }, req) as { enrolled?: number };
+    enrolled += Number(result.enrolled ?? 0);
+  }
+  sendJson(res, 201, { enrolled, recipients: leadIds.length, companies: companies.length });
+}
+
 async function getLead(id: string, req: VercelRequest, res: VercelResponse) {
   const rows = (await supabaseRest(`leads?id=eq.${encodeURIComponent(id)}&select=*&limit=1`, {
     method: "GET",
@@ -2550,6 +2645,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const requiredPermission = apiPermissionForPath(path);
     if (role !== "owner" && Array.isArray(pagePermissions) && requiredPermission && !pagePermissions.includes(requiredPermission)) {
       sendJson(res, 403, { message: `Access to ${requiredPermission} is disabled for this account` });
+      return;
+    }
+
+    const enrollCompaniesMatch = emailPath.match(/^\/sequences\/([^/]+)\/enroll-companies$/);
+    if (enrollCompaniesMatch && method === "POST") {
+      await enrollSequenceCompanies(decodeURIComponent(enrollCompaniesMatch[1]), currentUser, req, res);
       return;
     }
 
