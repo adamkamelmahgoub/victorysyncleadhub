@@ -12,8 +12,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { asArray } from "@/lib/data-shape";
+import { Link } from "wouter";
 
-interface SubAccount { id: number; name: string; slug: string; ownerEmail: string; ownerName: string; phone?: string; industry?: string; status: string; plan: string; leadsCount: number; campaignsCount: number; healthScore: number; onboardingCompleted: boolean; lastActiveAt?: string; notes?: string; createdAt: string; }
+interface SubAccount { id: string; name: string; slug: string; ownerEmail: string; ownerName: string; phone?: string; industry?: string; status: string; plan: string; leadsCount: number; campaignsCount: number; healthScore: number; onboardingCompleted: boolean; lastActiveAt?: string; notes?: string; createdAt: string; }
 
 function HealthBar({ score }: { score: number }) {
   const color = score >= 75 ? "bg-green-500" : score >= 50 ? "bg-amber-500" : "bg-red-500";
@@ -60,7 +61,7 @@ export default function SubAccounts() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: any }) => apiFetch(`/sub-accounts/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+    mutationFn: ({ id, data }: { id: string; data: any }) => apiFetch(`/sub-accounts/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["sub-accounts"] }); qc.invalidateQueries({ queryKey: ["sub-accounts-stats"] }); },
   });
 
@@ -76,8 +77,8 @@ export default function SubAccounts() {
     <div className="page-stack">
       <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
         <div>
-          <PageTitle>Sub-Accounts</PageTitle>
-          <PageDescription>Manage all client accounts in one place</PageDescription>
+          <PageTitle>Client Accounts</PageTitle>
+          <PageDescription>Open a client to manage its private leads, activity, and outcomes.</PageDescription>
         </div>
         <Button onClick={() => setShowAdd(true)} className="bg-primary text-white">
           <Plus className="w-4 h-4 mr-2" /> Add Account
@@ -143,7 +144,9 @@ export default function SubAccounts() {
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold text-xs">{account.name.slice(0, 2).toUpperCase()}</div>
                     <div>
-                      <div className="font-semibold">{account.name}</div>
+                      <Link href={`/sub-accounts/${account.id}`} className="font-semibold text-primary hover:underline inline-flex items-center gap-1">
+                        {account.name}<ExternalLink className="h-3 w-3" />
+                      </Link>
                       <div className="text-xs text-muted-foreground">{account.slug}</div>
                     </div>
                   </div>

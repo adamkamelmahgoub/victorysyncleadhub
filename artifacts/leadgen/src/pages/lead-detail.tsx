@@ -198,6 +198,11 @@ type Tab = "timeline" | "notes" | "tasks" | "details";
 export default function LeadDetail() {
   const [, params] = useRoute("/leads/:id");
   const id = params?.id ?? "";
+  const clientQuery = new URLSearchParams(window.location.search);
+  const clientAccountId = clientQuery.get("clientAccountId");
+  const clientName = clientQuery.get("clientName");
+  const backHref = clientAccountId ? `/sub-accounts/${clientAccountId}` : "/leads";
+  const backLabel = clientName || (clientAccountId ? "Client workspace" : "Contacts");
   const apiId = id as unknown as number;
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -359,9 +364,9 @@ export default function LeadDetail() {
       <div className="page-stack">
         {/* ── Back nav ─────────────────────────────────────────────────────── */}
         <div className="flex items-center gap-2">
-            <Link href="/leads">
+            <Link href={backHref}>
             <button className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
-              <ArrowLeft className="w-4 h-4" /> Contacts
+              <ArrowLeft className="w-4 h-4" /> {backLabel}
             </button>
           </Link>
           <span className="text-muted-foreground/40">›</span>

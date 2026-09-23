@@ -10,6 +10,7 @@ import type { Session, User } from "@supabase/supabase-js";
 import { setAuthTokenGetter } from "@workspace/api-client-react";
 import { supabase } from "./supabase";
 import {recordActivity} from './activity';
+import { ALL_PAGE_PERMISSION_KEYS } from "./permissions";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -94,24 +95,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({
+    () => {
+      const role = typeof session?.user?.user_metadata?.role === "string" ? session.user.user_metadata.role : "member";
+      const clientAccountId = typeof session?.user?.user_metadata?.client_account_id === "string"
+        ? session.user.user_metadata.client_account_id
+        : null;
+      const configuredPermissions = role === "owner"
+        ? null
+        : Array.isArray(session?.user?.user_metadata?.page_permissions)
+          ? session.user.user_metadata.page_permissions.filter((permission): permission is string => typeof permission === "string")
+          : null;
+      const pagePermissions = clientAccountId
+        ? (configuredPermissions ?? ALL_PAGE_PERMISSION_KEYS).filter((permission) => !["client-accounts", "team"].includes(permission))
+        : configuredPermissions;
+
+      return ({
       loading,
       session,
       user: session?.user ?? null,
-      role: typeof session?.user?.user_metadata?.role === "string" ? session.user.user_metadata.role : "member",
-      clientAccountId: typeof session?.user?.user_metadata?.client_account_id === "string"
-        ? session.user.user_metadata.client_account_id
-        : null,
-      pagePermissions: session?.user?.user_metadata?.role === "owner"
-        ? null
-        : Array.isArray(session?.user?.user_metadata?.page_permissions)
-        ? session.user.user_metadata.page_permissions.filter((value): value is string => typeof value === "string")
-        : null,
+      role,
+      clientAccountId,
+      pagePermissions,
       signOut: async () => {
         await recordActivity('authentication','signed_out',{pagePath:window.location.pathname});
         await supabase.auth.signOut();
       },
-    }),
+    });
+    },
     [loading, session],
   );
 

@@ -1,9 +1,9 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, integer, boolean, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const subAccountsTable = pgTable("sub_accounts", {
-  id: serial("id").primaryKey(),
+  id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   ownerEmail: text("owner_email").notNull(),
@@ -25,8 +25,8 @@ export const subAccountsTable = pgTable("sub_accounts", {
 });
 
 export const whiteLabelSettingsTable = pgTable("white_label_settings", {
-  id: serial("id").primaryKey(),
-  subAccountId: integer("sub_account_id").notNull().unique(),
+  id: uuid("id").primaryKey().defaultRandom(),
+  subAccountId: uuid("sub_account_id").notNull().unique(),
   brandName: text("brand_name").notNull().default("VictorySync"),
   logoUrl: text("logo_url"),
   faviconUrl: text("favicon_url"),

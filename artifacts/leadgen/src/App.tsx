@@ -39,6 +39,7 @@ import Segments from "@/pages/segments";
 import Webhooks from "@/pages/webhooks";
 import EmailTemplatesPage from "@/pages/email-templates";
 import SubAccounts from "@/pages/sub-accounts";
+import ClientWorkspace from "@/pages/client-workspace";
 import ProspectSearch from "@/pages/prospect-search";
 import MeetingScheduler from "@/pages/meeting-scheduler";
 import SequenceAnalytics from "@/pages/sequence-analytics";
@@ -151,6 +152,7 @@ function Router() {
       <Route path="/webhooks" component={Webhooks} />
       <Route path="/email-templates" component={EmailTemplatesPage} />
       <Route path="/sub-accounts" component={SubAccounts} />
+      <Route path="/sub-accounts/:id" component={ClientWorkspace} />
       <Route path="/prospect-search" component={ProspectSearch} />
       <Route path="/meeting-scheduler" component={MeetingScheduler} />
       <Route path="/sequence-analytics" component={SequenceAnalytics} />
