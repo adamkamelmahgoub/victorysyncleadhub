@@ -54,6 +54,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         synchronizedUsers.delete(nextSession.user.id);
         const message = await response.text().catch(() => "");
         console.warn("Dashboard team synchronization failed", message || response.status);
+      } else if (!sessionClaims(nextSession).crm_role) {
+        await supabase.auth.refreshSession();
       }
     };
     const establishDashboardSession = async () => {
