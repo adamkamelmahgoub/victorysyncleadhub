@@ -1,5 +1,5 @@
 export const PAGE_PERMISSIONS = [
-  { key: "home", label: "Home", paths: ["/", "/dashboard"] },
+  { key: "home", label: "Home", paths: ["/", "/dashboard", "/victorysync"] },
   { key: "client-accounts", label: "Client Accounts", paths: ["/sub-accounts"] },
   { key: "team", label: "Team & Invites", paths: ["/team"] },
   { key: "contacts", label: "Contacts", paths: ["/leads", "/call-queue"] },
@@ -31,7 +31,12 @@ export function permissionForPath(path: string) {
   )?.key;
 }
 
-export function canAccessPath(path: string, permissions: string[] | null) {
+export function canAccessPath(path: string, permissions: string[] | null, role?: string) {
+  if (role === "no_access") return false;
+  if (role === "client" && path === "/victorysync") return true;
+  if (role === "agent" && path === "/victorysync") return true;
+  if (role === "client" && !(/^\/(?:leadgen\/)?(?:leads|pipeline)(?:\/|$)/.test(path))) return false;
+  if (role === "agent" && !(/^\/(?:leadgen\/)?(?:leads|pipeline|call-queue)(?:\/|$)/.test(path))) return false;
   if (permissions === null) return true;
   const required = permissionForPath(path);
   return !required || permissions.includes(required);

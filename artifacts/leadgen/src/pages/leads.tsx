@@ -14,6 +14,7 @@ import { Search, Plus, Trash2, ExternalLink, Upload, Users, Building2, Mail, Pho
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { asArray } from "@/lib/data-shape";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -70,12 +71,13 @@ const STATUS_COLORS: Record<string, string> = {
   new: "hsl(199 89% 48%)",
   contacted: "hsl(262 83% 58%)",
   qualified: "hsl(38 92% 50%)",
+  meeting_booked: "hsl(142 71% 45%)",
   proposal: "hsl(221 83% 53%)",
   converted: "hsl(142 71% 45%)",
   lost: "hsl(0 72% 51%)",
 };
 
-const STATUSES = ["new", "contacted", "qualified", "proposal", "converted", "lost"];
+const STATUSES = ["new", "contacted", "qualified", "meeting_booked", "proposal", "converted", "lost"];
 const PAGE_SIZE = 50;
 
 function ScoreBadge({ score }: { score: number }) {
@@ -116,6 +118,7 @@ export default function Leads() {
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { role } = useAuth();
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -138,19 +141,23 @@ export default function Leads() {
   const { data: dispositionsResponse = [] } = useQuery<{ id: string; name: string; color: string }[]>({
     queryKey: ["dispositions"],
     queryFn: () => apiFetch("/dispositions"),
+    enabled: role !== "client",
   });
   const dispositions = asArray<{ id: string; name: string; color: string }>(dispositionsResponse);
   const { data: contactGroupsResponse = [] } = useQuery<ContactGroup[]>({
     queryKey: ["contact-groups"],
     queryFn: () => apiFetch("/api/contact-groups"),
+    enabled: role !== "client",
   });
   const { data: clientAccountsResponse = [] } = useQuery<AssignmentOption[]>({
     queryKey: ["sub-accounts"],
     queryFn: () => apiFetch("/sub-accounts"),
+    enabled: role !== "client",
   });
   const { data: teamResponse = [] } = useQuery<AssignmentOption[]>({
     queryKey: ["team"],
     queryFn: () => apiFetch("/team"),
+    enabled: role !== "client",
   });
   const contactGroups = asArray<ContactGroup>(contactGroupsResponse);
   const clientAccounts = asArray<AssignmentOption>(clientAccountsResponse);
@@ -311,7 +318,7 @@ export default function Leads() {
             <PageDescription>Manage people, companies, activity, source, and pipeline context.</PageDescription>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => void scanDuplicates()} disabled={scanningDuplicates} className="gap-1.5">
+            {role !== "client" && <><Button variant="outline" size="sm" onClick={() => void scanDuplicates()} disabled={scanningDuplicates} className="gap-1.5">
               <ScanSearch className="w-4 h-4" /> {scanningDuplicates ? "Scanning..." : "Find Duplicates"}
             </Button>
             <Button variant="outline" size="sm" onClick={() => setShowImport(true)} className="gap-1.5">
@@ -319,7 +326,7 @@ export default function Leads() {
             </Button>
             <Button size="sm" onClick={() => setShowCreate(true)} className="gap-1.5">
               <Plus className="w-4 h-4" /> Add Contact
-            </Button>
+            </Button></>}
           </div>
         </div>
 
@@ -357,10 +364,10 @@ export default function Leads() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All statuses</SelectItem>
-                {STATUSES.map((status) => <SelectItem key={status} value={status} className="capitalize">{status}</SelectItem>)}
+                {STATUSES.map((status) => <SelectItem key={status} value={status} className="capitalize">{status === "meeting_booked" ? "Meeting Booked" : status}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Button variant="outline" onClick={() => setSelected(allSelected ? new Set() : new Set(leads.map((lead) => lead.id)))}>
+            {role !== "client" && <><Button variant="outline" onClick={() => setSelected(allSelected ? new Set() : new Set(leads.map((lead) => lead.id)))}>
               {allSelected ? "Clear all" : `Select all (${leads.length})`}
             </Button>
             {selected.size > 0 && (
@@ -369,14 +376,14 @@ export default function Leads() {
               </Button>
             )}
             {selected.size > 0 && <Button variant="destructive" onClick={() => void deleteSelected()}>Delete {selected.size}</Button>}
-            <Button variant="outline" onClick={() => setShowDispositions(true)}>Dispositions</Button>
+            <Button variant="outline" onClick={() => setShowDispositions(true)}>Dispositions</Button></>}
           </div>
 
           <div className="overflow-x-auto">
             <table className="workspace-table w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
-                  <th className="px-4 py-3"><Checkbox checked={allSelected} onCheckedChange={() => setSelected(allSelected ? new Set() : new Set(leads.map((lead) => lead.id)))} aria-label="Select all contacts" /></th>
+                  <th className="px-4 py-3">{role !== "client" && <Checkbox checked={allSelected} onCheckedChange={() => setSelected(allSelected ? new Set() : new Set(leads.map((lead) => lead.id)))} aria-label="Select all contacts" />}</th>
                   <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Contact</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Company</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Phone</th>
@@ -413,7 +420,7 @@ export default function Leads() {
                 )}
                 {leads.map((lead) => (
                   <tr key={lead.id} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-4 py-3"><Checkbox checked={selected.has(lead.id)} onCheckedChange={() => setSelected((current) => { const next = new Set(current); next.has(lead.id) ? next.delete(lead.id) : next.add(lead.id); return next; })} aria-label={`Select ${lead.firstName} ${lead.lastName}`} /></td>
+                    <td className="px-4 py-3">{role !== "client" && <Checkbox checked={selected.has(lead.id)} onCheckedChange={() => setSelected((current) => { const next = new Set(current); next.has(lead.id) ? next.delete(lead.id) : next.add(lead.id); return next; })} aria-label={`Select ${lead.firstName} ${lead.lastName}`} />}</td>
                     <td className="px-5 py-3">
                       <Link href={`/leads/${lead.id}`} className="flex items-center gap-3 group">
                         <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary flex-shrink-0">
@@ -434,7 +441,7 @@ export default function Leads() {
                     </td>
                     <td className="px-4 py-3">
                       <Badge variant="outline" className="text-xs capitalize" style={{ borderColor: `${STATUS_COLORS[lead.status] ?? "hsl(215 16% 47%)"}60`, color: STATUS_COLORS[lead.status] ?? "hsl(215 16% 47%)" }}>
-                        {lead.status}
+                        {lead.status === "meeting_booked" ? "Meeting Booked" : lead.status}
                       </Badge>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{lead.disposition || "Not set"}</td>
@@ -452,9 +459,9 @@ export default function Leads() {
                             <ExternalLink className="w-3.5 h-3.5" />
                           </Button>
                         </Link>
-                        <Button variant="ghost" size="icon" className="w-7 h-7 text-muted-foreground hover:text-destructive" onClick={() => handleDelete(lead.id)}>
+                        {role !== "client" && <Button variant="ghost" size="icon" className="w-7 h-7 text-muted-foreground hover:text-destructive" onClick={() => handleDelete(lead.id)}>
                           <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
+                        </Button>}
                       </div>
                     </td>
                   </tr>

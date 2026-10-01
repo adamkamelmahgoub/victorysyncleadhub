@@ -26,6 +26,7 @@ export const stageColors: Record<string, string> = {
   contacted: "#475569",
   engaged: "#2563eb",
   qualified: "#7c3aed",
+  meeting_booked: "#16a34a",
   trial_booked: "#c2410c",
   trial_active: "#0f766e",
   trial_completed: "#b45309",

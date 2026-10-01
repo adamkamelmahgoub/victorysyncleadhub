@@ -185,9 +185,9 @@ function CallCard({ lead }: { lead: Lead }) {
           />
         </label>
         <label className="text-sm font-medium">
-          Next action ({Intl.DateTimeFormat().resolvedOptions().timeZone})
+          {disposition === "meeting_booked" ? "Meeting date and time" : "Next action"} ({Intl.DateTimeFormat().resolvedOptions().timeZone})
           <input
-            aria-label="Next action"
+            aria-label={disposition === "meeting_booked" ? "Meeting date and time" : "Next action"}
             type="datetime-local"
             className={`${inputStyle} mt-1 block`}
             value={next}

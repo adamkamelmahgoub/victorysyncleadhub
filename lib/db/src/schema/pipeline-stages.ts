@@ -5,6 +5,7 @@ import { z } from "zod/v4";
 export const pipelineStagesTable = pgTable("pipeline_stages", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  key: text("key"),
   color: text("color").notNull().default("#00E5FF"),
   position: integer("position").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

@@ -33,6 +33,8 @@ const emptyCompany: Company = {
   trial_start_date: null,
   trial_end_date: null,
   trial_capacity_slot: null,
+  meeting_at: null,
+  meeting_timezone: null,
   created_at: "",
   updated_at: "",
   email: "",
@@ -299,6 +301,9 @@ export function CompanyEditor({
                   ))}
                 </select>
               </label>
+              {draft.stage === "meeting_booked" && <label className="block space-y-1.5 text-xs font-medium text-slate-600">Meeting date and time
+                <input type="datetime-local" required className={crmSelect} value={toLocalDateTime(draft.meeting_at)} onChange={event => { update("meeting_at", event.target.value ? new Date(event.target.value).toISOString() : null); update("meeting_timezone", Intl.DateTimeFormat().resolvedOptions().timeZone); }} />
+              </label>}
               {textField(
                 "source",
                 "Source",

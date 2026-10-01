@@ -23,6 +23,13 @@ type AuthContextValue = {
   signOut: () => Promise<void>;
 };
 
+function sessionClaims(session: Session | null): Record<string, unknown> {
+  try {
+    const encoded = session?.access_token.split(".")[1];
+    return encoded ? JSON.parse(atob(encoded.replace(/-/g, "+").replace(/_/g, "/"))) as Record<string, unknown> : {};
+  } catch { return {}; }
+}
+
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -94,16 +101,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({
+    () => { const claims = sessionClaims(session); const role = typeof claims.crm_role === "string" && ["owner", "admin", "agent", "member", "viewer", "client"].includes(claims.crm_role) ? claims.crm_role : "no_access"; return ({
       loading,
       session,
       user: session?.user ?? null,
-      role: typeof session?.user?.user_metadata?.role === "string" ? session.user.user_metadata.role : "member",
-      clientAccountId: typeof session?.user?.user_metadata?.client_account_id === "string"
+      role,
+      clientAccountId: typeof claims.crm_client_account_id === "string" ? claims.crm_client_account_id : typeof session?.user?.user_metadata?.client_account_id === "string"
         ? session.user.user_metadata.client_account_id
         : null,
-      pagePermissions: session?.user?.user_metadata?.role === "owner"
+      pagePermissions: role === "client" || role === "agent" ? ["contacts", "pipeline"] : role === "owner"
         ? null
+        : Array.isArray(claims.crm_page_permissions)
+        ? claims.crm_page_permissions.filter((entry): entry is string => typeof entry === "string")
         : Array.isArray(session?.user?.user_metadata?.page_permissions)
         ? session.user.user_metadata.page_permissions.filter((value): value is string => typeof value === "string")
         : null,
@@ -111,7 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await recordActivity('authentication','signed_out',{pagePath:window.location.pathname});
         await supabase.auth.signOut();
       },
-    }),
+    }); },
     [loading, session],
   );
 

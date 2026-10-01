@@ -14,6 +14,13 @@ import { useAuth } from "@/lib/auth";
 
 const modules = [
   {
+    href: "/leadgen",
+    title: "Lead Gen Hub",
+    description: "Open contacts, campaigns, and pipeline in the current Supabase session.",
+    icon: Megaphone,
+    stat: "CRM",
+  },
+  {
     href: "/companies",
     title: "Company CRM & Trials",
     description: "Track prospect companies, schedule inbound and outbound trials, and log every call and lead.",
@@ -44,11 +51,13 @@ const modules = [
 ];
 
 export default function VictorySyncHome() {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const name =
     (typeof user?.user_metadata?.full_name === "string" && user.user_metadata.full_name) ||
     user?.email ||
     "there";
+
+  if (role === "client" || role === "agent") return <div className="page-stack rounded-lg border bg-white p-6"><PageTitle>Welcome, {name}</PageTitle><PageDescription className="mt-2">Your assigned contacts are ready in Lead Gen Hub.</PageDescription><Link href="/leadgen/leads"><button className="mt-5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white">Open Lead Gen Hub</button></Link></div>;
 
   return (
     <div className="page-stack">

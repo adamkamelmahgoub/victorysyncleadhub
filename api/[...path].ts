@@ -39,7 +39,9 @@ type LeadInput = {
   score?: number;
   campaignId?: number;
   formId?: number;
-  pipelineStageId?: number;
+  pipelineStageId?: number | string | null;
+  meetingAt?: string | null;
+  meetingTimezone?: string | null;
   tags?: string[];
   customFields?: Record<string, unknown>;
 };
@@ -65,7 +67,11 @@ type LeadRow = {
   score: number;
   campaign_id: number | null;
   form_id: number | null;
-  pipeline_stage_id: number | null;
+  pipeline_stage_id: number | string | null;
+  meeting_at?: string | null;
+  meeting_timezone?: string | null;
+  meeting_booked_at?: string | null;
+  meeting_booked_by?: string | null;
   tags: string[];
   custom_fields: Record<string, unknown>;
   created_at: string;
@@ -175,6 +181,8 @@ function normalizeLead(lead: LeadInput) {
     campaign_id: lead.campaignId ?? null,
     form_id: lead.formId ?? null,
     pipeline_stage_id: lead.pipelineStageId ?? null,
+    meeting_at: lead.meetingAt ?? null,
+    meeting_timezone: lead.meetingTimezone ?? null,
     tags: Array.isArray(lead.tags) ? lead.tags : [],
     custom_fields: lead.customFields ?? {},
   };
@@ -184,7 +192,18 @@ function validateLead(lead: ReturnType<typeof normalizeLead>) {
   if (!lead.first_name) return "First name is required";
   if (!lead.last_name) return "Last name is required";
   if (!lead.email) return "Email is required";
+  if (lead.status === "meeting_booked" && !validMeetingAt(lead.meeting_at)) return "Meeting date and time are required";
   return null;
+}
+
+function validMeetingAt(value: unknown): value is string {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
+}
+
+async function isMeetingStage(stageId: unknown, req: VercelRequest) {
+  if (stageId == null || stageId === "") return false;
+  const stages = await supabaseRest(`pipeline_stages?id=eq.${encodeURIComponent(String(stageId))}&select=key&limit=1`, { method: "GET" }, req) as Array<{ key: string | null }>;
+  return stages[0]?.key === "meeting_booked";
 }
 
 function leadInsertPayload(lead: ReturnType<typeof normalizeLead>) {
@@ -203,6 +222,8 @@ function leadInsertPayload(lead: ReturnType<typeof normalizeLead>) {
     campaign_id: lead.campaign_id,
     form_id: lead.form_id,
     pipeline_stage_id: lead.pipeline_stage_id,
+    meeting_at: lead.meeting_at,
+    meeting_timezone: lead.meeting_timezone,
     tags: lead.tags,
     custom_fields: lead.custom_fields,
   };
@@ -227,6 +248,8 @@ function leadUpdatePayload(lead: LeadInput) {
   if (lead.campaignId !== undefined) payload.campaign_id = lead.campaignId;
   if (lead.formId !== undefined) payload.form_id = lead.formId;
   if (lead.pipelineStageId !== undefined) payload.pipeline_stage_id = lead.pipelineStageId;
+  if (lead.meetingAt !== undefined) payload.meeting_at = lead.meetingAt;
+  if (lead.meetingTimezone !== undefined) payload.meeting_timezone = lead.meetingTimezone;
   if (lead.tags !== undefined) payload.tags = Array.isArray(lead.tags) ? lead.tags : [];
   if (lead.customFields !== undefined) payload.custom_fields = lead.customFields ?? {};
   return payload;
@@ -250,6 +273,10 @@ function leadFromRow(row: LeadRow) {
     campaignId: row.campaign_id,
     formId: row.form_id,
     pipelineStageId: row.pipeline_stage_id,
+    meetingAt: row.meeting_at ?? null,
+    meetingTimezone: row.meeting_timezone ?? null,
+    meetingBookedAt: row.meeting_booked_at ?? null,
+    meetingBookedBy: row.meeting_booked_by ?? null,
     tags: row.tags ?? [],
     customFields: row.custom_fields ?? {},
     createdAt: row.created_at,
@@ -266,6 +293,7 @@ type AuthenticatedUser = {
   id: string;
   email?: string;
   user_metadata?: Record<string, unknown>;
+  crmRoleVerified?: boolean;
   app_metadata?: Record<string, unknown>;
 };
 
@@ -293,8 +321,16 @@ function normalizeDashboardRole(role: unknown) {
   if (value === "org_owner" || value === "owner") return "owner";
   if (value === "org_admin" || value === "admin") return "admin";
   if (value === "agent") return "agent";
+  if (value === "client") return "client";
   if (value === "viewer") return "viewer";
   return "member";
+}
+
+function clientLeadScope(user: AuthenticatedUser): string | null {
+  const role = normalizeDashboardRole(user.user_metadata?.role ?? user.app_metadata?.role);
+  if (role !== "client") return null;
+  const account = user.user_metadata?.client_account_id ?? user.app_metadata?.client_account_id;
+  return typeof account === "string" && /^[a-f0-9-]{36}$/i.test(account) ? account : "00000000-0000-0000-0000-000000000000";
 }
 
 function legacyCompatibleTeamRole(role: unknown) {
@@ -462,7 +498,22 @@ async function authenticateRequest(req: VercelRequest): Promise<AuthenticatedUse
     headers: { apikey: supabaseAnonKey, authorization },
   });
   if (!response.ok) throw new Error("Your session is invalid or has expired");
-  return await response.json() as AuthenticatedUser;
+  const user = await response.json() as AuthenticatedUser;
+  try {
+    const claims = JSON.parse(Buffer.from(authorization.slice(7).split(".")[1] ?? "", "base64url").toString("utf8")) as Record<string, unknown>;
+    if (claims.sub !== user.id) throw new Error("Session identity mismatch");
+    user.crmRoleVerified = typeof claims.crm_role === "string" &&
+      ["owner", "admin", "agent", "member", "viewer", "client"].includes(claims.crm_role);
+    user.user_metadata = { ...user.user_metadata,
+      ...(typeof claims.crm_role === "string" ? { role: claims.crm_role } : {}),
+      ...(typeof claims.crm_client_account_id === "string" ? { client_account_id: claims.crm_client_account_id } : {}),
+      ...(typeof claims.crm_team_member_id === "string" ? { team_member_id: claims.crm_team_member_id } : {}),
+      ...(Array.isArray(claims.crm_page_permissions) ? { page_permissions: claims.crm_page_permissions } : {}),
+    };
+  } catch (error) {
+    if (error instanceof Error && error.message === "Session identity mismatch") throw error;
+  }
+  return user;
 }
 
 async function recordPortalActivity(req:VercelRequest,user:AuthenticatedUser,event:{eventType:string;action:string;pagePath?:string|null;target?:string|null;requestMethod?:string|null;requestStatus?:number|null;sessionId?:string|null;metadata?:Record<string,unknown>}) {
@@ -746,9 +797,9 @@ async function supabaseRest(path: string, init: FetchInit, req?: VercelRequest) 
   }
 
   const inboundAuth = req ? getHeader(req, "authorization") : undefined;
-  const authorization = hasServiceRole
-    ? `Bearer ${supabaseKey}`
-    : inboundAuth;
+  const authorization = /^leads(?:\?|$)/.test(path) && inboundAuth
+    ? inboundAuth
+    : hasServiceRole ? `Bearer ${supabaseKey}` : inboundAuth;
 
   if (!authorization) {
     throw new Error("Missing Supabase user token");
@@ -1005,6 +1056,9 @@ async function listResource(config: ResourceConfig, req: VercelRequest, res: Ver
 
 async function createResource(config: ResourceConfig, req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as Record<string, unknown>;
+  if (config.table === "pipeline_stages" && String(body.name ?? "").trim().toLowerCase() === "meeting booked") {
+    sendJson(res, 409, { error: "Meeting Booked already exists in every pipeline" }); return;
+  }
   const payload = stripUndefined({
     ...(config.defaults ?? {}),
     ...(toSnakeValue(body) as Record<string, unknown>),
@@ -1031,6 +1085,15 @@ async function getResource(config: ResourceConfig, id: string, req: VercelReques
 
 async function updateResource(config: ResourceConfig, id: string, req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as Record<string, unknown>;
+  if (config.table === "pipeline_stages") {
+    const existing = await supabaseRest(`pipeline_stages?id=eq.${encodeURIComponent(id)}&select=key&limit=1`, { method: "GET" }, req) as Array<{ key: string | null }>;
+    if (existing[0]?.key === "meeting_booked" && body.name !== undefined && body.name !== "Meeting Booked") {
+      sendJson(res, 409, { error: "The Meeting Booked stage name is fixed" }); return;
+    }
+    if (String(body.name ?? "").trim().toLowerCase() === "meeting booked" && existing[0]?.key !== "meeting_booked") {
+      sendJson(res, 409, { error: "Meeting Booked already exists in every pipeline" }); return;
+    }
+  }
   const payload = stripUndefined(toSnakeValue(body) as Record<string, unknown>);
   if(config.table==='automation_workflows'){
     const rows=await supabaseRest(`${config.table}?id=eq.${encodeURIComponent(id)}&select=*&limit=1`,{method:'GET'},req) as Array<Record<string,unknown>>;
@@ -1044,6 +1107,9 @@ async function updateResource(config: ResourceConfig, id: string, req: VercelReq
 }
 
 async function deleteResource(config: ResourceConfig, id: string, req: VercelRequest, res: VercelResponse) {
+  if (config.table === "pipeline_stages" && await isMeetingStage(id, req)) {
+    sendJson(res, 409, { error: "The Meeting Booked stage is required" }); return;
+  }
   await supabaseRest(`${config.table}?id=eq.${encodeURIComponent(id)}`, {
     method: "DELETE",
   }, req);
@@ -1273,6 +1339,11 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   });
   const countQuery = new URLSearchParams({ select: "id" });
   const currentRole = normalizeDashboardRole(currentUser.user_metadata?.role ?? currentUser.app_metadata?.role);
+  const clientScope = clientLeadScope(currentUser);
+  if (clientScope) {
+    query.set("client_account_id", `eq.${clientScope}`);
+    countQuery.set("client_account_id", `eq.${clientScope}`);
+  }
   if (currentRole === "agent") {
     const teamMemberId = currentUser.user_metadata?.team_member_id ?? currentUser.app_metadata?.team_member_id;
     const clientAccountId = currentUser.user_metadata?.client_account_id ?? currentUser.app_metadata?.client_account_id;
@@ -1305,8 +1376,9 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   });
 }
 
-async function getLead(id: string, req: VercelRequest, res: VercelResponse) {
-  const rows = (await supabaseRest(`leads?id=eq.${encodeURIComponent(id)}&select=*&limit=1`, {
+async function getLead(id: string, req: VercelRequest, res: VercelResponse, currentUser: AuthenticatedUser) {
+  const scope = clientLeadScope(currentUser);
+  const rows = (await supabaseRest(`leads?id=eq.${encodeURIComponent(id)}&select=*&limit=1${scope ? `&client_account_id=eq.${encodeURIComponent(scope)}` : ""}`, {
     method: "GET",
   }, req)) as LeadRow[];
   if (!rows[0]) {
@@ -1345,6 +1417,9 @@ async function createLead(req: VercelRequest, res: VercelResponse) {
     sendJson(res, 400, { error });
     return;
   }
+  if (await isMeetingStage(body.pipelineStageId, req) && !validMeetingAt(body.meetingAt)) {
+    sendJson(res, 400, { error: "Meeting date and time are required" }); return;
+  }
 
   const inserted = (await supabaseRest("leads", {
     method: "POST",
@@ -1355,12 +1430,19 @@ async function createLead(req: VercelRequest, res: VercelResponse) {
   sendJson(res, 201, inserted[0] ? leadFromRow(inserted[0]) : null);
 }
 
-async function updateLead(id: string, req: VercelRequest, res: VercelResponse) {
+async function updateLead(id: string, req: VercelRequest, res: VercelResponse, currentUser: AuthenticatedUser) {
   const body = (await readJson(req)) as LeadInput;
   if (body.disposition !== undefined || body.contactAttempts !== undefined) {
     sendJson(res,409,{error:'Use atomic call logging to change disposition or attempts.'}); return;
   }
   const update = leadUpdatePayload(body);
+  if ((body.status === "meeting_booked" || await isMeetingStage(body.pipelineStageId, req)) && !validMeetingAt(body.meetingAt)) {
+    sendJson(res, 400, { error: "Meeting date and time are required" }); return;
+  }
+  if (body.meetingAt !== undefined && body.meetingAt !== null && !validMeetingAt(body.meetingAt)) {
+    sendJson(res, 400, { error: "Invalid meeting date and time" }); return;
+  }
+  update.updated_by = currentUser.id;
 
   const rows = (await supabaseRest(`leads?id=eq.${encodeURIComponent(id)}`, {
     method: "PATCH",
@@ -1423,7 +1505,7 @@ async function createTeamInvite(currentUser: AuthenticatedUser, req: VercelReque
   const email = body.email?.trim().toLowerCase() ?? "";
   const role = body.role ?? "member";
   if (!name || !email.includes("@")) { sendJson(res, 400, { error: "Name and a valid email are required" }); return; }
-  if (role === "agent" && !body.clientAccountId) { sendJson(res, 400, { error: "Select a client account for this agent" }); return; }
+  if ((role === "agent" || role === "client") && !body.clientAccountId) { sendJson(res, 400, { error: "Select a client account" }); return; }
   const orgId = await resolveUserOrgId(currentUser, req);
   if (!orgId) { sendJson(res, 400, { error: "Your dashboard session is missing an organization ID. Sign out through VictorySync and open the CRM again." }); return; }
   const existing = await supabaseRest(`team_members?org_id=eq.${encodeURIComponent(orgId)}&email=eq.${encodeURIComponent(email)}&select=id&limit=1`, { method: "GET" }, req) as Array<{ id?: string }>;
@@ -2183,15 +2265,16 @@ async function getReviewStats(req: VercelRequest, res: VercelResponse) {
   });
 }
 
-async function getPipelineLeads(req: VercelRequest, res: VercelResponse) {
+async function getPipelineLeads(req: VercelRequest, res: VercelResponse, currentUser: AuthenticatedUser) {
   const url = new URL(req.url ?? "/api/pipeline/leads", "https://local.invalid");
   const pipelineId = url.searchParams.get("pipelineId");
   const stagePath = pipelineId
     ? `pipeline_stages?pipeline_id=eq.${encodeURIComponent(pipelineId)}&select=*&order=position.asc`
     : "pipeline_stages?select=*&order=position.asc";
+  const scope = clientLeadScope(currentUser);
   const [stages, leads] = await Promise.all([
     supabaseRest(stagePath, { method: "GET" }, req) as Promise<Array<Record<string, unknown>>>,
-    supabaseRest("leads?select=*&order=created_at.desc&limit=1000", { method: "GET" }, req) as Promise<LeadRow[]>,
+    supabaseRest(`leads?select=*&order=created_at.desc&limit=1000${scope ? `&client_account_id=eq.${encodeURIComponent(scope)}` : ""}`, { method: "GET" }, req) as Promise<LeadRow[]>,
   ]);
   const stageRows = stages.map((stage) => ({
     ...(toCamelValue(stage) as Record<string, unknown>),
@@ -2203,21 +2286,28 @@ async function getPipelineLeads(req: VercelRequest, res: VercelResponse) {
   });
 }
 
-async function updateLeadStage(path: string, method: string, req: VercelRequest, res: VercelResponse) {
+async function updateLeadStage(path: string, method: string, req: VercelRequest, res: VercelResponse, currentUser: AuthenticatedUser) {
   if(path==='/api/pipeline/leads/stage'&&(method==='PATCH'||method==='PUT')){
-    const body=await readJson(req) as {leadIds?:unknown[];stageId?:string|number|null;pipelineId?:string|number};const ids=[...new Set((body.leadIds??[]).map(String))];
+    const body=await readJson(req) as {leadIds?:unknown[];stageId?:string|number|null;pipelineId?:string|number;meetingAt?:string;meetingTimezone?:string};const ids=[...new Set((body.leadIds??[]).map(String))];
     if(!ids.length||ids.length>1000||ids.some(id=>!/^[a-zA-Z0-9-]{1,80}$/.test(id))){sendJson(res,400,{error:'Choose 1 to 1,000 contacts'});return true;}
     if(body.stageId){const stages=await supabaseRest(`pipeline_stages?id=eq.${encodeURIComponent(String(body.stageId))}&select=id,pipeline_id&limit=1`,{method:'GET'},req) as Array<{id:string;pipeline_id:string}>;if(!stages.length||body.pipelineId&&String(stages[0].pipeline_id)!==String(body.pipelineId)){sendJson(res,400,{error:'Choose a stage in this pipeline'});return true;}}
-    let updated=0;for(let start=0;start<ids.length;start+=200){const values=ids.slice(start,start+200).join(',');const rows=await supabaseRest(`leads?id=in.(${values})`,{method:'PATCH',body:JSON.stringify({pipeline_stage_id:body.stageId??null})},req) as LeadRow[];updated+=rows.length;}
+    const meeting = await isMeetingStage(body.stageId, req);
+    if(meeting && !validMeetingAt(body.meetingAt)){sendJson(res,400,{error:'Meeting date and time are required'});return true;}
+    const payload={pipeline_stage_id:body.stageId??null,updated_by:currentUser.id,...(meeting?{status:'meeting_booked',meeting_at:body.meetingAt,meeting_timezone:body.meetingTimezone??null}:{})};
+    let updated=0;for(let start=0;start<ids.length;start+=200){const values=ids.slice(start,start+200).join(',');const rows=await supabaseRest(`leads?id=in.(${values})`,{method:'PATCH',body:JSON.stringify(payload)},req) as LeadRow[];updated+=rows.length;}
     sendJson(res,200,{updated});return true;
   }
   const match = path.match(/^\/api\/pipeline\/leads\/([^/]+)\/stage$/);
   if (!match || (method !== "PATCH" && method !== "PUT")) return false;
   const leadId = decodeURIComponent(match[1] ?? "");
-  const body = (await readJson(req)) as { stageId?: string | number | null; pipelineStageId?: string | number | null };
+  const body = (await readJson(req)) as { stageId?: string | number | null; pipelineStageId?: string | number | null; meetingAt?: string; meetingTimezone?: string };
+  const stageId = body.stageId ?? body.pipelineStageId ?? null;
+  const meeting = await isMeetingStage(stageId, req);
+  if (meeting && !validMeetingAt(body.meetingAt)) { sendJson(res, 400, { error: "Meeting date and time are required" }); return true; }
   const rows = await supabaseRest(`leads?id=eq.${encodeURIComponent(leadId)}`, {
     method: "PATCH",
-    body: JSON.stringify({ pipeline_stage_id: body.stageId ?? body.pipelineStageId ?? null }),
+    body: JSON.stringify({ pipeline_stage_id: stageId, updated_by: currentUser.id,
+      ...(meeting ? { status: "meeting_booked", meeting_at: body.meetingAt, meeting_timezone: body.meetingTimezone ?? null } : {}) }),
   }, req) as LeadRow[];
   sendJson(res, 200, rows[0] ? leadFromRow(rows[0]) : null);
   return true;
@@ -2525,15 +2615,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await syncDashboardTeamMember(currentUser, req, res);
       return;
     }
-    const role = String(currentUser.user_metadata?.role ?? "member");
+    if (!currentUser.crmRoleVerified) {
+      sendJson(res, 403, { message: "No Lead Gen Hub access is assigned to this account" }); return;
+    }
+    const role = normalizeDashboardRole(currentUser.user_metadata?.role ?? currentUser.app_metadata?.role);
     const status = String(currentUser.user_metadata?.status ?? "active");
     if (status === "inactive" || status === "deactivated") {
       sendJson(res, 403, { message: "This CRM account has been deactivated" });
       return;
     }
-    if (role === "viewer" && method !== "GET") {
-      sendJson(res, 403, { message: "Viewer accounts have read-only access" });
+    if ((role === "viewer" || role === "client") && method !== "GET") {
+      sendJson(res, 403, { message: "This account has read-only access" });
       return;
+    }
+    if (role === "client" && !(
+      path === "/api/leads" || /^\/api\/leads\/[^/]+$/.test(path) ||
+      path === "/api/pipeline/leads" || path === "/api/pipeline/stages" || path === "/api/pipelines"
+    )) {
+      sendJson(res, 403, { message: "This page is not available to client accounts" }); return;
+    }
+    if (role === "agent" && !(
+      path === "/api/leads" || /^\/api\/leads\/[^/]+$/.test(path) ||
+      /^\/api\/leads\/[^/]+\/(calls|outreach)$/.test(path) ||
+      path === "/api/outreach/queue" || path === "/api/outreach/needs-timezone" ||
+      path === "/api/dispositions" || path === "/api/pipeline/leads" ||
+      /^\/api\/pipeline\/leads\/[^/]+\/stage$/.test(path) ||
+      path === "/api/pipeline/leads/stage" || path === "/api/pipeline/stages" ||
+      path === "/api/pipelines"
+    )) {
+      sendJson(res, 403, { message: "Agent access is limited to assigned contacts" }); return;
+    }
+    if (role === "agent" && method !== "GET" && (path === "/api/pipelines" || path === "/api/pipeline/stages")) {
+      sendJson(res, 403, { message: "Only administrators can change pipeline settings" }); return;
     }
     if (role === "agent" && /^\/api\/(?:team|sub-accounts|api-keys)/.test(path)) {
       sendJson(res, 403, { message: "Agent accounts cannot manage workspace access" });
@@ -2630,12 +2743,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const leadId = getLeadId(path);
     if (leadId && method === "GET") {
-      await getLead(leadId, req, res);
+      await getLead(leadId, req, res, currentUser);
       return;
     }
 
     if (leadId && method === "PATCH") {
-      await updateLead(leadId, req, res);
+      await updateLead(leadId, req, res, currentUser);
       return;
     }
 
@@ -2686,11 +2799,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (method === "GET" && path === "/api/pipeline/leads") {
-      await getPipelineLeads(req, res);
+      await getPipelineLeads(req, res, currentUser);
       return;
     }
 
-    if (await updateLeadStage(path, method, req, res)) {
+    if (await updateLeadStage(path, method, req, res, currentUser)) {
       return;
     }
 

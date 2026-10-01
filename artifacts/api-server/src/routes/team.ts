@@ -24,7 +24,7 @@ router.post("/team/invite", async (req, res): Promise<void> => {
   const body = z.object({
     name: z.string().min(1),
     email: z.string().email(),
-    role: z.enum(["owner", "admin", "agent", "member", "viewer"]).default("member"),
+    role: z.enum(["owner", "admin", "agent", "member", "viewer", "client"]).default("member"),
     clientAccountId: z.string().uuid().nullable().optional(),
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
@@ -66,7 +66,7 @@ router.patch("/team/:id", async (req, res): Promise<void> => {
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const body = z.object({
-    role: z.enum(["owner", "admin", "agent", "member", "viewer"]).optional(),
+    role: z.enum(["owner", "admin", "agent", "member", "viewer", "client"]).optional(),
     clientAccountId: z.string().uuid().nullable().optional(),
     status: z.enum(["active", "invited", "deactivated"]).optional(),
     name: z.string().min(1).optional(),

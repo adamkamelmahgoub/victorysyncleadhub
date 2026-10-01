@@ -13,7 +13,7 @@ interface TeamMember {
   id: string;
   name: string;
   email: string;
-  role: "owner" | "admin" | "agent" | "member" | "viewer";
+  role: "owner" | "admin" | "agent" | "member" | "viewer" | "client";
   clientAccountId: string | null;
   status: "active" | "invited" | "deactivated";
   createdAt: string;
@@ -43,6 +43,7 @@ const ROLE_STYLES: Record<string, string> = {
   agent: "bg-orange-100 text-orange-700 border-orange-200",
   member: "bg-green-100 text-green-700 border-green-200",
   viewer: "bg-gray-100 text-gray-600 border-gray-200",
+  client: "bg-teal-100 text-teal-700 border-teal-200",
 };
 
 const STATUS_STYLES: Record<string, { label: string; class: string; icon: React.ElementType }> = {
@@ -57,6 +58,7 @@ const ROLE_PERMS: Record<string, string[]> = {
   agent: ["Work only for the assigned client account"],
   member: ["Manage contacts, campaigns, automations (cannot manage team)"],
   viewer: ["Read-only access to all data"],
+  client: ["Read-only access to assigned client contacts"],
 };
 
 export default function Team() {
@@ -258,7 +260,7 @@ export default function Team() {
         <div className="bg-white rounded-xl border border-border shadow-sm p-5">
           <h3 className="text-sm font-semibold text-foreground mb-4">Role Permissions</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-            {(["owner", "admin", "agent", "member", "viewer"] as const).map((role) => (
+            {(["owner", "admin", "agent", "member", "viewer", "client"] as const).map((role) => (
               <div key={role} className="p-3 rounded-lg bg-muted/40 border border-border">
                 <div className={`inline-flex items-center text-xs px-2 py-0.5 rounded-full font-medium border mb-2 capitalize ${ROLE_STYLES[role]}`}>
                   {role}
@@ -342,7 +344,7 @@ export default function Team() {
                   <div>
                     <label className="text-xs font-medium text-muted-foreground block mb-2">Role</label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {(["admin", "agent", "member", "viewer"] as const).map((role) => (
+                      {(["admin", "agent", "member", "viewer", "client"] as const).map((role) => (
                         <button
                           key={role}
                           onClick={() => setForm((f) => ({ ...f, role }))}
@@ -354,7 +356,7 @@ export default function Team() {
                       ))}
                     </div>
                   </div>
-                  {form.role === "agent" && (
+                  {(form.role === "agent" || form.role === "client") && (
                     <div>
                       <label className="text-xs font-medium text-muted-foreground block mb-1.5">Assigned client *</label>
                       <select
@@ -366,7 +368,7 @@ export default function Team() {
                         <option value="">{accountsLoading ? "Loading clients..." : "Select a client account"}</option>
                         {clientAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
                       </select>
-                      {!accountsLoading && clientAccounts.length === 0 && <p className="mt-1 text-xs text-amber-600">Create a client account before inviting an agent.</p>}
+                      {!accountsLoading && clientAccounts.length === 0 && <p className="mt-1 text-xs text-amber-600">Create a client account before inviting an agent or client.</p>}
                     </div>
                   )}
                   <div>
@@ -400,7 +402,7 @@ export default function Team() {
                   <button onClick={() => setShowInvite(false)} className="px-4 py-2 text-sm font-medium text-muted-foreground border border-border rounded-lg hover:bg-muted">Cancel</button>
                   <button
                     onClick={() => invite.mutate(form)}
-                    disabled={!form.name || !form.email || (form.role === "agent" && !form.clientAccountId) || invite.isPending}
+                    disabled={!form.name || !form.email || ((form.role === "agent" || form.role === "client") && !form.clientAccountId) || invite.isPending}
                     className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-40 transition-colors"
                   >
                     {invite.isPending ? "Creating..." : "Create Invite"}
@@ -421,7 +423,7 @@ export default function Team() {
               <button onClick={() => setEditMember(null)} className="text-muted-foreground hover:text-foreground">x</button>
             </div>
             <div className="p-6 space-y-3">
-              {(["admin", "agent", "member", "viewer"] as const).map((role) => (
+              {(["admin", "agent", "member", "viewer", "client"] as const).map((role) => (
                 <button
                   key={role}
                   onClick={() => setEditMember((member) => member ? { ...member, role } : member)}
@@ -431,6 +433,12 @@ export default function Team() {
                   <div className="text-xs text-muted-foreground mt-0.5">{(ROLE_PERMS[role] ?? [])[0]}</div>
                 </button>
               ))}
+              {(editMember.role === "agent" || editMember.role === "client") && <label className="block text-xs font-medium">Assigned client account
+                <select className="mt-1 w-full rounded border p-2" value={editMember.clientAccountId ?? ""} onChange={event => setEditMember(member => member ? { ...member, clientAccountId: event.target.value || null } : member)}>
+                  <option value="">Select an account</option>
+                  {clientAccounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
+                </select>
+              </label>}
               <div className="pt-3 border-t border-border">
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-xs font-medium text-muted-foreground">Pages and features</label>
@@ -459,8 +467,8 @@ export default function Team() {
                 </div>
               </div>
               <button
-                onClick={() => update.mutate({ id: editMember.id, role: editMember.role, pagePermissions: editMember.pagePermissions ?? [...ALL_PAGE_PERMISSION_KEYS] })}
-                disabled={update.isPending}
+                onClick={() => update.mutate({ id: editMember.id, role: editMember.role, clientAccountId: editMember.clientAccountId, pagePermissions: editMember.pagePermissions ?? [...ALL_PAGE_PERMISSION_KEYS] })}
+                disabled={update.isPending || ((editMember.role === "agent" || editMember.role === "client") && !editMember.clientAccountId)}
                 className="w-full mt-2 px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg disabled:opacity-50"
               >
                 {update.isPending ? "Saving..." : "Save access"}

@@ -23,7 +23,7 @@ interface Segment {
   createdAt: string;
 }
 
-const STATUS_OPTIONS = ["new", "contacted", "qualified", "proposal", "converted", "lost"];
+const STATUS_OPTIONS = ["new", "contacted", "qualified", "meeting_booked", "proposal", "converted", "lost"];
 const SOURCE_OPTIONS = ["LinkedIn", "Facebook", "Google Ads", "Referral", "Website", "Email", "Cold Outreach", "Webinar", "Other"];
 
 type Filters = Segment["filters"];
@@ -220,7 +220,7 @@ export default function Segments() {
                     <label className="text-xs font-medium text-muted-foreground block mb-1.5">Status</label>
                     <select value={previewFilters.status ?? ""} onChange={(e) => e.target.value ? updateFilter("status", e.target.value) : clearFilter("status")} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30">
                       <option value="">Any status</option>
-                      {STATUS_OPTIONS.map((s) => <option key={s} value={s} className="capitalize">{s}</option>)}
+                      {STATUS_OPTIONS.map((s) => <option key={s} value={s} className="capitalize">{s === "meeting_booked" ? "Meeting Booked" : s}</option>)}
                     </select>
                   </div>
                   <div>

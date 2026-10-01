@@ -83,6 +83,7 @@ export default function CompanyWorkspace() {
   const [savedViews, setSavedViews] = useState<SavedView[]>([]);
   const [saveView, setSaveView] = useState(false);
   const [bulkStage, setBulkStage] = useState("contacted");
+  const [bulkMeetingLocal, setBulkMeetingLocal] = useState("");
   const [notice, setNotice] = useState("");
   useEffect(() => {
     const text = new URLSearchParams(queryString).get("q");
@@ -162,7 +163,8 @@ export default function CompanyWorkspace() {
         ids.map((id) =>
           apiFetch(`/api/companies/${id}`, {
             method: "PATCH",
-            body: JSON.stringify({ stage: bulkStage }),
+            body: JSON.stringify({ stage: bulkStage,
+              ...(bulkStage === "meeting_booked" ? { meeting_at: new Date(bulkMeetingLocal).toISOString(), meeting_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } : {}) }),
           }),
         ),
       );
@@ -404,10 +406,11 @@ export default function CompanyWorkspace() {
                   </option>
                 ))}
               </select>
+              {bulkStage === "meeting_booked" && <label className="text-xs">Meeting date and time<input type="datetime-local" required className="ml-2 rounded border px-2 py-1" value={bulkMeetingLocal} onChange={event => setBulkMeetingLocal(event.target.value)} /></label>}
               <Button
                 size="sm"
                 variant="outline"
-                disabled={updateStage.isPending}
+                disabled={updateStage.isPending || (bulkStage === "meeting_booked" && !bulkMeetingLocal)}
                 onClick={() => updateStage.mutate(visibleSelected)}
               >
                 Update stage

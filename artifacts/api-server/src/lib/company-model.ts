@@ -3,6 +3,7 @@ export const COMPANY_STAGES = [
   "contacted",
   "engaged",
   "qualified",
+  "meeting_booked",
   "trial_booked",
   "trial_active",
   "trial_completed",
@@ -43,6 +44,10 @@ export interface Company {
   trial_start_date: string | null;
   trial_end_date: string | null;
   trial_capacity_slot: string | null;
+  meeting_at?: string | null;
+  meeting_timezone?: string | null;
+  meeting_booked_by?: string | null;
+  meeting_booked_at?: string | null;
   created_at: string;
   updated_at: string;
   email?: string;
@@ -298,7 +303,7 @@ export function validateCompany(
       entries.map(([key, value]) => [key.trim(), (value as string).trim()]),
     );
   }
-  for (const field of ["next_follow_up_at", "close_call_at"]) {
+  for (const field of ["next_follow_up_at", "close_call_at", "meeting_at"]) {
     if (field in body) {
       const value = body[field];
       if (
@@ -343,6 +348,15 @@ export function validateCompany(
     if (!COMPANY_STAGES.includes(body.stage as CompanyStage))
       throw new Error("Invalid company stage.");
     result.stage = body.stage;
+    if (body.stage === "meeting_booked" &&
+        (typeof body.meeting_at !== "string" || Number.isNaN(Date.parse(body.meeting_at))))
+      throw new Error("Meeting date and time are required for Meeting Booked.");
+  }
+  if ("meeting_timezone" in body) {
+    if (body.meeting_timezone !== null &&
+        (typeof body.meeting_timezone !== "string" || body.meeting_timezone.length > 100))
+      throw new Error("Invalid meeting timezone.");
+    result.meeting_timezone = body.meeting_timezone;
   }
   if ("needs_verification" in body) {
     if (typeof body.needs_verification !== "boolean")

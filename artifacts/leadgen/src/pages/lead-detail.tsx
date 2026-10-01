@@ -6,7 +6,7 @@ import {
   useUpdateLead, useUpdateLeadScore,
   useListLeadActivities, useCreateLeadActivity, getListLeadActivitiesQueryKey,
   useListLeadNotes, useCreateLeadNote, useDeleteLeadNote, getListLeadNotesQueryKey,
-  useListCampaigns,
+  useListCampaigns, getListCampaignsQueryKey,
 } from "@workspace/api-client-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -21,10 +21,11 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { asArray, type ArrayElement } from "@/lib/data-shape";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const STATUS_OPTIONS = ["new", "contacted", "qualified", "proposal", "converted", "lost"] as const;
+const STATUS_OPTIONS = ["new", "contacted", "qualified", "meeting_booked", "proposal", "converted", "lost"] as const;
 const ACTIVITY_TYPES = ["call", "email", "meeting", "demo", "follow_up", "text", "linkedin", "other"] as const;
 const PRIORITY_OPTIONS = ["low", "medium", "high"] as const;
 
@@ -32,6 +33,7 @@ const STATUS_STYLES: Record<string, string> = {
   new: "bg-sky-100 text-sky-700 border-sky-200",
   contacted: "bg-violet-100 text-violet-700 border-violet-200",
   qualified: "bg-amber-100 text-amber-700 border-amber-200",
+  meeting_booked: "bg-emerald-100 text-emerald-700 border-emerald-200",
   proposal: "bg-blue-100 text-blue-700 border-blue-200",
   converted: "bg-green-100 text-green-700 border-green-200",
   lost: "bg-red-100 text-red-700 border-red-200",
@@ -71,7 +73,7 @@ const PRIORITY_STYLES: Record<string, string> = {
   high: "text-red-600 bg-red-50 border-red-200",
 };
 
-interface PipelineStage { id: number; name: string; color: string; position: number; }
+interface PipelineStage { id: number | string; key?: string | null; name: string; color: string; position: number; }
 interface ContactTask {
   id: number; leadId: number; title: string; description?: string;
   dueDate?: string; isCompleted: boolean; completedAt?: string; priority: string; createdAt: string;
@@ -201,6 +203,7 @@ export default function LeadDetail() {
   const apiId = id as unknown as number;
   const qc = useQueryClient();
   const { toast } = useToast();
+  const { role } = useAuth();
 
   const [tab, setTab] = useState<Tab>("timeline");
   const [newNote, setNewNote] = useState("");
@@ -209,20 +212,22 @@ export default function LeadDetail() {
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTask, setNewTask] = useState({ title: "", description: "", dueDate: "", priority: "medium" as typeof PRIORITY_OPTIONS[number] });
   const [editingStatus, setEditingStatus] = useState(false);
+  const [bookingTarget, setBookingTarget] = useState<{ status?: string; stageId?: number | string } | null>(null);
+  const [meetingLocal, setMeetingLocal] = useState("");
   const [addingTag, setAddingTag] = useState(false);
   const [newTag, setNewTag] = useState("");
   const [localScore, setLocalScore] = useState<number | null>(null);
   const tagInputRef = useRef<HTMLInputElement>(null);
 
   const { data: lead, isLoading } = useGetLead(apiId, { query: { enabled: !!id, queryKey: getGetLeadQueryKey(apiId) } });
-  const { data: activitiesResponse = [] } = useListLeadActivities(apiId, { query: { enabled: !!id, queryKey: getListLeadActivitiesQueryKey(apiId) } });
-  const { data: notesResponse = [] } = useListLeadNotes(apiId, { query: { enabled: !!id, queryKey: getListLeadNotesQueryKey(apiId) } });
-  const { data: campaignsResponse = [] } = useListCampaigns();
-  const { data: stagesResponse = [] } = useQuery<PipelineStage[]>({ queryKey: ["pipeline-stages"], queryFn: () => apiFetch("/api/pipeline/stages") });
+  const { data: activitiesResponse = [] } = useListLeadActivities(apiId, { query: { enabled: !!id && role !== "client", queryKey: getListLeadActivitiesQueryKey(apiId) } });
+  const { data: notesResponse = [] } = useListLeadNotes(apiId, { query: { enabled: !!id && role !== "client", queryKey: getListLeadNotesQueryKey(apiId) } });
+  const { data: campaignsResponse = [] } = useListCampaigns({ query: { enabled: role !== "client", queryKey: getListCampaignsQueryKey() } });
+  const { data: stagesResponse = [] } = useQuery<PipelineStage[]>({ queryKey: ["pipeline-stages"], queryFn: () => apiFetch("/api/pipeline/stages"), enabled: role !== "client" });
   const { data: tasksResponse = [], refetch: refetchTasks } = useQuery<ContactTask[]>({
     queryKey: ["contact-tasks", id],
     queryFn: () => apiFetch(`/api/leads/${id}/tasks`),
-    enabled: !!id,
+    enabled: !!id && role !== "client",
   });
   const stages = asArray<PipelineStage>(stagesResponse);
   const tasks = asArray<ContactTask>(tasksResponse);
@@ -267,9 +272,25 @@ export default function LeadDetail() {
   }
 
   function saveStatus(status: string) {
+    if (status === "meeting_booked") { setBookingTarget({ status }); return; }
     updateLead.mutate({ id: apiId, data: { status } as Parameters<typeof updateLead.mutate>[0]["data"] }, {
       onSuccess: () => { qc.invalidateQueries({ queryKey: getGetLeadQueryKey(apiId) }); setEditingStatus(false); },
     });
+  }
+
+  async function saveMeeting() {
+    if (!bookingTarget || !meetingLocal) return;
+    const date = new Date(meetingLocal);
+    if (!Number.isFinite(date.getTime())) { toast({ title: "Enter a valid meeting date and time", variant: "destructive" }); return; }
+    try {
+      await apiFetch(`/api/leads/${id}`, { method: "PATCH", body: JSON.stringify({
+        ...bookingTarget, pipelineStageId: bookingTarget.stageId,
+        meetingAt: date.toISOString(), meetingTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }) });
+      await qc.invalidateQueries({ queryKey: getGetLeadQueryKey(apiId) });
+      setBookingTarget(null); setEditingStatus(false); setMeetingLocal("");
+      toast({ title: "Meeting booked" });
+    } catch (error) { toast({ title: "Could not book meeting", description: String(error), variant: "destructive" }); }
   }
 
   function saveScore() {
@@ -345,6 +366,20 @@ export default function LeadDetail() {
     );
   }
 
+  if (role === "client") return (
+    <div className="page-stack rounded-xl border bg-white p-6">
+      <h1 className="text-xl font-semibold">{lead.firstName} {lead.lastName}</h1>
+      <p className="text-sm text-muted-foreground">{lead.company || "N/A"}</p>
+      <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+        <div><dt className="font-medium">Email</dt><dd>{lead.email || "N/A"}</dd></div>
+        <div><dt className="font-medium">Phone</dt><dd>{lead.phone || "N/A"}</dd></div>
+        <div><dt className="font-medium">Source</dt><dd>{lead.source || "N/A"}</dd></div>
+        <div><dt className="font-medium">Status</dt><dd>{lead.status === "meeting_booked" ? "Meeting Booked" : lead.status}</dd></div>
+        <div><dt className="font-medium">Meeting</dt><dd>{(lead as typeof lead & {meetingAt?: string | null}).meetingAt ? new Date((lead as typeof lead & {meetingAt?: string | null}).meetingAt!).toLocaleString() : "N/A"}</dd></div>
+      </dl>
+    </div>
+  );
+
   const fullName = `${lead.firstName} ${lead.lastName}`;
   const avatarColor = getAvatarColor(fullName);
   const initials = `${lead.firstName[0] ?? ""}${lead.lastName[0] ?? ""}`.toUpperCase();
@@ -394,7 +429,7 @@ export default function LeadDetail() {
                       {editingStatus ? (
                         <div className="flex gap-1 flex-wrap">
                           {STATUS_OPTIONS.map((s) => (
-                            <button key={s} onClick={() => saveStatus(s)} className={`px-2.5 py-0.5 rounded-full text-xs font-medium border capitalize transition-all ${STATUS_STYLES[s]} ${lead.status === s ? "ring-2 ring-offset-1 ring-primary" : "hover:opacity-80"}`}>{s}</button>
+                            <button key={s} onClick={() => saveStatus(s)} className={`px-2.5 py-0.5 rounded-full text-xs font-medium border capitalize transition-all ${STATUS_STYLES[s]} ${lead.status === s ? "ring-2 ring-offset-1 ring-primary" : "hover:opacity-80"}`}>{s === "meeting_booked" ? "Meeting Booked" : s}</button>
                           ))}
                           <button onClick={() => setEditingStatus(false)} className="p-0.5 rounded text-muted-foreground hover:text-foreground"><X className="w-3 h-3" /></button>
                         </div>
@@ -404,6 +439,7 @@ export default function LeadDetail() {
                         </button>
                       )}
                       {lead.source && <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{lead.source}</span>}
+                      {(lead as typeof lead & { meetingAt?: string | null }).meetingAt && <span className="text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">Meeting: {new Date((lead as typeof lead & { meetingAt?: string | null }).meetingAt!).toLocaleString()}</span>}
                       {(cf.doNotEmail === true || cf.doNotEmail === "true") && (
                         <span className="text-xs bg-red-50 text-red-600 border border-red-200 px-2 py-0.5 rounded-full flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Do Not Email</span>
                       )}
@@ -424,6 +460,15 @@ export default function LeadDetail() {
               </div>
             </div>
 
+            {bookingTarget && (
+              <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 flex flex-wrap items-end gap-3">
+                <label className="text-sm font-medium">Meeting date and time
+                  <input type="datetime-local" required value={meetingLocal} onChange={(event) => setMeetingLocal(event.target.value)} className="mt-1 block rounded border bg-white p-2" />
+                </label>
+                <button type="button" disabled={!meetingLocal} onClick={() => void saveMeeting()} className="rounded bg-primary px-3 py-2 text-sm text-white disabled:opacity-50">Book meeting</button>
+                <button type="button" onClick={() => setBookingTarget(null)} className="rounded border px-3 py-2 text-sm">Cancel</button>
+              </div>
+            )}
             {/* Quick actions */}
             <div className="flex gap-2 mt-5 flex-wrap">
               <a href={`mailto:${lead.email}`} className="flex items-center gap-2 px-3.5 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary/90 transition-colors">
@@ -551,7 +596,7 @@ export default function LeadDetail() {
                   {stages.sort((a, b) => a.position - b.position).map((stage, i) => (
                     <button
                       key={stage.id}
-                      onClick={() => updateLead.mutate({ id: apiId, data: { pipelineStageId: stage.id } as Parameters<typeof updateLead.mutate>[0]["data"] }, { onSuccess: () => qc.invalidateQueries({ queryKey: getGetLeadQueryKey(apiId) }) })}
+                      onClick={() => stage.key === "meeting_booked" ? setBookingTarget({ stageId: stage.id }) : updateLead.mutate({ id: apiId, data: { pipelineStageId: stage.id } as Parameters<typeof updateLead.mutate>[0]["data"] }, { onSuccess: () => qc.invalidateQueries({ queryKey: getGetLeadQueryKey(apiId) }) })}
                       className={`flex items-center gap-2 w-full py-1.5 px-2 rounded-lg text-xs font-medium transition-all ${lead.pipelineStageId === stage.id ? "bg-primary/10 text-primary border border-primary/30" : "text-muted-foreground hover:bg-muted border border-transparent"}`}
                     >
                       <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${lead.pipelineStageId === stage.id ? "ring-2 ring-primary/40" : ""}`} style={{ backgroundColor: stage.color }} />

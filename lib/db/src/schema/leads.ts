@@ -92,6 +92,11 @@ export const leadsTable = pgTable("leads", {
   campaignId: integer("campaign_id"),
   formId: integer("form_id"),
   pipelineStageId: integer("pipeline_stage_id"),
+  meetingAt: timestamp("meeting_at", { withTimezone: true }),
+  meetingTimezone: text("meeting_timezone"),
+  meetingBookedBy: uuid("meeting_booked_by"),
+  meetingBookedAt: timestamp("meeting_booked_at", { withTimezone: true }),
+  updatedBy: uuid("updated_by"),
   tags: text("tags").array().notNull().default([]),
   customFields: jsonb("custom_fields").notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true })

@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Building2, Star, GripVertical, LayoutDashboard, Columns3, Trash2, Users } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { asArray } from "@/lib/data-shape";
 import { Link } from "wouter";
 import {allCampaignContacts,type CampaignContact} from '@/lib/campaign-membership';
@@ -35,6 +36,7 @@ type Pipeline = {
 
 type Stage = {
   id: string;
+  key?: string | null;
   name: string;
   color: string;
   position: number;
@@ -144,6 +146,8 @@ export default function PipelinePage() {
   const [selectedPipelineId, setSelectedPipelineId] = useState("");
   const [data, setData] = useState<PipelineData>({ stages: [], unassigned: [] });
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [pendingMeetingDrop, setPendingMeetingDrop] = useState<{ leadId: string; stageId: string } | null>(null);
+  const [meetingLocal, setMeetingLocal] = useState("");
   const [loading, setLoading] = useState(true);
   const [showPipelineDialog, setShowPipelineDialog] = useState(false);
   const [showStageDialog, setShowStageDialog] = useState(false);
@@ -157,6 +161,7 @@ export default function PipelinePage() {
   const [deletingPipeline, setDeletingPipeline] = useState(false);
   const [contactSearch,setContactSearch]=useState('');const [selectedLeadIds,setSelectedLeadIds]=useState<string[]>([]);const [targetStageId,setTargetStageId]=useState('');const [assigning,setAssigning]=useState(false);
   const { toast } = useToast();
+  const { role } = useAuth();
   const {data:contactData,isFetching:contactsLoading,error:contactsError}=useQuery({queryKey:['pipeline-all-contacts'],enabled:showContactsDialog||showPipelineDialog,queryFn:({signal})=>allCampaignContacts(apiFetch,signal)});
   const selectableContacts=useMemo(()=>asArray<CampaignContact>(contactData?.leads).filter(l=>[l.firstName,l.lastName,l.email,l.company].join(' ').toLowerCase().includes(contactSearch.toLowerCase())),[contactData,contactSearch]);
 
@@ -230,10 +235,11 @@ export default function PipelinePage() {
     }
   }
 
-  async function assignSelected(){if(!selectedLeadIds.length||!targetStageId)return;setAssigning(true);try{const result=await apiFetch('/api/pipeline/leads/stage',{method:'PATCH',body:JSON.stringify({leadIds:selectedLeadIds,stageId:targetStageId,pipelineId:selectedPipelineId})}) as {updated:number};setShowContactsDialog(false);setSelectedLeadIds([]);setContactSearch('');await loadBoard(selectedPipelineId);toast({title:`${result.updated} contacts added to the pipeline`});}finally{setAssigning(false);}}
+  async function assignSelected(){if(!selectedLeadIds.length||!targetStageId)return;const meeting=data.stages.some(stage=>stage.id===targetStageId&&stage.key==='meeting_booked');if(meeting&&!meetingLocal)return;setAssigning(true);try{const result=await apiFetch('/api/pipeline/leads/stage',{method:'PATCH',body:JSON.stringify({leadIds:selectedLeadIds,stageId:targetStageId,pipelineId:selectedPipelineId,...(meeting?{meetingAt:new Date(meetingLocal).toISOString(),meetingTimezone:Intl.DateTimeFormat().resolvedOptions().timeZone}:{})})}) as {updated:number};setShowContactsDialog(false);setSelectedLeadIds([]);setContactSearch('');setMeetingLocal('');await loadBoard(selectedPipelineId);toast({title:`${result.updated} contacts added to the pipeline`});}finally{setAssigning(false);}}
 
   async function createStage() {
     if (!newStage.name.trim() || !selectedPipelineId) return;
+    if (newStage.name.trim().toLowerCase() === "meeting booked") { setStageError("Meeting Booked already exists in this pipeline"); return; }
     setStageError("");
     setCreatingStage(true);
     try {
@@ -261,6 +267,9 @@ export default function PipelinePage() {
     if (!draggingId) return;
     const leadId = draggingId;
     setDraggingId(null);
+    if (data.stages.some(stage => stage.id === stageId && stage.key === "meeting_booked")) {
+      setPendingMeetingDrop({ leadId, stageId: stageId! }); return;
+    }
     try {
       await apiFetch(`/api/pipeline/leads/${leadId}/stage`, {
         method: "PATCH",
@@ -272,7 +281,21 @@ export default function PipelinePage() {
     }
   }
 
+  async function saveMeetingDrop() {
+    if (!pendingMeetingDrop || !meetingLocal) return;
+    try {
+      await apiFetch(`/api/pipeline/leads/${pendingMeetingDrop.leadId}/stage`, { method: "PATCH", body: JSON.stringify({
+        stageId: pendingMeetingDrop.stageId, meetingAt: new Date(meetingLocal).toISOString(),
+        meetingTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }) });
+      setPendingMeetingDrop(null); setMeetingLocal(""); await loadBoard(selectedPipelineId);
+      toast({ title: "Meeting booked" });
+    } catch (error) { toast({ title: "Could not book meeting", description: String(error), variant: "destructive" }); }
+  }
+
   const totalLeads = data.stages.reduce((sum, stage) => sum + stage.leads.length, 0) + data.unassigned.length;
+
+  if (role === "client") return <div className="page-stack"><PageTitle>Pipeline</PageTitle><div className="flex gap-4 overflow-x-auto">{data.stages.map(stage => <section key={stage.id} className="min-w-64 rounded-lg border bg-white p-4"><h2 className="font-semibold">{stage.name}</h2><div className="mt-3 space-y-2">{stage.leads.map(lead => <Link key={lead.id} href={`/leadgen/leads/${lead.id}`}><div className="rounded border p-3 text-sm">{lead.firstName} {lead.lastName}<span className="block text-xs text-muted-foreground">{lead.company || "N/A"}</span></div></Link>)}</div></section>)}</div></div>;
 
   return (
     <div className="page-stack h-full flex flex-col gap-5">
@@ -393,7 +416,23 @@ export default function PipelinePage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showContactsDialog} onOpenChange={setShowContactsDialog}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>Choose contacts for {selectedPipeline?.name}</DialogTitle></DialogHeader><div><Label className="text-xs text-muted-foreground">Add selected contacts to</Label><Select value={targetStageId} onValueChange={setTargetStageId}><SelectTrigger className="mt-1"><SelectValue placeholder="Choose a stage"/></SelectTrigger><SelectContent>{data.stages.map(stage=><SelectItem key={stage.id} value={stage.id}>{stage.name}</SelectItem>)}</SelectContent></Select></div><ContactPicker contacts={selectableContacts} loading={contactsLoading} error={contactsError instanceof Error?contactsError.message:''} search={contactSearch} setSearch={setContactSearch} selected={selectedLeadIds} setSelected={setSelectedLeadIds}/><div className="flex justify-end gap-2"><Button variant="outline" onClick={()=>setShowContactsDialog(false)}>Cancel</Button><Button onClick={assignSelected} disabled={!selectedLeadIds.length||!targetStageId||assigning}>{assigning?'Adding...':`Add ${selectedLeadIds.length} contacts`}</Button></div></DialogContent></Dialog>
+      <Dialog open={showContactsDialog} onOpenChange={setShowContactsDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Choose contacts for {selectedPipeline?.name}</DialogTitle></DialogHeader>
+          <div><Label>Add selected contacts to</Label><Select value={targetStageId} onValueChange={setTargetStageId}><SelectTrigger><SelectValue placeholder="Choose a stage" /></SelectTrigger><SelectContent>{data.stages.map(stage => <SelectItem key={stage.id} value={stage.id}>{stage.name}</SelectItem>)}</SelectContent></Select></div>
+          {data.stages.some(stage => stage.id === targetStageId && stage.key === "meeting_booked") && <label className="text-sm font-medium">Meeting date and time<input type="datetime-local" required className="mt-1 block rounded border p-2" value={meetingLocal} onChange={event => setMeetingLocal(event.target.value)} /></label>}
+          <ContactPicker contacts={selectableContacts} loading={contactsLoading} error={contactsError instanceof Error ? contactsError.message : ""} search={contactSearch} setSearch={setContactSearch} selected={selectedLeadIds} setSelected={setSelectedLeadIds} />
+          <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setShowContactsDialog(false)}>Cancel</Button><Button onClick={assignSelected} disabled={!selectedLeadIds.length || !targetStageId || assigning || (data.stages.some(stage => stage.id === targetStageId && stage.key === "meeting_booked") && !meetingLocal)}>{assigning ? "Adding..." : `Add ${selectedLeadIds.length} contacts`}</Button></div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!pendingMeetingDrop} onOpenChange={open => { if (!open) setPendingMeetingDrop(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Book meeting</DialogTitle></DialogHeader>
+          <label className="text-sm font-medium">Meeting date and time<input type="datetime-local" required className="mt-1 block rounded border p-2" value={meetingLocal} onChange={event => setMeetingLocal(event.target.value)} /></label>
+          <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setPendingMeetingDrop(null)}>Cancel</Button><Button disabled={!meetingLocal} onClick={() => void saveMeetingDrop()}>Book meeting</Button></div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showStageDialog} onOpenChange={setShowStageDialog}>
         <DialogContent>

@@ -72,6 +72,7 @@ const queryClient = new QueryClient({
 function Router() {
   return (
     <Switch>
+      <Route path="/victorysync" component={VictorySyncHome} />
       <Route path="/" component={Companies} />
       <Route path="/companies" component={Companies} />
       <Route path="/companies/:id" component={CompanyDetail} />
@@ -248,7 +249,7 @@ class AppErrorBoundary extends Component<
 }
 
 function AuthenticatedApp() {
-  const { loading, session, pagePermissions } = useAuth();
+  const { loading, session, pagePermissions, role, clientAccountId } = useAuth();
   const [location] = useLocation();
 
   if (loading) {
@@ -263,12 +264,12 @@ function AuthenticatedApp() {
     return <Login />;
   }
 
-  if (!canAccessPath(location, pagePermissions)) {
+  if ((role === "client" && !clientAccountId) || !canAccessPath(location, pagePermissions, role)) {
     return (
       <Layout>
         <div className="max-w-lg mx-auto mt-20 rounded-xl border border-border bg-white p-8 text-center shadow-sm">
-          <h1 className="text-lg font-semibold text-foreground">Access restricted</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Your administrator has not enabled this page for your account.</p>
+          <h1 className="text-lg font-semibold text-foreground">No Lead Gen Hub access</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Ask your administrator to assign a role and, for client accounts, a client workspace.</p>
         </div>
       </Layout>
     );

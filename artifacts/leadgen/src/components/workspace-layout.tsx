@@ -120,7 +120,7 @@ export function Layout({ children }: { children: ReactNode }) {
       active(item.href),
     )?.label ?? "Workspace";
   function navLink(item: Item) {
-    return !canAccessPath(item.href, pagePermissions) ? null : (
+    return !canAccessPath(item.href, pagePermissions, role) ? null : (
       <Link
         key={item.href}
         href={item.href}
@@ -172,7 +172,7 @@ export function Layout({ children }: { children: ReactNode }) {
           {!collapsed || mobile
             ? groups.map((group) => {
                 const links = group.links.filter((item) =>
-                  canAccessPath(item.href, pagePermissions),
+                  canAccessPath(item.href, pagePermissions, role),
                 );
                 if (!links.length) return null;
                 return (
@@ -248,7 +248,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <span className="truncate text-xs font-medium text-slate-600">
             {current}
           </span>
-          {canAccessPath("/companies", pagePermissions) && (
+          {canAccessPath("/companies", pagePermissions, role) && (
             <form
               className="relative ml-auto w-40 sm:w-72"
               onSubmit={(event) => {
