@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, desc, and } from "drizzle-orm";
-import { db, notesTable, leadsTable } from "@workspace/db";
+import { db, notesTable, leadsTable, activitiesTable } from "@workspace/db";
+import { actorLabel, leadAccessCondition } from "../lib/client-scope.js";
 import {
   ListLeadNotesParams,
   CreateLeadNoteParams,
@@ -16,6 +17,9 @@ router.get("/leads/:id/notes", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
+
+  const [lead] = await db.select({ id: leadsTable.id }).from(leadsTable).where(leadAccessCondition(params.data.id, res)).limit(1);
+  if (!lead) { res.status(404).json({ error: "Lead not found" }); return; }
 
   const notes = await db
     .select()
@@ -47,7 +51,7 @@ router.post("/leads/:id/notes", async (req, res): Promise<void> => {
   const [lead] = await db
     .select()
     .from(leadsTable)
-    .where(eq(leadsTable.id, params.data.id))
+    .where(leadAccessCondition(params.data.id, res))
     .limit(1);
 
   if (!lead) {
@@ -59,6 +63,12 @@ router.post("/leads/:id/notes", async (req, res): Promise<void> => {
     .insert(notesTable)
     .values({ leadId: params.data.id, content: body.data.content })
     .returning();
+
+  await db.insert(activitiesTable).values({
+    leadId: params.data.id,
+    type: "note_added",
+    description: `Note added by ${actorLabel(res)}`,
+  });
 
   res.status(201).json({
     ...note,
@@ -73,6 +83,9 @@ router.delete("/leads/:leadId/notes/:noteId", async (req, res): Promise<void> =>
     return;
   }
 
+  const [lead] = await db.select({ id: leadsTable.id }).from(leadsTable).where(leadAccessCondition(params.data.leadId, res)).limit(1);
+  if (!lead) { res.status(404).json({ error: "Lead not found" }); return; }
+
   const [note] = await db
     .delete(notesTable)
     .where(and(eq(notesTable.id, params.data.noteId), eq(notesTable.leadId, params.data.leadId)))
@@ -82,6 +95,12 @@ router.delete("/leads/:leadId/notes/:noteId", async (req, res): Promise<void> =>
     res.status(404).json({ error: "Note not found" });
     return;
   }
+
+  await db.insert(activitiesTable).values({
+    leadId: params.data.leadId,
+    type: "note_deleted",
+    description: `Note deleted by ${actorLabel(res)}`,
+  });
 
   res.sendStatus(204);
 });

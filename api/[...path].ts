@@ -26,6 +26,7 @@ type VercelResponse = {
 };
 
 type LeadInput = {
+  clientAccountId?: string | null;
   firstName?: string;
   lastName?: string;
   email?: string;
@@ -54,6 +55,7 @@ type FetchInit = {
 
 type LeadRow = {
   id: number | string;
+  client_account_id?: string | null;
   first_name: string;
   last_name: string;
   email: string;
@@ -64,6 +66,8 @@ type LeadRow = {
   status: string;
   disposition: string | null;
   contact_attempts: number;
+  next_action_at?: string | null;
+  first_attempt_at?: string | null;
   score: number;
   campaign_id: number | null;
   form_id: number | null;
@@ -259,6 +263,7 @@ function leadFromRow(row: LeadRow) {
   const source = row.source?.trim();
   return {
     id: row.id,
+    clientAccountId: row.client_account_id ?? null,
     firstName: row.first_name,
     lastName: row.last_name,
     email: row.email,
@@ -269,6 +274,8 @@ function leadFromRow(row: LeadRow) {
     status: row.status,
     disposition: row.disposition,
     contactAttempts: row.contact_attempts ?? 0,
+    nextActionAt: row.next_action_at ?? null,
+    firstAttemptAt: row.first_attempt_at ?? null,
     score: row.score,
     campaignId: row.campaign_id,
     formId: row.form_id,
@@ -333,6 +340,32 @@ function clientLeadScope(user: AuthenticatedUser): string | null {
   return typeof account === "string" && /^[a-f0-9-]{36}$/i.test(account) ? account : "00000000-0000-0000-0000-000000000000";
 }
 
+function clientAccountIdForUser(user: AuthenticatedUser) {
+  const value = user.user_metadata?.client_account_id ?? user.app_metadata?.client_account_id;
+  return typeof value === "string" && value ? value : null;
+}
+
+function canManageClientAccounts(user: AuthenticatedUser) {
+  if (clientAccountIdForUser(user)) return false;
+  const role = normalizeDashboardRole(user.user_metadata?.role ?? user.app_metadata?.role);
+  const globalRole = user.user_metadata?.global_role ?? user.app_metadata?.global_role;
+  return role === "owner" || role === "admin" || globalRole === "platform_admin";
+}
+
+function actorLabelForUser(user: AuthenticatedUser) {
+  const name = user.user_metadata?.full_name ?? user.user_metadata?.name;
+  return typeof user.email === "string" && user.email
+    ? user.email
+    : typeof name === "string" && name
+      ? name
+      : user.id;
+}
+
+function leadScopeSuffix(user: AuthenticatedUser) {
+  const clientAccountId = clientLeadScope(user) ?? clientAccountIdForUser(user);
+  return clientAccountId ? `&client_account_id=eq.${encodeURIComponent(clientAccountId)}` : "";
+}
+
 function legacyCompatibleTeamRole(role: unknown) {
   const normalized = normalizeDashboardRole(role);
   if (normalized === "owner" || normalized === "admin") return "admin";
@@ -387,9 +420,6 @@ async function resolveDashboardMembership(user: AuthenticatedUser, req: VercelRe
     }
     throw new Error("Your VictorySync account is not a member of the selected organization");
   }
-  const metadataOrgId = orgIdFromUser(user);
-  const metadataRole = user.user_metadata?.role ?? user.app_metadata?.role;
-  if (metadataOrgId) return { org_id: metadataOrgId, role: normalizeDashboardRole(metadataRole) };
   const rows = await supabaseRest(
     `team_members?or=(auth_user_id.eq.${encodeURIComponent(user.id)},user_id.eq.${encodeURIComponent(user.id)})&select=org_id,role&limit=1`,
     { method: "GET" },
@@ -418,10 +448,7 @@ async function resolveUserOrgId(user: AuthenticatedUser, req: VercelRequest) {
 }
 
 async function isPlatformAdmin(user: AuthenticatedUser, req: VercelRequest) {
-  const metadataRole = user.user_metadata?.global_role
-    ?? user.app_metadata?.global_role
-    ?? user.user_metadata?.role
-    ?? user.app_metadata?.role;
+  const metadataRole = user.app_metadata?.global_role;
   if (metadataRole === "platform_admin") return true;
   try {
     const rows = await supabaseRest(
@@ -550,6 +577,10 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
   ) as Array<Record<string, unknown>>;
   const existing = byAuthId[0] ?? byEmail[0];
   const dashboardName = String(metadata.full_name ?? metadata.name ?? email.split("@")[0] ?? "Team member").trim();
+  if (existing?.status === "inactive" || existing?.status === "deactivated") {
+    sendJson(res, 403, { message: "This CRM account has been deactivated" });
+    return;
+  }
   if (existing?.org_id && orgId && String(existing.org_id) !== orgId) {
     sendJson(res, 403, { message: "This VictorySync user belongs to a different organization" });
     return;
@@ -575,16 +606,11 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
       return;
     }
     await ensureOrganization(orgId, user, req);
-    const anyMembers = await supabaseRest(
-      `team_members?org_id=eq.${encodeURIComponent(orgId)}&select=id&limit=1`,
-      { method: "GET" },
-      req,
-    ) as Array<{ id: string | number }>;
-    const dashboardRole = dashboardMembership.role
-      ? normalizeDashboardRole(dashboardMembership.role)
-      : typeof metadata.role === "string" && metadata.role
-      ? normalizeDashboardRole(metadata.role)
-      : anyMembers.length === 0 ? "owner" : "member";
+    if (!dashboardMembership.role) {
+      sendJson(res, 403, { message: "No verified VictorySync role is assigned to this account" });
+      return;
+    }
+    const dashboardRole = normalizeDashboardRole(dashboardMembership.role);
     const rows = await insertTeamMember({
         auth_user_id: user.id,
         user_id: user.id,
@@ -593,8 +619,8 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
         org_id: orgId,
         role: dashboardRole,
         status: "active",
-        client_account_id: typeof metadata.client_account_id === "string" ? metadata.client_account_id : null,
-        page_permissions: Array.isArray(metadata.page_permissions) ? metadata.page_permissions : null,
+        client_account_id: null,
+        page_permissions: null,
       }, req);
     member = rows[0] ?? {};
   }
@@ -603,8 +629,8 @@ async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelReque
     const mergedMetadata = {
       ...metadata,
       role: member.role ?? metadata.role ?? "member",
-      client_account_id: member.client_account_id ?? metadata.client_account_id ?? null,
-      page_permissions: Array.isArray(member.page_permissions) ? member.page_permissions : metadata.page_permissions ?? null,
+      client_account_id: member.client_account_id ?? null,
+      page_permissions: Array.isArray(member.page_permissions) ? member.page_permissions : null,
       team_member_id: member.id,
       org_id: member.org_id ?? orgId,
       status: "active",
@@ -684,10 +710,10 @@ async function syncOrganizationDashboardMembers(orgId: string, req: VercelReques
         org_id: orgId,
         name,
         email,
-        role: normalizeDashboardRole(membership.role ?? metadata.role),
+        role: normalizeDashboardRole(membership.role),
         status: "active",
-        client_account_id: typeof metadata.client_account_id === "string" ? metadata.client_account_id : null,
-        page_permissions: Array.isArray(metadata.page_permissions) ? metadata.page_permissions : null,
+        client_account_id: null,
+        page_permissions: null,
       }, req);
   }
 }
@@ -1330,6 +1356,8 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   const offset = (page - 1) * limit;
   const search = url.searchParams.get("search")?.trim();
   const status = url.searchParams.get("status")?.trim();
+  const disposition = url.searchParams.get("disposition")?.trim();
+  const sequenceEligible = url.searchParams.get("sequenceEligible") === "true";
 
   const query = new URLSearchParams({
     select: "*",
@@ -1339,24 +1367,28 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   });
   const countQuery = new URLSearchParams({ select: "id" });
   const currentRole = normalizeDashboardRole(currentUser.user_metadata?.role ?? currentUser.app_metadata?.role);
-  const clientScope = clientLeadScope(currentUser);
-  if (clientScope) {
-    query.set("client_account_id", `eq.${clientScope}`);
-    countQuery.set("client_account_id", `eq.${clientScope}`);
+  const assignedClientId = clientAccountIdForUser(currentUser);
+  const requestedClientId = url.searchParams.get("clientAccountId")?.trim() ?? "";
+  const clientAccountId = clientLeadScope(currentUser) || assignedClientId || (canManageClientAccounts(currentUser) ? requestedClientId : "");
+  if (requestedClientId && !/^[0-9a-f-]{36}$/i.test(requestedClientId)) {
+    sendJson(res, 400, { error: "Invalid client account id" });
+    return;
+  }
+  if (clientAccountId) {
+    query.set("client_account_id", `eq.${clientAccountId}`);
+    countQuery.set("client_account_id", `eq.${clientAccountId}`);
   }
   if (currentRole === "agent") {
     const teamMemberId = currentUser.user_metadata?.team_member_id ?? currentUser.app_metadata?.team_member_id;
-    const clientAccountId = currentUser.user_metadata?.client_account_id ?? currentUser.app_metadata?.client_account_id;
     if (typeof teamMemberId === "string" && teamMemberId) {
       query.set("custom_fields->>assigned_agent_id", `eq.${teamMemberId}`);
       countQuery.set("custom_fields->>assigned_agent_id", `eq.${teamMemberId}`);
-    } else if (typeof clientAccountId === "string" && clientAccountId) {
-      query.set("client_account_id", `eq.${clientAccountId}`);
-      countQuery.set("client_account_id", `eq.${clientAccountId}`);
     }
   }
   if (status) query.set("status", `eq.${status}`);
   if (status) countQuery.set("status", `eq.${status}`);
+  if (disposition) query.set("disposition", `eq.${disposition}`);
+  if (disposition) countQuery.set("disposition", `eq.${disposition}`);
   if (search) {
     const searchFilter = `(first_name.ilike.*${search}*,last_name.ilike.*${search}*,email.ilike.*${search}*,company.ilike.*${search}*)`;
     query.set("or", searchFilter);
@@ -1364,21 +1396,124 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   }
 
   const [rows, countRows] = await Promise.all([
-    supabaseRest(`leads?${query.toString()}`, { method: "GET" }, req) as Promise<LeadRow[]>,
-    supabaseRest(`leads?${countQuery.toString()}`, { method: "GET" }, req) as Promise<Array<{ id: string | number }>>,
+    supabaseRest(`${sequenceEligible ? "outreach_eligible_leads" : "leads"}?${query.toString()}`, { method: "GET" }, req) as Promise<LeadRow[]>,
+    supabaseRest(`${sequenceEligible ? "outreach_eligible_leads" : "leads"}?${countQuery.toString()}`, { method: "GET" }, req) as Promise<Array<{ id: string | number }>>,
   ]);
 
   sendJson(res, 200, {
     leads: rows.map(leadFromRow),
-    total: countRows.length,
+    total: sequenceEligible
+      ? (rows.length === limit ? offset + rows.length + 1 : offset + rows.length)
+      : countRows.length,
     page,
     limit,
   });
 }
 
-async function getLead(id: string, req: VercelRequest, res: VercelResponse, currentUser: AuthenticatedUser) {
-  const scope = clientLeadScope(currentUser);
-  const rows = (await supabaseRest(`leads?id=eq.${encodeURIComponent(id)}&select=*&limit=1${scope ? `&client_account_id=eq.${encodeURIComponent(scope)}` : ""}`, {
+type SequenceCompanyRow = {
+  id: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  contact_name?: string | null;
+  contacts?: Array<{ name?: string; email?: string; phone?: string }> | null;
+};
+
+async function enrollSequenceCompanies(sequenceId: string, currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
+  const body = await readJson(req) as { companyIds?: unknown };
+  const companyIds = Array.isArray(body.companyIds)
+    ? Array.from(new Set(body.companyIds.map(String))).filter((id) => /^[0-9a-f-]{36}$/i.test(id)).slice(0, 100)
+    : [];
+  if (!companyIds.length) {
+    sendJson(res, 400, { error: "Choose at least one company" });
+    return;
+  }
+
+  const filter = encodeURIComponent(`in.(${companyIds.join(",")})`);
+  const companies = await supabaseRest(
+    `companies?id=${filter}&select=id,name,email,phone,contact_name,contacts`,
+    { method: "GET" },
+    req,
+  ) as SequenceCompanyRow[];
+  const recipients = new Map<string, { email: string; name: string; phone: string; company: string }>();
+  const addRecipient = (email: unknown, name: unknown, phone: unknown, company: string) => {
+    const normalized = String(email ?? "").trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) || recipients.has(normalized)) return;
+    recipients.set(normalized, {
+      email: normalized,
+      name: String(name ?? "").trim() || company,
+      phone: String(phone ?? "").trim(),
+      company,
+    });
+  };
+  for (const company of companies) {
+    addRecipient(company.email, company.contact_name, company.phone, company.name);
+    for (const contact of company.contacts ?? []) addRecipient(contact.email, contact.name, contact.phone || company.phone, company.name);
+  }
+  if (!recipients.size) {
+    sendJson(res, 400, { error: "The selected companies do not have email recipients" });
+    return;
+  }
+
+  const emails = Array.from(recipients.keys());
+  const existing = new Map<string, string>();
+  const role = normalizeDashboardRole(currentUser.user_metadata?.role ?? currentUser.app_metadata?.role);
+  const clientAccountId = role === "agent"
+    ? String(currentUser.user_metadata?.client_account_id ?? currentUser.app_metadata?.client_account_id ?? "")
+    : "";
+  for (let start = 0; start < emails.length; start += 50) {
+    const values = emails.slice(start, start + 50).map((email) => `"${email.replace(/["\\]/g, "")}"`).join(",");
+    const scope = clientAccountId ? `&client_account_id=eq.${encodeURIComponent(clientAccountId)}` : "";
+    const rows = await supabaseRest(
+      `leads?normalized_email=${encodeURIComponent(`in.(${values})`)}${scope}&select=id,normalized_email`,
+      { method: "GET" },
+      req,
+    ) as Array<{ id: string | number; normalized_email: string }>;
+    for (const row of rows) if (!existing.has(row.normalized_email)) existing.set(row.normalized_email, String(row.id));
+  }
+
+  const missing = emails.filter((email) => !existing.has(email)).map((email) => {
+    const recipient = recipients.get(email)!;
+    const words = recipient.name.split(/\s+/).filter(Boolean);
+    return {
+      first_name: words.shift() || recipient.company,
+      last_name: words.join(" ") || "Contact",
+      email: recipient.email,
+      phone: recipient.phone,
+      company: recipient.company,
+      source: "company_crm",
+      ...(clientAccountId ? { client_account_id: clientAccountId } : {}),
+    };
+  });
+  for (let start = 0; start < missing.length; start += 100) {
+    const rows = await supabaseRest("leads", {
+      method: "POST",
+      body: JSON.stringify(missing.slice(start, start + 100)),
+      headers: { prefer: "resolution=ignore-duplicates,return=representation" },
+    }, req) as LeadRow[];
+    for (const row of rows) existing.set(String(row.email).trim().toLowerCase(), String(row.id));
+  }
+
+  const leadIds = emails.map((email) => existing.get(email)).filter((id): id is string => !!id);
+  let enrolled = 0;
+  const scope = role === "agent" ? clientAccountId || "__unassigned__" : null;
+  for (let start = 0; start < leadIds.length; start += 500) {
+    const result = await supabaseRest("rpc/outreach_sequence_bulk_enroll", {
+      method: "POST",
+      body: JSON.stringify({
+        p_sequence: sequenceId,
+        p_leads: leadIds.slice(start, start + 500),
+        p_actor: currentUser.id,
+        p_scope: scope,
+      }),
+    }, req) as { enrolled?: number };
+    enrolled += Number(result.enrolled ?? 0);
+  }
+  sendJson(res, 201, { enrolled, recipients: leadIds.length, companies: companies.length });
+}
+
+async function getLead(id: string, currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
+  const rows = (await supabaseRest(`leads?id=eq.${encodeURIComponent(id)}${leadScopeSuffix(currentUser)}&select=*&limit=1`, {
     method: "GET",
   }, req)) as LeadRow[];
   if (!rows[0]) {
@@ -1388,13 +1523,13 @@ async function getLead(id: string, req: VercelRequest, res: VercelResponse, curr
   sendJson(res, 200, leadFromRow(rows[0]));
 }
 
-async function insertActivities(leads: Array<{ id?: number | string }>, req: VercelRequest) {
+async function insertActivities(leads: Array<{ id?: number | string }>, actor: string, req: VercelRequest, action: "created" | "imported" = "imported") {
   const activities = leads
     .filter((lead) => typeof lead.id === "number" || typeof lead.id === "string")
     .map((lead) => ({
       lead_id: lead.id,
-      type: "imported",
-      description: "Lead imported via CSV",
+      type: action,
+      description: `Lead ${action} by ${actor}`,
     }));
 
   if (activities.length > 0) {
@@ -1409,7 +1544,7 @@ async function insertActivities(leads: Array<{ id?: number | string }>, req: Ver
   }
 }
 
-async function createLead(req: VercelRequest, res: VercelResponse) {
+async function createLead(currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as LeadInput;
   const lead = normalizeLead(body);
   const error = validateLead(lead);
@@ -1421,16 +1556,23 @@ async function createLead(req: VercelRequest, res: VercelResponse) {
     sendJson(res, 400, { error: "Meeting date and time are required" }); return;
   }
 
+  const assignedClientId = clientAccountIdForUser(currentUser);
+  const requestedClientId = typeof body.clientAccountId === "string" ? body.clientAccountId : "";
+  const clientAccountId = assignedClientId || (canManageClientAccounts(currentUser) ? requestedClientId : "");
+  if (requestedClientId && !/^[0-9a-f-]{36}$/i.test(requestedClientId)) {
+    sendJson(res, 400, { error: "Invalid client account id" });
+    return;
+  }
   const inserted = (await supabaseRest("leads", {
     method: "POST",
-    body: JSON.stringify(leadInsertPayload(lead)),
+    body: JSON.stringify({ ...leadInsertPayload(lead), ...(clientAccountId ? { client_account_id: clientAccountId } : {}) }),
   }, req)) as LeadRow[];
 
-  await insertActivities(inserted, req);
+  await insertActivities(inserted, actorLabelForUser(currentUser), req, "created");
   sendJson(res, 201, inserted[0] ? leadFromRow(inserted[0]) : null);
 }
 
-async function updateLead(id: string, req: VercelRequest, res: VercelResponse, currentUser: AuthenticatedUser) {
+async function updateLead(id: string, currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as LeadInput;
   if (body.disposition !== undefined || body.contactAttempts !== undefined) {
     sendJson(res,409,{error:'Use atomic call logging to change disposition or attempts.'}); return;
@@ -1444,7 +1586,7 @@ async function updateLead(id: string, req: VercelRequest, res: VercelResponse, c
   }
   update.updated_by = currentUser.id;
 
-  const rows = (await supabaseRest(`leads?id=eq.${encodeURIComponent(id)}`, {
+  const rows = (await supabaseRest(`leads?id=eq.${encodeURIComponent(id)}${leadScopeSuffix(currentUser)}`, {
     method: "PATCH",
     body: JSON.stringify(update),
   }, req)) as LeadRow[];
@@ -1454,16 +1596,25 @@ async function updateLead(id: string, req: VercelRequest, res: VercelResponse, c
     return;
   }
 
+  if (typeof body.status === "string") {
+    await supabaseRest("activities", {
+      method: "POST",
+      body: JSON.stringify({ lead_id: id, type: "status_changed", description: `Status set to "${body.status}" by ${actorLabelForUser(currentUser)}` }),
+    }, req);
+  }
+
   sendJson(res, 200, leadFromRow(rows[0]));
 }
 
-async function deleteLead(id: string, req: VercelRequest, res: VercelResponse) {
+async function deleteLead(id: string, currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
+  const existing = await supabaseRest(`leads?id=eq.${encodeURIComponent(id)}${leadScopeSuffix(currentUser)}&select=id&limit=1`, { method: "GET" }, req) as unknown[];
+  if (!existing.length) { sendJson(res, 404, { error: "Lead not found" }); return; }
   try {
     await supabaseRest(`activities?lead_id=eq.${encodeURIComponent(id)}`, { method: "DELETE" }, req);
   } catch (error) {
     console.warn("Activity cleanup skipped", error);
   }
-  await supabaseRest(`leads?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" }, req);
+  await supabaseRest(`leads?id=eq.${encodeURIComponent(id)}${leadScopeSuffix(currentUser)}`, { method: "DELETE" }, req);
   res.statusCode = 204;
   res.end();
 }
@@ -1497,6 +1648,44 @@ async function createSubAccount(req: VercelRequest, res: VercelResponse) {
     }, req);
   }
   sendJson(res, 201, toCamelValue(account));
+}
+
+async function getClientWorkspaceStats(clientId: string, req: VercelRequest, res: VercelResponse) {
+  if (!/^[0-9a-f-]{36}$/i.test(clientId)) {
+    sendJson(res, 400, { error: "Invalid client account id" });
+    return;
+  }
+
+  const leads: Array<{ id: string | number; status?: string | null; disposition?: string | null; updated_at?: string | null }> = [];
+  for (let offset = 0; ; offset += 500) {
+    const page = await supabaseRest(
+      `leads?client_account_id=eq.${encodeURIComponent(clientId)}&select=id,status,disposition,updated_at&order=id.asc&limit=500&offset=${offset}`,
+      { method: "GET" },
+      req,
+    ) as typeof leads;
+    leads.push(...page);
+    if (page.length < 500) break;
+  }
+
+  const statuses: Record<string, number> = {};
+  const dispositions: Record<string, number> = {};
+  let lastUpdatedAt: string | null = null;
+  for (const lead of leads) {
+    const status = lead.status || "new";
+    statuses[status] = (statuses[status] ?? 0) + 1;
+    if (lead.disposition) dispositions[lead.disposition] = (dispositions[lead.disposition] ?? 0) + 1;
+    if (lead.updated_at && (!lastUpdatedAt || lead.updated_at > lastUpdatedAt)) lastUpdatedAt = lead.updated_at;
+  }
+
+  let notes = 0;
+  for (let start = 0; start < leads.length; start += 100) {
+    const ids = leads.slice(start, start + 100).map((lead) => String(lead.id).replace(/[^0-9a-z-]/gi, ""));
+    if (!ids.length) continue;
+    const rows = await supabaseRest(`notes?lead_id=in.(${ids.join(",")})&select=id`, { method: "GET" }, req) as unknown[];
+    notes += rows.length;
+  }
+
+  sendJson(res, 200, { total: leads.length, statuses, dispositions, notes, lastUpdatedAt });
 }
 
 async function createTeamInvite(currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
@@ -1627,12 +1816,20 @@ async function updateTeamMember(memberId: string, req: VercelRequest, res: Verce
   sendJson(res, 200, toCamelValue(member));
 }
 
-async function deleteLeads(req: VercelRequest, res: VercelResponse) {
+async function deleteLeads(currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as { ids?: string[] };
   const ids = Array.isArray(body.ids) ? body.ids.filter(Boolean) : [];
   if (!ids.length) { sendJson(res, 400, { error: "At least one contact is required" }); return; }
-  await supabaseRest(`leads?id=in.(${ids.map(encodeURIComponent).join(",")})`, { method: "DELETE" }, req);
-  sendJson(res, 200, { deleted: ids.length });
+  const rows = await supabaseRest(
+    `leads?id=in.(${ids.map(encodeURIComponent).join(",")})${leadScopeSuffix(currentUser)}&select=id`,
+    { method: "GET" },
+    req,
+  ) as Array<{ id: string | number }>;
+  const allowedIds = rows.map((row) => String(row.id));
+  if (allowedIds.length) {
+    await supabaseRest(`leads?id=in.(${allowedIds.map(encodeURIComponent).join(",")})${leadScopeSuffix(currentUser)}`, { method: "DELETE" }, req);
+  }
+  sendJson(res, 200, { deleted: allowedIds.length });
 }
 
 type DuplicateLeadCandidate = {
@@ -1650,12 +1847,12 @@ function normalizedDuplicatePhone(value: unknown) {
   return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
 }
 
-async function findDuplicateLeads(req: VercelRequest) {
+async function findDuplicateLeads(currentUser: AuthenticatedUser, req: VercelRequest) {
   const rows: DuplicateLeadCandidate[] = [];
   const pageSize = 1000;
   for (let offset = 0; ; offset += pageSize) {
     const page = await supabaseRest(
-      `leads?select=id,first_name,last_name,email,phone,created_at&order=created_at.asc&limit=${pageSize}&offset=${offset}`,
+      `leads?select=id,first_name,last_name,email,phone,created_at${leadScopeSuffix(currentUser)}&order=created_at.asc&limit=${pageSize}&offset=${offset}`,
       { method: "GET" },
       req,
     ) as DuplicateLeadCandidate[];
@@ -1702,8 +1899,8 @@ async function findDuplicateLeads(req: VercelRequest) {
   };
 }
 
-async function scanDuplicateLeads(req: VercelRequest, res: VercelResponse) {
-  const result = await findDuplicateLeads(req);
+async function scanDuplicateLeads(currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
+  const result = await findDuplicateLeads(currentUser, req);
   sendJson(res, 200, {
     groupCount: result.groups.length,
     duplicateCount: result.duplicateIds.length,
@@ -1715,17 +1912,17 @@ async function scanDuplicateLeads(req: VercelRequest, res: VercelResponse) {
   });
 }
 
-async function removeDuplicateLeads(req: VercelRequest, res: VercelResponse) {
+async function removeDuplicateLeads(currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
   const body = await readJson(req) as { confirm?: boolean };
   if (body.confirm !== true) {
     sendJson(res, 400, { error: "Confirm duplicate removal before continuing" });
     return;
   }
-  const result = await findDuplicateLeads(req);
+  const result = await findDuplicateLeads(currentUser, req);
   for (let index = 0; index < result.duplicateIds.length; index += 100) {
     const ids = result.duplicateIds.slice(index, index + 100);
     await supabaseRest(
-      `leads?id=in.(${ids.map(encodeURIComponent).join(",")})`,
+      `leads?id=in.(${ids.map(encodeURIComponent).join(",")})${leadScopeSuffix(currentUser)}`,
       { method: "DELETE" },
       req,
     );
@@ -1915,8 +2112,8 @@ async function analyticsReport(path: string, user: AuthenticatedUser, req: Verce
   sendJson(res, 200, reports[report as keyof typeof reports]);
 }
 
-async function importLeads(req: VercelRequest, res: VercelResponse) {
-  const body = (await readJson(req)) as { leads?: LeadInput[]; campaignId?: number };
+async function importLeads(currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
+  const body = (await readJson(req)) as { leads?: LeadInput[]; campaignId?: number; clientAccountId?: string };
   const incoming = Array.isArray(body.leads) ? body.leads : [];
   const valid = incoming.map((lead) => normalizeLead({
     ...lead,
@@ -1937,12 +2134,20 @@ async function importLeads(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
+  const assignedClientId = clientAccountIdForUser(currentUser);
+  const requestedClientId = typeof body.clientAccountId === "string" ? body.clientAccountId : "";
+  const clientAccountId = assignedClientId || (canManageClientAccounts(currentUser) ? requestedClientId : "");
+  if (requestedClientId && !/^[0-9a-f-]{36}$/i.test(requestedClientId)) {
+    sendJson(res, 400, { error: "Invalid client account id" });
+    return;
+  }
+
   const inserted = (await supabaseRest("leads", {
     method: "POST",
-    body: JSON.stringify(valid.map(leadInsertPayload)),
+    body: JSON.stringify(valid.map((lead) => ({ ...leadInsertPayload(lead), ...(clientAccountId ? { client_account_id: clientAccountId } : {}) }))),
   }, req)) as Array<{ id?: number }>;
 
-  await insertActivities(inserted, req);
+  await insertActivities(inserted, actorLabelForUser(currentUser), req);
   sendJson(res, 200, {
     imported: inserted.length,
     failed: incoming.length - inserted.length,
@@ -2175,7 +2380,20 @@ const leadChildTables = {
   tasks: "contact_tasks",
 } as const;
 
-async function listLeadChildren(leadId: string, kind: keyof typeof leadChildTables, req: VercelRequest, res: VercelResponse) {
+async function assertLeadAccess(leadId: string, currentUser: AuthenticatedUser, req: VercelRequest) {
+  const rows = await supabaseRest(
+    `leads?id=eq.${encodeURIComponent(leadId)}${leadScopeSuffix(currentUser)}&select=id&limit=1`,
+    { method: "GET" },
+    req,
+  ) as unknown[];
+  return rows.length > 0;
+}
+
+async function listLeadChildren(leadId: string, kind: keyof typeof leadChildTables, currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
+  if (!await assertLeadAccess(leadId, currentUser, req)) {
+    sendJson(res, 404, { error: "Lead not found" });
+    return;
+  }
   const table = leadChildTables[kind];
   const rows = await supabaseRest(`${table}?lead_id=eq.${encodeURIComponent(leadId)}&select=*&order=created_at.desc`, {
     method: "GET",
@@ -2183,7 +2401,11 @@ async function listLeadChildren(leadId: string, kind: keyof typeof leadChildTabl
   sendJson(res, 200, toCamelValue(rows));
 }
 
-async function createLeadChild(leadId: string, kind: keyof typeof leadChildTables, req: VercelRequest, res: VercelResponse) {
+async function createLeadChild(leadId: string, kind: keyof typeof leadChildTables, currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
+  if (!await assertLeadAccess(leadId, currentUser, req)) {
+    sendJson(res, 404, { error: "Lead not found" });
+    return;
+  }
   const table = leadChildTables[kind];
   const body = (await readJson(req)) as Record<string, unknown>;
   if (kind === 'activities' && body.type === 'call') { sendJson(res,409,{error:'Log calls through the call queue to resolve the next action.'}); return; }
@@ -2192,15 +2414,29 @@ async function createLeadChild(leadId: string, kind: keyof typeof leadChildTable
     lead_id: leadId,
   });
   if (kind === "activities" && !payload.type) payload.type = "other";
+  if (kind === "activities" && typeof payload.description === "string") {
+    payload.description = `${payload.description} — recorded by ${actorLabelForUser(currentUser)}`;
+  }
   if (kind === "tasks" && !payload.priority) payload.priority = "medium";
   const rows = await supabaseRest(table, {
     method: "POST",
     body: JSON.stringify(payload),
   }, req);
-  sendJson(res, 201, Array.isArray(rows) ? toCamelValue(rows[0] ?? null) : toCamelValue(rows));
+  const created = Array.isArray(rows) ? rows[0] ?? null : rows;
+  if (kind === "notes") {
+    await supabaseRest("activities", {
+      method: "POST",
+      body: JSON.stringify({ lead_id: leadId, type: "note_added", description: `Note added by ${actorLabelForUser(currentUser)}` }),
+    }, req);
+  }
+  sendJson(res, 201, toCamelValue(created));
 }
 
-async function updateLeadChild(kind: keyof typeof leadChildTables, childId: string, req: VercelRequest, res: VercelResponse) {
+async function updateLeadChild(leadId: string, kind: keyof typeof leadChildTables, childId: string, currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
+  if (!await assertLeadAccess(leadId, currentUser, req)) {
+    sendJson(res, 404, { error: "Lead not found" });
+    return;
+  }
   const table = leadChildTables[kind];
   const body = (await readJson(req)) as Record<string, unknown>;
   const payload = stripUndefined(toSnakeValue(body) as Record<string, unknown>);
@@ -2210,40 +2446,50 @@ async function updateLeadChild(kind: keyof typeof leadChildTables, childId: stri
   if (kind === "tasks" && payload.is_completed === false) {
     payload.completed_at = null;
   }
-  const rows = await supabaseRest(`${table}?id=eq.${encodeURIComponent(childId)}`, {
+  const rows = await supabaseRest(`${table}?id=eq.${encodeURIComponent(childId)}&lead_id=eq.${encodeURIComponent(leadId)}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
   }, req);
   sendJson(res, 200, Array.isArray(rows) ? toCamelValue(rows[0] ?? null) : toCamelValue(rows));
 }
 
-async function deleteLeadChild(kind: keyof typeof leadChildTables, childId: string, req: VercelRequest, res: VercelResponse) {
+async function deleteLeadChild(leadId: string, kind: keyof typeof leadChildTables, childId: string, currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
+  if (!await assertLeadAccess(leadId, currentUser, req)) {
+    sendJson(res, 404, { error: "Lead not found" });
+    return;
+  }
   const table = leadChildTables[kind];
-  await supabaseRest(`${table}?id=eq.${encodeURIComponent(childId)}`, {
+  await supabaseRest(`${table}?id=eq.${encodeURIComponent(childId)}&lead_id=eq.${encodeURIComponent(leadId)}`, {
     method: "DELETE",
   }, req);
+  if (kind === "notes") {
+    await supabaseRest("activities", {
+      method: "POST",
+      body: JSON.stringify({ lead_id: leadId, type: "note_deleted", description: `Note deleted by ${actorLabelForUser(currentUser)}` }),
+    }, req);
+  }
   res.statusCode = 204;
   res.end();
 }
 
-async function handleLeadChildren(path: string, method: string, req: VercelRequest, res: VercelResponse) {
+async function handleLeadChildren(path: string, method: string, currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
   const match = getLeadChildMatch(path);
   if (!match) return false;
 
   if (!match.childId && method === "GET") {
-    await listLeadChildren(match.leadId, match.kind, req, res);
+    await listLeadChildren(match.leadId, match.kind, currentUser, req, res);
     return true;
   }
   if (!match.childId && method === "POST") {
-    await createLeadChild(match.leadId, match.kind, req, res);
+    await createLeadChild(match.leadId, match.kind, currentUser, req, res);
     return true;
   }
   if (match.childId && (method === "PATCH" || method === "PUT")) {
-    await updateLeadChild(match.kind, match.childId, req, res);
+    await updateLeadChild(match.leadId, match.kind, match.childId, currentUser, req, res);
     return true;
   }
   if (match.childId && method === "DELETE") {
-    await deleteLeadChild(match.kind, match.childId, req, res);
+    await deleteLeadChild(match.leadId, match.kind, match.childId, currentUser, req, res);
     return true;
   }
   return false;
@@ -2565,7 +2811,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const service=new EmailService((name,data)=>supabaseRest(`rpc/${name}`,{method:'POST',body:JSON.stringify(data)},req),mailboxTransport,undefined,undefined,undefined,inboxAdapter);
         const reply=await service.handle({path:emailPath,method,body,raw,headers:Object.fromEntries(Object.entries(req.headers).map(([k,v])=>[k.toLowerCase(),Array.isArray(v)?v[0]??'':v??''])),actor:user?.id??'system',scope:user?.user_metadata?.role==='agent'?String(user.user_metadata.client_account_id??'__unassigned__'):null,authenticated});
         res.setHeader('Cache-Control','no-store');if(reply.text){res.statusCode=reply.status;res.setHeader('content-type','text/plain; charset=utf-8');res.end(reply.body);}else sendJson(res,reply.status,reply.body);
-      }catch(error){const failure=emailOperationError(error);sendJson(res,failure.status,{error:failure.error});}
+      }catch(error){console.error('Email operation failed',{path:emailPath,method,message:error instanceof Error?error.message:'unknown'});const failure=emailOperationError(error);sendJson(res,failure.status,{error:failure.error});}
     }
     async function runWorkflow(authenticated:boolean,user?:AuthenticatedUser) {
       try{
@@ -2574,7 +2820,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const workflows=new WorkflowService((name,data)=>supabaseRest(`rpc/${name}`,{method:'POST',body:JSON.stringify(data)},req),email);
         const reply=await workflows.handle({path:emailPath,method,body,raw:'',headers:Object.fromEntries(Object.entries(req.headers).map(([k,v])=>[k.toLowerCase(),Array.isArray(v)?v[0]??'':v??''])),actor:user?.id??'system',scope:user?.user_metadata?.role==='agent'?String(user.user_metadata.client_account_id??'__unassigned__'):null,authenticated});
         res.setHeader('Cache-Control','no-store');sendJson(res,reply.status,reply.body);
-      }catch(error){const failure=emailOperationError(error);sendJson(res,failure.status,{error:failure.error});}
+      }catch(error){console.error('Workflow operation failed',{path:emailPath,method,message:error instanceof Error?error.message:'unknown'});const failure=emailOperationError(error);sendJson(res,failure.status,{error:failure.error});}
     }
     if(isPublicEmailEndpoint(emailPath)) {await runEmail(false);return;}
     if(isPublicWorkflowEndpoint(emailPath)) {await runWorkflow(false);return;}
@@ -2648,14 +2894,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (role === "agent" && method !== "GET" && (path === "/api/pipelines" || path === "/api/pipeline/stages")) {
       sendJson(res, 403, { message: "Only administrators can change pipeline settings" }); return;
     }
-    if (role === "agent" && /^\/api\/(?:team|sub-accounts|api-keys)/.test(path)) {
-      sendJson(res, 403, { message: "Agent accounts cannot manage workspace access" });
+    if ((role === "agent" || Boolean(clientAccountIdForUser(currentUser))) && /^\/api\/(?:team|sub-accounts|api-keys)/.test(path)) {
+      sendJson(res, 403, { message: "Client and agent accounts cannot manage workspace access" });
       return;
     }
     const pagePermissions = currentUser.user_metadata?.page_permissions;
     const requiredPermission = apiPermissionForPath(path);
     if (role !== "owner" && Array.isArray(pagePermissions) && requiredPermission && !pagePermissions.includes(requiredPermission)) {
       sendJson(res, 403, { message: `Access to ${requiredPermission} is disabled for this account` });
+      return;
+    }
+
+    const enrollCompaniesMatch = emailPath.match(/^\/sequences\/([^/]+)\/enroll-companies$/);
+    if (enrollCompaniesMatch && method === "POST") {
+      await enrollSequenceCompanies(decodeURIComponent(enrollCompaniesMatch[1]), currentUser, req, res);
       return;
     }
 
@@ -2712,22 +2964,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (method === "POST" && path === "/api/leads") {
-      await createLead(req, res);
+      await createLead(currentUser, req, res);
       return;
     }
 
     if (method === "DELETE" && path === "/api/leads") {
-      await deleteLeads(req, res);
+      await deleteLeads(currentUser, req, res);
       return;
     }
 
     if (method === "GET" && path === "/api/leads/duplicates") {
-      await scanDuplicateLeads(req, res);
+      await scanDuplicateLeads(currentUser, req, res);
       return;
     }
 
     if (method === "DELETE" && path === "/api/leads/duplicates") {
-      await removeDuplicateLeads(req, res);
+      await removeDuplicateLeads(currentUser, req, res);
       return;
     }
 
@@ -2743,26 +2995,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const leadId = getLeadId(path);
     if (leadId && method === "GET") {
-      await getLead(leadId, req, res, currentUser);
+      await getLead(leadId, currentUser, req, res);
       return;
     }
 
     if (leadId && method === "PATCH") {
-      await updateLead(leadId, req, res, currentUser);
+      await updateLead(leadId, currentUser, req, res);
       return;
     }
 
     if (leadId && method === "DELETE") {
-      await deleteLead(leadId, req, res);
+      await deleteLead(leadId, currentUser, req, res);
       return;
     }
 
     if (method === "POST" && path === "/api/leads/import") {
-      await importLeads(req, res);
+      await importLeads(currentUser, req, res);
       return;
     }
 
-    if (await handleLeadChildren(path, method, req, res)) {
+    if (await handleLeadChildren(path, method, currentUser, req, res)) {
       return;
     }
 
@@ -2867,6 +3119,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         leads: rows.reduce((sum, row) => sum + Number(row.leads_count ?? 0), 0),
         campaigns: rows.reduce((sum, row) => sum + Number(row.campaigns_count ?? 0), 0),
       });
+      return;
+    }
+
+    const clientWorkspaceStatsMatch = path.match(/^\/api\/sub-accounts\/([^/]+)\/workspace-stats$/);
+    if (method === "GET" && clientWorkspaceStatsMatch?.[1]) {
+      await getClientWorkspaceStats(decodeURIComponent(clientWorkspaceStatsMatch[1]), req, res);
       return;
     }
 

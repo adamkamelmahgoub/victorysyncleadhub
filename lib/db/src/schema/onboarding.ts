@@ -1,10 +1,10 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const onboardingProgressTable = pgTable("onboarding_progress", {
-  id: serial("id").primaryKey(),
-  subAccountId: integer("sub_account_id").notNull().unique(),
+  id: uuid("id").primaryKey().defaultRandom(),
+  subAccountId: uuid("sub_account_id").notNull().unique(),
   completedSteps: text("completed_steps").array().notNull().default([]),
   currentStep: text("current_step").notNull().default("connect_integrations"),
   isCompleted: boolean("is_completed").notNull().default(false),

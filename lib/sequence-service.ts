@@ -105,8 +105,8 @@ export class SequenceService {
   const [,id,operation,stepId]=match;
   if(c.method==='GET'){const seq=await this.admin('get',{id},c);if(!seq)return ok({error:'Sequence not found'},404);return ok(operation==='steps'?seq.steps:operation==='enrollments'?seq.enrollments:seq);}
   if(operation==='enroll'&&c.method==='POST'){
-   if(!Array.isArray(b.leadIds)||!b.leadIds.length||b.leadIds.length>100)throw new EmailInputError('Choose 1 to 100 verified contacts');
-   return ok(await this.admin('enroll',{id,leadIds:b.leadIds.map(String)},c),201);
+   if(!Array.isArray(b.leadIds)||!b.leadIds.length||b.leadIds.length>500)throw new EmailInputError('Choose 1 to 500 contacts');
+   return ok(await this.rpc('outreach_sequence_bulk_enroll',{p_sequence:id,p_leads:b.leadIds.map(String),p_actor:c.actor??'operator',p_scope:c.scope??null}),201);
   }
   if(operation==='steps'){
    if(c.method==='DELETE'&&stepId)return ok(await this.admin('step_delete',{id,stepId},c));

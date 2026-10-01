@@ -101,26 +101,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => { const claims = sessionClaims(session); const role = typeof claims.crm_role === "string" && ["owner", "admin", "agent", "member", "viewer", "client"].includes(claims.crm_role) ? claims.crm_role : "no_access"; return ({
+    () => {
+      const claims = sessionClaims(session);
+      const role = typeof claims.crm_role === "string" && ["owner", "admin", "agent", "member", "viewer", "client"].includes(claims.crm_role)
+        ? claims.crm_role
+        : "no_access";
+      const clientAccountId = typeof claims.crm_client_account_id === "string"
+        ? claims.crm_client_account_id
+        : null;
+      const configuredPermissions = role === "owner"
+        ? null
+        : Array.isArray(claims.crm_page_permissions)
+          ? claims.crm_page_permissions.filter((permission): permission is string => typeof permission === "string")
+          : null;
+      const pagePermissions = role === "client" || role === "agent" ? ["contacts", "pipeline"] : configuredPermissions;
+
+      return ({
       loading,
       session,
       user: session?.user ?? null,
       role,
-      clientAccountId: typeof claims.crm_client_account_id === "string" ? claims.crm_client_account_id : typeof session?.user?.user_metadata?.client_account_id === "string"
-        ? session.user.user_metadata.client_account_id
-        : null,
-      pagePermissions: role === "client" || role === "agent" ? ["contacts", "pipeline"] : role === "owner"
-        ? null
-        : Array.isArray(claims.crm_page_permissions)
-        ? claims.crm_page_permissions.filter((entry): entry is string => typeof entry === "string")
-        : Array.isArray(session?.user?.user_metadata?.page_permissions)
-        ? session.user.user_metadata.page_permissions.filter((value): value is string => typeof value === "string")
-        : null,
+      clientAccountId,
+      pagePermissions,
       signOut: async () => {
         await recordActivity('authentication','signed_out',{pagePath:window.location.pathname});
         await supabase.auth.signOut();
       },
-    }); },
+    });
+    },
     [loading, session],
   );
 

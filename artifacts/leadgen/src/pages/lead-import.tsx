@@ -1,7 +1,7 @@
 import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Upload, FileText, CheckCircle, AlertCircle, X, Download, ChevronRight, Plus } from "lucide-react";
+import { Upload, FileText, CheckCircle, AlertCircle, X, Download, ChevronRight, Plus, ArrowLeft, ShieldCheck } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { Link } from "wouter";
 import { PERSON_FIELDS, detectDecisionMakers, mapDecisionMakers, type PersonMapping } from "@/lib/decision-maker-import";
@@ -37,6 +37,9 @@ const COMPANY_FIELDS = [
 ].map(([key, label]) => ({ key, label }));
 
 export default function LeadImport({ companyMode = false }: { companyMode?: boolean }) {
+  const query = new URLSearchParams(window.location.search);
+  const clientAccountId = companyMode ? null : query.get("clientAccountId");
+  const clientName = companyMode ? null : query.get("clientName");
   const fields = companyMode ? COMPANY_FIELDS : LEAD_FIELDS;
   const noun = companyMode ? "companies" : "contacts";
   const queryClient = useQueryClient();
@@ -79,7 +82,7 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
       }
       return await apiFetch("/api/leads/import", {
         method: "POST",
-        body: JSON.stringify({ leads }),
+        body: JSON.stringify({ leads, clientAccountId: clientAccountId || undefined }),
       });
     },
     onSuccess: (data) => { setResult(data); setStep("done"); void queryClient.invalidateQueries(); },
@@ -180,8 +183,10 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
 
       <div className="page-stack">
         <div>
-          <PageTitle>{companyMode ? "Import Companies" : "Import Leads"}</PageTitle>
-          <PageDescription>Upload a CSV or XLSX file to bulk-import {noun} into VictorySync</PageDescription>
+          {clientAccountId && <Link href={`/sub-accounts/${clientAccountId}`} className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Back to {clientName || "client workspace"}</Link>}
+          <PageTitle>{companyMode ? "Import Companies" : clientName ? `Upload leads for ${clientName}` : "Import Leads"}</PageTitle>
+          <PageDescription>{clientName ? "Every imported lead will be assigned only to this client account." : `Upload a CSV or XLSX file to bulk-import ${noun} into VictorySync`}</PageDescription>
+          {clientAccountId && <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700"><ShieldCheck className="h-3.5 w-3.5" /> Client-scoped import</div>}
         </div>
 
         {companyMode && <p className="text-sm text-muted-foreground">Imports create new companies. All fields are optional. Missing names become ?Unnamed company? and are flagged for verification. Use YYYY-MM-DD for trial dates and timestamps with a timezone for follow-ups. Tags can be separated by commas or semicolons. Existing records are never overwritten.</p>}
@@ -393,8 +398,8 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
               </div>
             )}
             <div className="flex gap-3 justify-center">
-              <Link href={companyMode ? "/companies" : "/leads"} className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90">
-                {companyMode ? "View Companies" : "View Contacts"}
+              <Link href={companyMode ? "/companies" : clientAccountId ? `/sub-accounts/${clientAccountId}` : "/leads"} className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90">
+                {companyMode ? "View Companies" : clientAccountId ? "Return to Client Workspace" : "View Contacts"}
               </Link>
               <button
                 onClick={() => { setStep("upload"); setParsed(null); setMapping({}); setCustomMappings([]); setPersonMappings([{}]); setResult(null); setFileName(""); }}

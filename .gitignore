@@ -46,8 +46,11 @@ Thumbs.db
 
 .cache/
 .local/
+supabase/.temp/
 
 # Local secrets
 .env
 .env.*
 !.env.example
+.vercel
+.env*.local

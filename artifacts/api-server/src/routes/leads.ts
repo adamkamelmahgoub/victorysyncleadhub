@@ -3,6 +3,7 @@ import { eq, ilike, and, gte, lte, or, desc, sql, inArray } from "drizzle-orm";
 import { db, leadsTable, campaignsTable, activitiesTable } from "@workspace/db";
 import { z } from "zod";
 import { DISPOSITIONS } from '../../../../lib/outreach.js';
+import { actorLabel, currentClientAccountId, leadAccessCondition, requestedClientAccountId } from "../lib/client-scope.js";
 import {
   ListLeadsQueryParams,
   CreateLeadBody,
@@ -18,11 +19,13 @@ import {
 const router: IRouter = Router();
 const outreachLeadInput = CreateLeadBody.extend({disposition:z.enum(DISPOSITIONS).optional()});
 
-function clientScope(res: { locals: Record<string, any> }) {
-  const metadata = res.locals.user?.user_metadata;
-  return metadata?.role === "agent" && typeof metadata?.client_account_id === "string"
-    ? metadata.client_account_id
-    : null;
+function clientScope(req: Parameters<typeof requestedClientAccountId>[0], res: Parameters<typeof requestedClientAccountId>[1]) {
+  const value = requestedClientAccountId(req, res);
+  if (!value) return null;
+  const parsed = z.string().uuid().safeParse(value);
+  if (parsed.success) return parsed.data;
+  res.status(400).json({ error: "Invalid client account id" });
+  return undefined;
 }
 
 router.get("/leads", async (req, res): Promise<void> => {
@@ -33,12 +36,19 @@ router.get("/leads", async (req, res): Promise<void> => {
   }
 
   const { status, campaignId, search, scoreMin, scoreMax, source, page = 1, limit = 50 } = parsed.data;
+  const disposition = typeof req.query.disposition === "string" ? req.query.disposition : undefined;
+  if (disposition && !DISPOSITIONS.includes(disposition as typeof DISPOSITIONS[number])) {
+    res.status(400).json({ error: "Invalid disposition" });
+    return;
+  }
   const offset = (page - 1) * limit;
 
   const conditions = [];
-  const scopedClientId = clientScope(res);
+  const scopedClientId = clientScope(req, res);
+  if (scopedClientId === undefined) return;
   if (scopedClientId) conditions.push(eq(leadsTable.clientAccountId, scopedClientId));
   if (status) conditions.push(eq(leadsTable.status, status));
+  if (disposition) conditions.push(eq(leadsTable.disposition, disposition as typeof DISPOSITIONS[number]));
   if (campaignId) conditions.push(eq(leadsTable.campaignId, campaignId));
   if (source) conditions.push(eq(leadsTable.source, source));
   if (scoreMin !== undefined) conditions.push(gte(leadsTable.score, scoreMin));
@@ -60,6 +70,7 @@ router.get("/leads", async (req, res): Promise<void> => {
     db
       .select({
         id: leadsTable.id,
+        clientAccountId: leadsTable.clientAccountId,
         firstName: leadsTable.firstName,
         lastName: leadsTable.lastName,
         email: leadsTable.email,
@@ -70,6 +81,8 @@ router.get("/leads", async (req, res): Promise<void> => {
         status: leadsTable.status,
         disposition: leadsTable.disposition,
         contactAttempts: leadsTable.contactAttempts,
+        nextActionAt: leadsTable.nextActionAt,
+        firstAttemptAt: leadsTable.firstAttemptAt,
         score: leadsTable.score,
         campaignId: leadsTable.campaignId,
         formId: leadsTable.formId,
@@ -110,13 +123,15 @@ router.post("/leads", async (req, res): Promise<void> => {
     return;
   }
 
-  const [lead] = await db.insert(leadsTable).values({ ...parsed.data, clientAccountId: clientScope(res) }).returning();
+  const scopedClientId = clientScope(req, res);
+  if (scopedClientId === undefined) return;
+  const [lead] = await db.insert(leadsTable).values({ ...parsed.data, clientAccountId: scopedClientId }).returning();
 
   // Log activity
   await db.insert(activitiesTable).values({
     leadId: lead.id,
     type: "created",
-    description: "Lead created manually",
+    description: `Lead created manually by ${actorLabel(res)}`,
   });
 
   const campaign = lead.campaignId
@@ -139,6 +154,8 @@ router.post("/leads/import", async (req, res): Promise<void> => {
   }
 
   const { leads, campaignId } = parsed.data;
+  const scopedClientId = clientScope(req, res);
+  if (scopedClientId === undefined) return;
   let imported = 0;
   let failed = 0;
   const errors: string[] = [];
@@ -147,12 +164,12 @@ router.post("/leads/import", async (req, res): Promise<void> => {
     try {
       const [inserted] = await db
         .insert(leadsTable)
-        .values({ ...lead, firstName: lead.firstName ?? "", lastName: lead.lastName ?? "", email: lead.email ?? "", campaignId: campaignId ?? lead.campaignId, clientAccountId: clientScope(res) })
+        .values({ ...lead, firstName: lead.firstName ?? "", lastName: lead.lastName ?? "", email: lead.email ?? "", campaignId: campaignId ?? lead.campaignId, clientAccountId: scopedClientId })
         .returning();
       await db.insert(activitiesTable).values({
         leadId: inserted.id,
         type: "imported",
-        description: "Lead imported via CSV",
+        description: `Lead imported via CSV by ${actorLabel(res)}`,
       });
       imported++;
     } catch (err) {
@@ -167,7 +184,7 @@ router.post("/leads/import", async (req, res): Promise<void> => {
 router.delete("/leads", async (req, res): Promise<void> => {
   const parsed = z.object({ ids: z.array(z.number().int().positive()).min(1).max(5000) }).safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
-  const scope = clientScope(res);
+  const scope = currentClientAccountId(res);
   const deleted = await db.delete(leadsTable).where(and(inArray(leadsTable.id, parsed.data.ids), scope ? eq(leadsTable.clientAccountId, scope) : undefined)).returning({ id: leadsTable.id });
   res.json({ deleted: deleted.length });
 });
@@ -190,6 +207,7 @@ router.get("/leads/:id", async (req, res): Promise<void> => {
   const [lead] = await db
     .select({
       id: leadsTable.id,
+      clientAccountId: leadsTable.clientAccountId,
       firstName: leadsTable.firstName,
       lastName: leadsTable.lastName,
       email: leadsTable.email,
@@ -211,7 +229,7 @@ router.get("/leads/:id", async (req, res): Promise<void> => {
     })
     .from(leadsTable)
     .leftJoin(campaignsTable, eq(leadsTable.campaignId, campaignsTable.id))
-    .where(and(eq(leadsTable.id, params.data.id), clientScope(res) ? eq(leadsTable.clientAccountId, clientScope(res)!) : undefined));
+    .where(leadAccessCondition(params.data.id, res));
 
   if (!lead) {
     res.status(404).json({ error: "Lead not found" });
@@ -241,7 +259,7 @@ router.patch("/leads/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const prevLead = await db.select().from(leadsTable).where(and(eq(leadsTable.id, params.data.id), clientScope(res) ? eq(leadsTable.clientAccountId, clientScope(res)!) : undefined)).limit(1);
+  const prevLead = await db.select().from(leadsTable).where(leadAccessCondition(params.data.id, res)).limit(1);
   if (!prevLead[0]) {
     res.status(404).json({ error: "Lead not found" });
     return;
@@ -250,7 +268,7 @@ router.patch("/leads/:id", async (req, res): Promise<void> => {
   const [lead] = await db
     .update(leadsTable)
     .set(parsed.data)
-    .where(and(eq(leadsTable.id, params.data.id), clientScope(res) ? eq(leadsTable.clientAccountId, clientScope(res)!) : undefined))
+    .where(leadAccessCondition(params.data.id, res))
     .returning();
 
   // Log status change activity
@@ -258,7 +276,7 @@ router.patch("/leads/:id", async (req, res): Promise<void> => {
     await db.insert(activitiesTable).values({
       leadId: lead.id,
       type: "status_changed",
-      description: `Status changed from "${prevLead[0].status}" to "${parsed.data.status}"`,
+      description: `Status changed from "${prevLead[0].status}" to "${parsed.data.status}" by ${actorLabel(res)}`,
     });
   }
 
@@ -283,7 +301,7 @@ router.delete("/leads/:id", async (req, res): Promise<void> => {
 
   const [lead] = await db
     .delete(leadsTable)
-    .where(and(eq(leadsTable.id, params.data.id), clientScope(res) ? eq(leadsTable.clientAccountId, clientScope(res)!) : undefined))
+    .where(leadAccessCondition(params.data.id, res))
     .returning();
 
   if (!lead) {
@@ -310,7 +328,7 @@ router.patch("/leads/:id/score", async (req, res): Promise<void> => {
   const [lead] = await db
     .update(leadsTable)
     .set({ score: body.data.score })
-    .where(and(eq(leadsTable.id, params.data.id), clientScope(res) ? eq(leadsTable.clientAccountId, clientScope(res)!) : undefined))
+    .where(leadAccessCondition(params.data.id, res))
     .returning();
 
   if (!lead) {
@@ -321,7 +339,7 @@ router.patch("/leads/:id/score", async (req, res): Promise<void> => {
   await db.insert(activitiesTable).values({
     leadId: lead.id,
     type: "score_updated",
-    description: `Lead score updated to ${body.data.score}`,
+    description: `Lead score updated to ${body.data.score} by ${actorLabel(res)}`,
   });
 
   const campaign = lead.campaignId
