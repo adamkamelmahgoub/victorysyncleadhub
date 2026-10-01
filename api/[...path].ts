@@ -860,6 +860,23 @@ async function supabaseRest(path: string, init: FetchInit, req?: VercelRequest) 
   return data;
 }
 
+async function supabaseRestCount(path: string, req: VercelRequest): Promise<number> {
+  if (!supabaseUrl || !supabaseKey) throw new Error("Supabase server environment is not configured");
+  const inboundAuth = getHeader(req, "authorization");
+  const authorization = /^leads(?:\?|$)/.test(path) && inboundAuth
+    ? inboundAuth
+    : hasServiceRole ? `Bearer ${supabaseKey}` : inboundAuth;
+  if (!authorization) throw new Error("Missing Supabase user token");
+  const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
+    method: "HEAD",
+    headers: { apikey: supabaseKey, authorization, prefer: "count=exact" },
+  });
+  if (!response.ok) throw new Error(`Supabase count error ${response.status}`);
+  const total = Number(response.headers.get("content-range")?.split("/")[1]);
+  if (!Number.isSafeInteger(total)) throw new Error("Supabase did not return an exact lead count");
+  return total;
+}
+
 async function removeLegacyDemoTemplates(req: VercelRequest) {
   if (legacyDemoDataChecked) return;
   const names = [
@@ -1378,7 +1395,7 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
     query.set("client_account_id", `eq.${clientAccountId}`);
     countQuery.set("client_account_id", `eq.${clientAccountId}`);
   }
-  if (currentRole === "agent") {
+  if (currentRole === "agent" && !assignedClientId) {
     const teamMemberId = currentUser.user_metadata?.team_member_id ?? currentUser.app_metadata?.team_member_id;
     if (typeof teamMemberId === "string" && teamMemberId) {
       query.set("custom_fields->>assigned_agent_id", `eq.${teamMemberId}`);
@@ -1395,16 +1412,16 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
     countQuery.set("or", searchFilter);
   }
 
-  const [rows, countRows] = await Promise.all([
+  const [rows, count] = await Promise.all([
     supabaseRest(`${sequenceEligible ? "outreach_eligible_leads" : "leads"}?${query.toString()}`, { method: "GET" }, req) as Promise<LeadRow[]>,
-    supabaseRest(`${sequenceEligible ? "outreach_eligible_leads" : "leads"}?${countQuery.toString()}`, { method: "GET" }, req) as Promise<Array<{ id: string | number }>>,
+    sequenceEligible ? Promise.resolve(0) : supabaseRestCount(`leads?${countQuery.toString()}`, req),
   ]);
 
   sendJson(res, 200, {
     leads: rows.map(leadFromRow),
     total: sequenceEligible
       ? (rows.length === limit ? offset + rows.length + 1 : offset + rows.length)
-      : countRows.length,
+      : count,
     page,
     limit,
   });
