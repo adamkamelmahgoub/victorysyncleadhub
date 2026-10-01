@@ -81,6 +81,14 @@ test("company input permits free-text industry and whitelists editable fields", 
     /Verification/,
   );
 });
+test("company Meeting Booked requires a timestamp with timezone", () => {
+  assert.throws(() => validateCompany({ stage: "meeting_booked" }, true), /Meeting date and time/);
+  assert.throws(() => validateCompany({ stage: "meeting_booked", meeting_at: "2026-10-07T14:00" }, true), /valid meeting/i);
+  assert.deepEqual(
+    validateCompany({ stage: "meeting_booked", meeting_at: "2026-10-07T18:00:00Z", meeting_timezone: "America/New_York" }, true),
+    { stage: "meeting_booked", meeting_at: "2026-10-07T18:00:00Z", meeting_timezone: "America/New_York" },
+  );
+});
 test("activity validation preserves zero, excludes unmeasured response and overwrites forged user attribution", () => {
   const input = {
     direction: "inbound",
