@@ -450,9 +450,18 @@ export function createCrmMcpServer(who: McpIdentity) {
             [who.userId, table],
           );
         } else {
-          const tables = (await db.query(
-            `select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE' and table_name not like 'mcp_%'`,
-          )).rows;
+          const updateOnly = /\bupdate\b/i.test(sql) &&
+            !/\b(delete|truncate|drop|alter)\b/i.test(sql);
+          const updateTargets = updateOnly
+            ? [...sql.matchAll(/\bupdate\s+(?:only\s+)?(?:public\.)?([a-z_][a-z0-9_]*)/gi)]
+                .map((match) => match[1])
+                .filter((table) => !table.startsWith("mcp_"))
+            : [];
+          const tables = updateTargets.length
+            ? [...new Set(updateTargets)].map((table_name) => ({ table_name }))
+            : (await db.query(
+                `select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE' and table_name not like 'mcp_%'`,
+              )).rows;
           for (const { table_name } of tables) {
             await db.query(
               `insert into public.mcp_deleted_backup(user_id,source_table,source_pk,row_data) select $1,$2,null,to_jsonb(t) from public.${ident(table_name)} t`,
