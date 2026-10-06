@@ -1,6 +1,6 @@
 # Victory Sync remote MCP connector
 
-Status: implementation draft. The migration has **not** been applied, the endpoint has **not** been deployed, and a Claude connection has **not** been tested.
+Status: deployed to `https://app.victorysync.com/api/mcp` on 2026-10-06. The MCP migration is applied. OAuth discovery, registration, unauthorized access, and an authenticated read-only MCP call were verified. An interactive Claude authorization still requires the admin to sign in from Claude.
 
 ## Deployment
 
@@ -19,7 +19,7 @@ Set server-side Vercel environment variables:
 
 Keep `DATABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` out of Vite variables, client bundles, and logs. The authorization form signs in through Supabase Auth and checks the verified email against `MCP_ALLOWED_EMAILS`. This initial form supports password sign-in; accounts that require SSO or MFA need an additional authorization-page integration before use.
 
-Review and apply `supabase/migrations/20261008_mcp_oauth.sql` only after inspecting the diff. It adds clients, one-time codes, hashed access/refresh tokens, audit logs, and row backups. Existing CRM RLS and normal-user auth are unchanged.
+`supabase/migrations/20261008_mcp_oauth.sql` was reviewed and applied. It adds clients, one-time codes, hashed access/refresh tokens, audit logs, and row backups. Existing CRM RLS and normal-user auth are unchanged.
 
 ## OAuth and revocation
 
@@ -42,9 +42,7 @@ Generic tools cover current and future public tables. `run_sql` can also reach n
 
 The scorecard exposes `sprints_closed` as null because the discovered schema has no authoritative sprint-close event. `audits_booked` maps to logged `meeting_booked` calls and `audits_held` to classified call outcomes; verify those business definitions before using the figures as operating metrics.
 
-## Verification after migration and local environment setup
+## Additional verification
 
-1. Run `corepack pnpm install` and `corepack pnpm exec tsc -p api/tsconfig.json --noEmit`.
-2. Start the local Vercel server with the required environment variables and run `corepack pnpm dlx @modelcontextprotocol/inspector` against `http://localhost:3000/api/mcp`.
-3. Check metadata, client registration, PKCE login and token rotation, read and write tools, DNC skip behavior, booking Slack audit, deletion backup, SQL timeout, revocation, and a rejected non-allowlisted Supabase login.
-4. Deploy only after those checks pass, then connect Claude using the HTTPS URL.
+1. Use `corepack pnpm dlx @modelcontextprotocol/inspector` against the production URL with an authorized OAuth session to exercise the interactive PKCE flow.
+2. Check token rotation, write tools, DNC skip behavior, booking Slack audit, deletion backup, SQL timeout, and revocation before depending on them for live CRM work. These destructive and external-effect paths were not exercised during deployment.
