@@ -4,6 +4,9 @@
   "buildCommand": "pnpm --filter @workspace/leadgen build",
   "outputDirectory": "artifacts/leadgen/dist/public",
   "routes": [
+    { "src": "^/api/mcp$", "dest": "/api/mcp.ts" },
+    { "src": "^/\\.well-known/oauth-(protected-resource|authorization-server)$", "dest": "/api/mcp.ts" },
+    { "src": "^/(authorize|token|register|revoke)$", "dest": "/api/mcp.ts" },
     {
       "src": "/api/(.*)",
       "dest": "/api/[...path].ts"
