@@ -66,6 +66,36 @@ function authorizeParams(p: Record<string, string>) {
     throw Object.assign(new Error("Incorrect MCP resource"), { status: 400 });
   return p;
 }
+function renderAuthorizeForm(
+  res: ServerResponse,
+  p: Record<string, string>,
+  error?: string,
+  status = 200,
+) {
+  const fields = [
+    "response_type",
+    "client_id",
+    "redirect_uri",
+    "state",
+    "code_challenge",
+    "code_challenge_method",
+    "resource",
+    "scope",
+  ]
+    .map((k) => `<input type="hidden" name="${k}" value="${html(p[k] || "")}">`)
+    .join("");
+  res.statusCode = status;
+  res.setHeader("content-type", "text/html; charset=utf-8");
+  res.setHeader("cache-control", "no-store");
+  res.setHeader("referrer-policy", "no-referrer");
+  res.setHeader(
+    "content-security-policy",
+    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://claude.ai https://claude.com; base-uri 'none'; frame-ancestors 'none'",
+  );
+  res.end(
+    `<!doctype html><html><meta charset="utf-8"><title>Authorize Victory Sync</title><style>body{font:16px system-ui;max-width:420px;margin:8vh auto;padding:20px}label{display:block;margin:14px 0}input{display:block;width:100%;padding:10px;box-sizing:border-box}button{padding:12px 20px}.error{color:#a00}</style><h1>Connect Claude to Victory Sync</h1><p>This grants full CRM read and write access, including SQL. Sign in with your Victory Sync account to authorize.</p>${error ? `<p class="error" role="alert">${html(error)}</p>` : ""}<form method="post" action="/authorize">${fields}<label>Email<input name="email" type="email" value="${html(p.email || "")}" required autocomplete="username"></label><label>Password<input name="password" type="password" required autocomplete="current-password"></label><button type="submit">Authorize Claude</button></form></html>`,
+  );
+}
 export async function handleMcpOAuth(
   req: IncomingMessage,
   res: ServerResponse,
@@ -141,36 +171,21 @@ export async function handleMcpOAuth(
       Object.fromEntries(new URL(req.url || "", issuerUrl()).searchParams),
     );
     await clientFor(p.client_id, p.redirect_uri);
-    const fields = [
-      "response_type",
-      "client_id",
-      "redirect_uri",
-      "state",
-      "code_challenge",
-      "code_challenge_method",
-      "resource",
-      "scope",
-    ]
-      .map(
-        (k) => `<input type="hidden" name="${k}" value="${html(p[k] || "")}">`,
-      )
-      .join("");
-    res.statusCode = 200;
-    res.setHeader("content-type", "text/html; charset=utf-8");
-    res.setHeader("cache-control", "no-store");
-    res.setHeader(
-      "content-security-policy",
-      "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-    );
-    res.end(
-      `<!doctype html><html><meta charset="utf-8"><title>Authorize Victory Sync</title><style>body{font:16px system-ui;max-width:420px;margin:8vh auto;padding:20px}label{display:block;margin:14px 0}input{display:block;width:100%;padding:10px;box-sizing:border-box}button{padding:12px 20px}</style><h1>Connect Claude to Victory Sync</h1><p>This grants full CRM read and write access, including SQL. Sign in with your Victory Sync account to authorize.</p><form method="post" action="/authorize">${fields}<label>Email<input name="email" type="email" required autocomplete="username"></label><label>Password<input name="password" type="password" required autocomplete="current-password"></label><button type="submit">Authorize Claude</button></form></html>`,
-    );
+    renderAuthorizeForm(res, p);
     return;
   }
   if (pathname === "/authorize" && req.method === "POST") {
     const p = authorizeParams(await body(req));
     await clientFor(p.client_id, p.redirect_uri);
-    const user = await verifySupabasePassword(p.email, p.password);
+    let user: { id: string; email: string };
+    try {
+      user = await verifySupabasePassword(p.email, p.password);
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status !== 401 && status !== 403) throw error;
+      renderAuthorizeForm(res, p, (error as Error).message, status);
+      return;
+    }
     const code = newSecret();
     await mcpPool.query(
       `insert into public.mcp_oauth_codes(code_hash,client_id,user_id,email,redirect_uri,code_challenge,resource,expires_at) values($1,$2,$3,$4,$5,$6,$7,now()+interval '5 minutes')`,
