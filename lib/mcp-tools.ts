@@ -101,11 +101,14 @@ async function execute<T>(
   args: unknown,
   write: boolean,
   fn: (db: PoolClient) => Promise<T>,
+  timeoutSeconds = 10,
 ): Promise<T> {
   const db = await mcpPool.connect();
   try {
     await db.query("begin");
-    await db.query("set local statement_timeout = '10s'");
+    await db.query("select set_config('statement_timeout', $1, true)", [
+      `${timeoutSeconds}s`,
+    ]);
     const result = await fn(db);
     const affected = Array.isArray(result)
       ? result.length
@@ -117,6 +120,10 @@ async function execute<T>(
               result !== null &&
               "inserted" in result
             ? Number((result as { inserted: unknown[] }).inserted.length)
+            : typeof result === "object" && result !== null && "updated" in result
+              ? Number((result as { updated: number }).updated)
+              : typeof result === "object" && result !== null && "upserted" in result
+                ? Number((result as { upserted: number }).upserted)
             : typeof result === "object" &&
                 result !== null &&
                 "rowCount" in result
@@ -155,6 +162,7 @@ function tool(
   readOnly: boolean,
   destructive: boolean,
   fn: (db: PoolClient, args: any) => Promise<unknown>,
+  timeoutSeconds = 10,
 ) {
   server.registerTool(
     name,
@@ -166,7 +174,7 @@ function tool(
     async (args: any) => {
       try {
         return json(
-          await execute(who, name, args, !readOnly, (db) => fn(db, args)),
+          await execute(who, name, args, !readOnly, (db) => fn(db, args), timeoutSeconds),
         );
       } catch (e) {
         return {
@@ -285,7 +293,7 @@ export function createCrmMcpServer(who: McpIdentity) {
     who,
     "update_rows",
     "Update matching public table rows. A nonempty equality filter is required.",
-    { table: tableSchema, filters: filterSchema, values: rowSchema },
+    { table: tableSchema, filters: filterSchema, values: rowSchema, return_rows: z.boolean().default(true) },
     false,
     false,
     async (db, a) => {
@@ -293,12 +301,11 @@ export function createCrmMcpServer(who: McpIdentity) {
       const v = Object.entries(a.values);
       if (!v.length) throw new Error("No changes supplied");
       const w = where(a.filters, v.length + 1);
-      return (
-        await db.query(
-          `update public.${ident(a.table)} set ${v.map(([k], i) => `${ident(k)}=$${i + 1}`).join(",")} where ${w.sql} returning *`,
-          [...v.map(([, x]) => x), ...w.values],
-        )
-      ).rows;
+      const q = await db.query(
+        `update public.${ident(a.table)} set ${v.map(([k], i) => `${ident(k)}=$${i + 1}`).join(",")} where ${w.sql}${a.return_rows === false ? "" : " returning *"}`,
+        [...v.map(([, x]) => x), ...w.values],
+      );
+      return a.return_rows === false ? { updated: q.rowCount || 0 } : q.rows;
     },
   );
   tool(
@@ -339,41 +346,86 @@ export function createCrmMcpServer(who: McpIdentity) {
       table: tableSchema,
       rows: z.array(rowSchema).min(1).max(500),
       conflict_columns: z.array(tableSchema).min(1),
+      return_rows: z.boolean().default(true),
     },
     false,
     false,
     async (db, a) => {
       await columns(db, a.table);
       const out = [];
+      let upserted = 0;
       for (const row of a.rows) {
         if (a.table === "leads" && (await isSuppressed(db, row))) continue;
         const v = valuesFor(row),
           keys = Object.keys(row);
         if (a.conflict_columns.some((x: string) => !keys.includes(x)))
           throw new Error("Conflict columns must be supplied in every row");
-        out.push(
-          ...(
-            await db.query(
+        const q = await db.query(
               `insert into public.${ident(a.table)}(${v.cols}) values(${v.slots}) on conflict (${a.conflict_columns.map(ident).join(",")}) do update set ${
                 keys
                   .filter((k) => !a.conflict_columns.includes(k))
                   .map((k) => `${ident(k)}=excluded.${ident(k)}`)
                   .join(",") ||
                 `${ident(a.conflict_columns[0])}=excluded.${ident(a.conflict_columns[0])}`
-              } returning *`,
+              }${a.return_rows === false ? "" : " returning *"}`,
               v.values,
-            )
-          ).rows,
-        );
+            );
+        upserted += q.rowCount || 0;
+        if (a.return_rows !== false) out.push(...q.rows);
       }
-      return out;
+      return a.return_rows === false ? { upserted } : out;
     },
   );
   tool(
     server,
     who,
+    "bulk_tag_leads",
+    "Add and remove tags on leads selected by up to 5,000 UUIDs or a SQL WHERE expression. Returns matched and changed counts only. Removals take precedence over additions.",
+    {
+      lead_ids: z.array(idSchema).min(1).max(5000).optional(),
+      sql_where: z.string().min(1).max(10000).optional(),
+      add_tags: z.array(z.string()).default([]),
+      remove_tags: z.array(z.string()).default([]),
+    },
+    false,
+    false,
+    async (db, a) => {
+      if (Boolean(a.lead_ids) === Boolean(a.sql_where))
+        throw new Error("Supply exactly one of lead_ids or sql_where");
+      if (a.sql_where && /;|--|\/\*|\*\/|\$[0-9]+/.test(a.sql_where))
+        throw new Error("sql_where must be one SQL expression without comments, semicolons or parameters");
+      const predicate = a.lead_ids ? "id = any($1::uuid[])" : `(${a.sql_where})`;
+      const args = a.lead_ids
+        ? [a.lead_ids, a.add_tags, a.remove_tags]
+        : [a.add_tags, a.remove_tags];
+      const addSlot = a.lead_ids ? 2 : 1;
+      const removeSlot = a.lead_ids ? 3 : 2;
+      const q = await db.query(
+        `with matched as materialized (
+          select id,tags from public.leads where ${predicate} for update
+        ), changed as (
+          select id, array(
+            select tag from unnest(coalesce(tags,'{}'::text[]) || $${addSlot}::text[]) with ordinality as input(tag,ord)
+            where tag <> all($${removeSlot}::text[])
+            group by tag order by min(ord)
+          ) as new_tags from matched
+        ), updated as (
+          update public.leads l set tags=c.new_tags from changed c
+          where l.id=c.id and l.tags is distinct from c.new_tags returning l.id
+        )
+        select (select count(*)::int from matched) as matched,
+               (select count(*)::int from updated) as updated`,
+        args,
+      );
+      return q.rows[0];
+    },
+    120,
+  );
+  tool(
+    server,
+    who,
     "run_sql",
-    "Run SQL with a 10-second timeout. Destructive SQL backs up public rows before execution.",
+    "Run SQL with a 60-second statement timeout. UPDATE and destructive SQL back up affected public rows before execution.",
     { sql: z.string().min(1).max(100000) },
     false,
     true,
@@ -381,21 +433,38 @@ export function createCrmMcpServer(who: McpIdentity) {
       const sql = a.sql as string;
       const destructive = /\b(delete|truncate|drop|alter|update)\b/i.test(sql);
       if (destructive) {
-        const tables = (
+        // A plain UPDATE can back up its matching rows in one statement. More
+        // complex SQL keeps the broad fallback so it remains recoverable.
+        const simpleUpdate = /^\s*update\s+(?:only\s+)?(?:public\.)?([a-z_][a-z0-9_]*)\s+set\s+[\s\S]+?\s+where\s+([\s\S]+?)(?:\s+returning\s+[\s\S]+)?;?\s*$/i.exec(sql);
+        const wholeTableUpdate = !/\b(where|from)\b/i.test(sql)
+          ? /^\s*update\s+(?:only\s+)?(?:public\.)?([a-z_][a-z0-9_]*)\s+set\s+[\s\S]+?;?\s*$/i.exec(sql)
+          : null;
+        if ((simpleUpdate || wholeTableUpdate) &&
+            !/;|--|\/\*|\*\//.test(sql.trim().replace(/;$/, "")) &&
+            !/\bfrom\b/i.test(sql.slice(0, sql.search(/\bwhere\b/i) < 0 ? sql.length : sql.search(/\bwhere\b/i)))) {
+          const table = (simpleUpdate || wholeTableUpdate)![1];
+          const predicate = simpleUpdate?.[2].replace(/;\s*$/, "") || "true";
+          await columns(db, table);
           await db.query(
-            `select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE' and table_name not like 'mcp_%'`,
-          )
-        ).rows;
-        for (const { table_name } of tables) {
-          await db.query(
-            `insert into public.mcp_deleted_backup(user_id,source_table,source_pk,row_data) select $1,$2,null,to_jsonb(t) from public.${ident(table_name)} t`,
-            [who.userId, table_name],
+            `insert into public.mcp_deleted_backup(user_id,source_table,source_pk,row_data) select $1,$2,case when to_jsonb(t) ? 'id' then jsonb_build_object('id',to_jsonb(t)->'id') else null end,to_jsonb(t) from public.${ident(table)} t where ${predicate} for update`,
+            [who.userId, table],
           );
+        } else {
+          const tables = (await db.query(
+            `select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE' and table_name not like 'mcp_%'`,
+          )).rows;
+          for (const { table_name } of tables) {
+            await db.query(
+              `insert into public.mcp_deleted_backup(user_id,source_table,source_pk,row_data) select $1,$2,null,to_jsonb(t) from public.${ident(table_name)} t`,
+              [who.userId, table_name],
+            );
+          }
         }
       }
       const q = await db.query(sql);
       return { command: q.command, rowCount: q.rowCount, rows: q.rows };
     },
+    60,
   );
   tool(
     server,
