@@ -383,7 +383,7 @@ export default function CallQueue() {
     <div className="page-stack">
       <PageHeader
         title="Call queue"
-        description="Work through callbacks and new leads, one conversation at a time."
+        description="Leads ready to call now, based on their local calling hours and next action time."
         actions={
           <Button variant="outline" onClick={() => void refetch()}>
             <RefreshCw className="h-4 w-4" />
@@ -393,8 +393,8 @@ export default function CallQueue() {
       />
       <div className="grid grid-cols-3 gap-3">
         {[
-          ["Due callbacks & retries", data?.due.length],
-          ["Fresh leads", data?.fresh.length],
+          ["Scheduled calls & retries", data?.due.length],
+          ["Ready for first call", data?.fresh.length],
           ["Need timezone", data?.needsTimezone],
         ].map(([title, value]) => (
           <div key={title} className="workspace-panel p-3 sm:p-5">
@@ -439,7 +439,7 @@ export default function CallQueue() {
               }
               onClick={() => setSection(value)}
             >
-              {value === "due" ? "Callbacks & retries" : "Fresh leads"}
+              {value === "due" ? "Scheduled calls & retries" : "Ready for first call"}
             </Button>
           ))}
         </div>
