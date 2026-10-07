@@ -55,6 +55,8 @@ export const outreachTimezone = pgEnum("outreach_timezone", [
   "America/North_Dakota/Beulah",
   "America/North_Dakota/Center",
   "America/North_Dakota/New_Salem",
+  "America/Toronto",
+  "Europe/Amsterdam",
 ]);
 
 export const leadsTable = pgTable("leads", {
