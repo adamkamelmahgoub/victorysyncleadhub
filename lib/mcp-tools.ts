@@ -3,7 +3,7 @@ import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { mcpPool, type McpIdentity } from "./mcp-auth.js";
-import { enrichLead, bulkEnrich, jobStatus, askAboutLead, previewBulk } from "./enrichment-client.js";
+import { enrichLead, bulkEnrich, jobStatus, askAboutLead, previewBulk, findNewLeads } from "./enrichment-client.js";
 
 const ident = (s: string) => {
   if (!/^[a-z_][a-z0-9_]*$/i.test(s)) throw new Error("Invalid identifier");
@@ -1058,6 +1058,11 @@ export function createCrmMcpServer(who: McpIdentity) {
       lead_ids: z.array(idSchema).min(1).max(5000).optional(), mode: z.enum(["google", "ai", "both"]),
       grid: z.union([z.literal(3), z.literal(5)]).default(3) },
     true, false, async (_db, a) => previewBulk(a, a.mode, a.grid));
+  tool(server, who, "find_new_leads",
+    "Find plumbing and HVAC businesses near a US city with Open Places / Overture, skip CRM and DNC phone numbers, and add new leads tagged op-new and needs-enrichment. Uses at most 40 API calls.",
+    { city: z.string().min(1).max(100), state: z.string().min(2).max(40),
+      radius_mi: z.number().positive().max(50).default(25) },
+    false, false, async (_db, a) => findNewLeads(a.city, a.state, a.radius_mi), 180);
   }
   return server;
 }

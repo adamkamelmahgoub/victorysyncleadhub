@@ -8,11 +8,15 @@ type Google = { status: string; name?: string; city?: string; state?: string; ra
   top3_points?: number; avg_rank?: number; reviews_vs_top3_pct?: number;
   suggested_tags?: string[];
   grid?: Array<{ x: number; y: number; position: number }>;
-  competitors?: Array<{ name?: string; rating?: number; review_count?: number; place_id: string }> };
+  competitors?: Array<{ name?: string; rating?: number; review_count?: number; place_id: string }>;
+  open_places?: OpenPlace | null };
+type OpenPlace = { place_id: string; name: string; address?: { formatted?: string; locality?: string;
+  region?: string }; lat: number; lon: number; website?: string; phone?: string;
+  category?: string; match_confidence?: number; fetched_at?: string };
 type Ai = { owner_name?: string | null; owner_title?: string | null; website_issues?: string[];
   call_hooks?: string[]; summary?: string; confidence?: string;
   sources?: Array<{ field: string; url: string }> };
-type State = { google?: { place_id?: string; fetched_at?: string }; enrichment?: Ai;
+type State = { google?: { place_id?: string; fetched_at?: string }; open_places?: OpenPlace; enrichment?: Ai;
   history?: Array<{ source: string; status: string; fetched_at: string; cost_usd: number }> };
 const safeUrl = (url: string) => /^https?:\/\//i.test(url);
 
@@ -37,20 +41,28 @@ export function EnrichmentCard({ leadId }: { leadId: string }) {
     method: "POST", body: JSON.stringify({ lead_id: leadId, note: answer }),
   }), onSuccess: () => toast({ title: "Answer saved to notes" }) });
   const ai = data?.enrichment, last = data?.history?.[0]?.fetched_at;
+  const listing = data?.open_places || google?.open_places;
   return <section className="rounded-2xl border border-border bg-white p-5 space-y-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div><h2 className="text-lg font-semibold">Business enrichment</h2><p className="text-sm text-muted-foreground">{last ? `Last researched ${new Date(last).toLocaleString()}` : "No research yet"}</p></div>
       <div className="flex items-center gap-2"><select aria-label="Rank grid size" value={grid} onChange={(event) => setGrid(Number(event.target.value) as 3 | 5)} className="border rounded-lg px-2 py-2 text-sm"><option value={5}>5×5 grid</option><option value={3}>3×3 grid</option></select>
         <button disabled={enrich.isPending} onClick={() => enrich.mutate()} className="rounded-lg bg-primary px-4 py-2 text-sm text-white disabled:opacity-50">{enrich.isPending ? "Enriching…" : "Enrich"}</button></div>
     </div>
+    {listing && <div className="space-y-2 rounded-xl border p-4">
+      <h3 className="font-medium">Business listing (Open Places / Overture)</h3>
+      <p className="text-sm">{listing.name} · {listing.address?.formatted || "Address unavailable"} · {listing.address?.locality || ""}, {listing.address?.region?.toUpperCase() || ""}</p>
+      <p className="text-sm">{listing.category || "Category unavailable"} · {listing.phone || "Phone unavailable"}</p>
+      {listing.website && safeUrl(listing.website) && <a className="text-sm underline" href={listing.website} target="_blank" rel="noreferrer">Visit website</a>}
+      <p className="text-xs text-muted-foreground">Data from <a href="https://openplacesapi.com/data-rights" target="_blank" rel="noreferrer" className="underline">Open Places API</a> and <a href="https://overturemaps.org/" target="_blank" rel="noreferrer" className="underline">Overture Maps Foundation</a>.</p>
+    </div>}
     {google?.status === "ok" && <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50/40 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-medium">Google Places snapshot</h3><a className="text-xs text-gray-600 underline" href={google.place_id ? `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(google.place_id)}` : "https://maps.google.com"} target="_blank" rel="noreferrer">Google Maps</a></div>
-      <p className="text-sm">{google.name} · {google.city}, {google.state} · {google.rating ?? "–"} stars · {google.review_count ?? "–"} reviews</p>
+      <p className="text-sm">{google.rating ?? "–"} stars · {google.review_count ?? "–"} reviews</p>
       <p className="text-sm">Top 3 on {google.top3_points}/{google.grid?.length} points · average rank {google.avg_rank} · reviews versus top 3: {google.reviews_vs_top3_pct ?? "–"}%</p>
       <p className="text-sm">Category: {google.category || "–"} · Hours: {google.hours ? "listed" : "missing"}</p>
       {google.website && safeUrl(google.website) && <a className="text-sm underline" href={google.website} target="_blank" rel="noreferrer">Visit website</a>}
       <div className={`grid ${grid === 5 ? "grid-cols-5" : "grid-cols-3"} gap-1 max-w-xs`} aria-label="Search rank heatmap">{google.grid?.map((point) => <div key={`${point.x}:${point.y}`} title={`Rank ${point.position === 21 ? "not found" : point.position}`} className={`rounded p-2 text-center text-xs font-semibold ${point.position <= 3 ? "bg-green-200" : point.position <= 10 ? "bg-amber-200" : "bg-red-200"}`}>{point.position === 21 ? "21+" : point.position}</div>)}</div>
-      {!!google.competitors?.length && <div className="text-sm"><strong>Center competitors</strong><ul className="list-disc pl-5">{google.competitors.map((competitor) => <li key={competitor.place_id}>{competitor.name}: {competitor.rating ?? "–"} stars, {competitor.review_count ?? "–"} reviews</li>)}</ul></div>}
+      {!!google.competitors?.length && <div className="text-sm"><strong>Center competitor place IDs</strong><ul className="list-disc pl-5">{google.competitors.map((competitor) => <li key={competitor.place_id}>{competitor.place_id}</li>)}</ul></div>}
       {!!google.suggested_tags?.length && <p className="text-sm">Suggested tags: {google.suggested_tags.join(", ")}</p>}
       <p className="text-xs text-muted-foreground">Places content is shown from this request and is not saved to the CRM.</p>
     </div>}

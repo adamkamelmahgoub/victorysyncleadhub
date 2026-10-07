@@ -42,7 +42,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       const id = url.searchParams.get("lead_id") || "";
       if (!validUuid(id)) throw new Error("Invalid lead ID");
       const q = await mcpPool.query(
-        "select custom_fields->'google' as google,custom_fields->'enrichment' as enrichment from public.leads where id=$1", [id],
+        "select custom_fields->'google' as google,custom_fields->'open_places' as open_places,custom_fields->'enrichment' as enrichment from public.leads where id=$1", [id],
       );
       if (!q.rows[0]) throw new Error("Lead not found");
       respond(res, 200, { ...q.rows[0], history: await leadEnrichment(id) }); return;

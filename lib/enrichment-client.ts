@@ -4,7 +4,7 @@ export type EnrichmentMode = "google" | "ai" | "both";
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function validUuid(value: string): boolean { return uuid.test(value); }
 
-export async function edgeCall(name: "enrich-google" | "enrich-ai" | "enrichment-worker", body: unknown): Promise<any> {
+export async function edgeCall(name: "enrich-google" | "enrich-ai" | "enrichment-worker" | "find-new-leads", body: unknown): Promise<any> {
   const base = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
   if (!base || !key) throw new Error("Supabase Edge Functions are not configured");
@@ -15,6 +15,12 @@ export async function edgeCall(name: "enrich-google" | "enrich-ai" | "enrichment
   const data = await response.json().catch(() => ({})) as Record<string, any>;
   if (!response.ok) throw new Error(String(data.error || `Edge Function ${name} returned ${response.status}`));
   return data;
+}
+export async function findNewLeads(city: string, state: string, radiusMi: number) {
+  if (!city.trim() || city.length > 100 || !state.trim() || state.length > 40 ||
+      !Number.isFinite(radiusMi) || radiusMi <= 0 || radiusMi > 50)
+    throw new Error("City, state, and radius_mi from 1 to 50 are required");
+  return edgeCall("find-new-leads", { city: city.trim(), state: state.trim(), radius_mi: radiusMi });
 }
 export async function enrichLead(leadId: string, mode: EnrichmentMode, grid: 3 | 5) {
   if (!validUuid(leadId)) throw new Error("Invalid lead ID");
@@ -50,7 +56,7 @@ export async function budgetStatus() {
   return q.rows[0] || { monthly_budget_usd: 0, month_reserved_usd: 0 };
 }
 export const estimateCost = (count: number, mode: EnrichmentMode, grid: 3 | 5) =>
-  Math.round(count * ((mode === "ai" ? 0 : (grid * grid + 2) * 0.035) +
+  Math.round(count * ((mode === "ai" ? 0 : (grid * grid + 1) * 0.035) +
     (mode === "google" ? 0 : 0.5)) * 100) / 100;
 
 type BulkSelector = { segment_id?: string; tag?: string; tags?: string[]; lead_ids?: string[] };

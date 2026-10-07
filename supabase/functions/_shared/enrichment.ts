@@ -1,10 +1,12 @@
 // Shared by Supabase Edge Functions. Only server-side service credentials are used.
 import { z } from "npm:zod@3.25.76";
+import { leadSearchCenter, stateCode, stateFromAreaCode } from "./us-centers.ts";
 declare const Deno: { env: { get(name: string): string | undefined } };
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const GOOGLE_KEY = Deno.env.get("GOOGLE_PLACES_API_KEY") || "";
+const OPEN_PLACES_KEY = Deno.env.get("OPEN_PLACES_API_KEY") || "";
 const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY") || "";
 const OPENROUTER_MODEL = Deno.env.get("OPENROUTER_MODEL") || "nvidia/nemotron-3.5-lightning:free";
 const GOOGLE_CALL_USD = 0.035; // Conservative current Text Search Enterprise list price.
@@ -18,6 +20,15 @@ export type Lead = {
   first_name: string | null; last_name: string | null; notes: string | null;
   tags: string[]; custom_fields: Record<string, unknown>;
 };
+type OpenPlace = {
+  place_id: string; name: string; lat: number; lon: number; distance_mi?: number;
+  category?: string; categories?: string[]; category_hierarchy?: string[];
+  address?: { formatted?: string; street?: string; locality?: string; region?: string;
+    postal_code?: string; country_code?: string };
+  phone?: string; website?: string; confidence?: number; operating_status?: string;
+  match?: unknown;
+};
+type OpenPlacesResponse = { results: OpenPlace[]; meta?: Record<string, unknown> };
 type Place = {
   id: string; displayName?: { text?: string }; formattedAddress?: string;
   addressComponents?: Array<{ longText: string; shortText: string; types: string[] }>;
@@ -63,10 +74,11 @@ export async function leadById(id: string): Promise<Lead> {
   if (!rows[0]) throw new Error("Lead not found");
   return rows[0];
 }
-export async function logCall(leadId: string, source: "google_places" | "google_rank" | "ai_research", data: Record<string, unknown>, status: "ok" | "not_found" | "error", cost: number, error?: string): Promise<void> {
+export async function logCall(leadId: string, source: "open_places" | "google_places" | "google_rank" | "ai_research", data: Record<string, unknown>, status: "ok" | "not_found" | "error", cost: number, error?: string): Promise<void> {
   await rest("lead_enrichment", { method: "POST", body: JSON.stringify({
     lead_id: leadId, source, data, status, error: error || null, cost_usd: cost,
-    expires_at: source === "ai_research" ? null : new Date(Date.now() + 29 * 86400000).toISOString(),
+    expires_at: source === "google_places" || source === "google_rank"
+      ? new Date(Date.now() + 29 * 86400000).toISOString() : null,
   }) });
 }
 async function reserve(amount: number): Promise<void> {
@@ -94,13 +106,129 @@ const nameScore = (name: string, candidate: string) => {
   const words = normalized(name).match(/.{1,3}/g) || [];
   return words.filter((word) => normalized(candidate).includes(word)).length / Math.max(words.length, 1);
 };
+const openPlaceSchema = z.object({
+  place_id: z.string(), name: z.string(), lat: z.number(), lon: z.number(),
+  distance_mi: z.number().optional(), category: z.string().optional(),
+  categories: z.array(z.string()).optional(), category_hierarchy: z.array(z.string()).optional(),
+  address: z.object({ formatted: z.string().optional(), street: z.string().optional(),
+    locality: z.string().optional(), region: z.string().optional(),
+    postal_code: z.string().optional(), country_code: z.string().optional() }).optional(),
+  phone: z.string().optional(), website: z.string().optional(),
+  confidence: z.number().optional(), operating_status: z.string().optional(), match: z.unknown().optional(),
+}).passthrough();
+const openPlacesSchema = z.object({ results: z.array(openPlaceSchema), meta: z.record(z.unknown()).optional() });
+export async function openPlacesSearch(leadId: string | null, params: { q?: string; category?: string;
+  lat: number; lon: number; radius_mi?: number; mode?: "all" | "name" | "address";
+  limit?: number; offset?: number; min_confidence?: number }): Promise<OpenPlacesResponse> {
+  if (!OPEN_PLACES_KEY) throw new Error("OPEN_PLACES_API_KEY is not configured");
+  if (!Number.isFinite(params.lat) || Math.abs(params.lat) > 90 ||
+      !Number.isFinite(params.lon) || Math.abs(params.lon) > 180 ||
+      !params.q && !params.category ||
+      (params.radius_mi ?? 25) <= 0 || (params.radius_mi ?? 25) > 50 ||
+      (params.limit ?? 10) < 1 || (params.limit ?? 10) > (params.category ? 50 : 20) ||
+      (params.min_confidence !== undefined && (params.min_confidence < 0 || params.min_confidence > 1)))
+    throw new Error("Invalid Open Places search parameters");
+  const allowed = await rest<boolean>("rpc/enrichment_reserve_api_call", {
+    method: "POST", body: JSON.stringify({ p_provider: "open_places" }),
+  });
+  if (!allowed) throw new Error("Open Places budget exhausted until the 1st");
+  const url = new URL("https://api.openplacesapi.com/v1/places");
+  for (const [key, value] of Object.entries(params)) if (value !== undefined) url.searchParams.set(key, String(value));
+  const audit = async (status: string) => rest("enrichment_api_log", { method: "POST",
+    body: JSON.stringify({ provider: "open_places", lead_id: leadId, request: params, status, cost_usd: 0 }) });
+  let response: Response;
+  try {
+    response = await fetch(url, { headers: { Authorization: `Bearer ${OPEN_PLACES_KEY}` },
+      signal: AbortSignal.timeout(20000) });
+  } catch (error) {
+    await audit("network_error");
+    if (leadId) await logCall(leadId, "open_places", { params }, "error", 0, String(error));
+    throw error;
+  }
+  if (response.status === 402) {
+    await audit("quota_exhausted");
+    await rest("rpc/enrichment_block_api_month", {
+      method: "POST", body: JSON.stringify({ p_provider: "open_places" }),
+    });
+    if (leadId) await logCall(leadId, "open_places", { params }, "error", 0, "Monthly quota exhausted");
+    await slack("Victory Sync Open Places searches paused until next month: provider quota exhausted.").catch(() => {});
+    throw new Error("Open Places budget exhausted until the 1st");
+  }
+  const payload = await response.json();
+  if (!response.ok) {
+    await audit(`http_${response.status}`);
+    if (leadId) await logCall(leadId, "open_places", { params, response: payload }, "error", 0,
+      `Open Places HTTP ${response.status}`);
+    throw new Error(`Open Places API: HTTP ${response.status}`);
+  }
+  let data: OpenPlacesResponse;
+  try { data = openPlacesSchema.parse(payload) as OpenPlacesResponse; }
+  catch (error) {
+    await audit("invalid_response");
+    if (leadId) await logCall(leadId, "open_places", { params, response: payload }, "error", 0,
+      `Invalid response: ${String(error).slice(0,300)}`);
+    throw error;
+  }
+  await audit(data.results.length ? "ok" : "not_found");
+  if (leadId) await logCall(leadId, "open_places", { params, response: data },
+    data.results.length ? "ok" : "not_found", 0);
+  return data;
+}
+export async function enrichOpenPlaces(leadId: string): Promise<{ status: "ok" | "not_found";
+  place?: OpenPlace; match_confidence?: number }> {
+  const lead = await leadById(leadId);
+  if (!lead.company) throw new Error("Lead has no company name");
+  const wantedState = stateCode(lead.state || String(lead.custom_fields?.state || "")) ||
+    stateFromAreaCode(lead.normalized_phone || lead.phone);
+  const center = leadSearchCenter(wantedState, lead.normalized_phone || lead.phone);
+  if (!center) {
+    await rest(`leads?id=eq.${encodeURIComponent(leadId)}`, { method: "PATCH", body: JSON.stringify({
+      tags: [...new Set([...lead.tags, "enrich-op-not-found"])],
+    }) });
+    return { status: "not_found" };
+  }
+  const data = await openPlacesSearch(leadId, { q: lead.company, lat: center[0], lon: center[1],
+    radius_mi: 50, mode: "name", limit: 20, min_confidence: 0.7 });
+  const sameState = data.results.filter((place) => !wantedState ||
+    stateCode(place.address?.region) === wantedState);
+  const phone = digits(lead.normalized_phone || lead.phone);
+  const phoneMatch = phone ? sameState.find((place) => digits(place.phone) === phone) : undefined;
+  const bestName = sameState.sort((a,b) => nameScore(lead.company!, b.name) - nameScore(lead.company!, a.name))[0];
+  const match = phoneMatch || (bestName && nameScore(lead.company, bestName.name) >= 0.6 ? bestName : undefined);
+  if (!match) {
+    await rest(`leads?id=eq.${encodeURIComponent(leadId)}`, { method: "PATCH", body: JSON.stringify({
+      tags: [...new Set([...lead.tags, "enrich-op-not-found"])],
+    }) });
+    return { status: "not_found" };
+  }
+  const matchConfidence = phoneMatch ? 1 : Math.round(nameScore(lead.company, match.name) * 100) / 100;
+  const city = match.address?.locality || null;
+  const state = stateCode(match.address?.region) || wantedState;
+  const openFields = { ...match, match_confidence: matchConfidence, fetched_at: new Date().toISOString(),
+    attribution: "Open Places / Overture Maps" };
+  const fields = { ...lead.custom_fields, open_places: openFields,
+    ...(!lead.custom_fields?.city && city ? { city } : {}) };
+  const line = `${new Date().toISOString().slice(0,10)} | Business listing (Open Places / Overture) | ${match.name} | ${city || "unknown city"}, ${state || "unknown state"} | ${match.category || "unknown category"} | ${match.website || "no website listed"}`;
+  await rest(`leads?id=eq.${encodeURIComponent(leadId)}`, { method: "PATCH", body: JSON.stringify({
+    custom_fields: fields, notes: `${line}\n${lead.notes || ""}`,
+    tags: lead.tags.filter((tag) => tag !== "enrich-op-not-found"),
+    ...(!lead.state && state ? { state } : {}),
+  }) });
+  return { status: "ok", place: match, match_confidence: matchConfidence };
+}
 async function placesSearch(leadId: string, source: "google_places" | "google_rank", operation: string, body: Record<string, unknown>, fieldMask: string): Promise<Place[]> {
   if (!GOOGLE_KEY) throw new Error("GOOGLE_PLACES_API_KEY is not configured");
-  const quota = await rest<boolean>("rpc/enrichment_reserve_api_call", {
-    method: "POST", body: JSON.stringify({ p_provider: "google_places" }),
-  });
-  if (!quota) throw new Error("Google Places monthly cap reached");
   try { await reserve(GOOGLE_CALL_USD); } catch (error) { await budgetNotice(); throw error; }
+  if (source === "google_places") {
+    let quota: boolean;
+    try { quota = await rest<boolean>("rpc/enrichment_reserve_api_call", {
+      method: "POST", body: JSON.stringify({ p_provider: "google_places" }),
+    }); } catch (error) { await release(GOOGLE_CALL_USD); throw error; }
+    if (!quota) {
+      await release(GOOGLE_CALL_USD);
+      throw new Error("Google Places monthly cap reached");
+    }
+  }
   let logged = false;
   try {
     const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
@@ -121,7 +249,8 @@ async function placesSearch(leadId: string, source: "google_places" | "google_ra
   }
 }
 const matchMask = "places.id,places.displayName,places.formattedAddress,places.addressComponents,places.location,places.nationalPhoneNumber,places.websiteUri,places.rating,places.userRatingCount,places.primaryType,places.types,places.regularOpeningHours,places.businessStatus";
-const rankMask = "places.id,places.displayName,places.rating,places.userRatingCount";
+const openMatchMask = "places.id,places.rating,places.userRatingCount,places.regularOpeningHours,places.primaryType,places.businessStatus";
+const rankMask = "places.id";
 function locality(place: Place, type: string): string | null {
   return place.addressComponents?.find((part) => part.types.includes(type))?.longText || null;
 }
@@ -134,36 +263,48 @@ function gridPoints(location: { latitude: number; longitude: number }, size: 3 |
   });
 }
 export async function enrichGoogle(leadId: string, grid: 3 | 5): Promise<Record<string, unknown>> {
-  const lead = await leadById(leadId);
+  let lead = await leadById(leadId);
   if (!lead.company) throw new Error("Lead has no company name");
+  const open = await enrichOpenPlaces(leadId);
+  lead = await leadById(leadId);
   const phone = lead.normalized_phone || lead.phone || "";
-  let candidates = await placesSearch(leadId, "google_places", "match_phone", {
-    textQuery: `${lead.company} ${phone}`, pageSize: 20,
-  }, matchMask);
-  let match = candidates.find((place) => digits(place.nationalPhoneNumber) && digits(place.nationalPhoneNumber) === digits(phone));
-  let confidence = match ? "high" : "low";
-  if (!match) {
-    const fallback = await placesSearch(leadId, "google_places", "match_state", {
-      textQuery: `${lead.company} ${lead.state || String(lead.custom_fields?.state || "")}`, pageSize: 20,
+  const listing = open.place;
+  const city = listing?.address?.locality || String(lead.custom_fields?.city || "");
+  const state = stateCode(listing?.address?.region || lead.state) || lead.state || "";
+  let match: Place | undefined;
+  let confidence = "low";
+  if (listing && city) {
+    const candidates = await placesSearch(leadId, "google_places", "match_open_places", {
+      textQuery: `${lead.company} ${city} ${state}`, pageSize: 20,
+      locationBias: { circle: { center: { latitude: listing.lat, longitude: listing.lon }, radius: 1609.344 } },
+    }, openMatchMask);
+    const knownId = (lead.custom_fields?.google as { place_id?: string } | undefined)?.place_id;
+    match = candidates.find((place) => place.id === knownId) || candidates[0];
+    confidence = match?.id === knownId ? "high" : "medium";
+  } else {
+    const candidates = await placesSearch(leadId, "google_places", "fallback_match", {
+      textQuery: `${lead.company} ${phone || state}`, pageSize: 20,
     }, matchMask);
-    candidates = [...candidates, ...fallback];
     match = candidates.find((place) => digits(place.nationalPhoneNumber) && digits(place.nationalPhoneNumber) === digits(phone));
-    if (match) confidence = "high";
-  }
-  if (!match) {
-    match = candidates.sort((a, b) => nameScore(lead.company!, b.displayName?.text || "") - nameScore(lead.company!, a.displayName?.text || ""))[0];
-    if (match && nameScore(lead.company, match.displayName?.text || "") < 0.5) match = undefined;
-    confidence = match ? "medium" : "low";
+    confidence = match ? "high" : "low";
+    if (!match) {
+      match = candidates.sort((a,b) => nameScore(lead.company!, b.displayName?.text || "") - nameScore(lead.company!, a.displayName?.text || ""))[0];
+      if (match && nameScore(lead.company, match.displayName?.text || "") < 0.6) match = undefined;
+      confidence = match ? "medium" : "low";
+    }
   }
   if (!match) {
     await rest(`leads?id=eq.${encodeURIComponent(leadId)}`, { method: "PATCH", body: JSON.stringify({ tags: [...new Set([...lead.tags, "enrich-not-found"]) ] }) });
     await logCall(leadId, "google_places", { operation: "match", place_id: null }, "not_found", 0);
     return { status: "not_found", match_confidence: "low" };
   }
-  const city = locality(match, "locality"), state = locality(match, "administrative_area_level_1");
-  const shop = match.location;
-  if (!shop) throw new Error("Matched place has no location");
-  const query = /hvac|heating|cooling|air conditioning/i.test(`${lead.company} ${lead.custom_fields?.category || ""}`) ? "HVAC contractor" : "plumber";
+  const matchedCity = city || locality(match, "locality");
+  const matchedState = state || locality(match, "administrative_area_level_1");
+  const shop = listing ? { latitude: listing.lat, longitude: listing.lon } : match.location;
+  if (!shop || !matchedCity) throw new Error("Matched place needs a location and city for a rank grid");
+  const query = match.primaryType === "plumber" || /plumb/i.test(lead.company || "")
+    ? "plumber" : /hvac|heating|cooling|air conditioning/i.test(`${lead.company} ${listing?.category || lead.custom_fields?.category || ""}`)
+      ? "HVAC contractor" : "plumber";
   const points = [] as Array<{ x: number; y: number; position: number }>;
   let center: Place[] = [];
   for (const point of gridPoints(shop, grid)) {
@@ -182,7 +323,7 @@ export async function enrichGoogle(leadId: string, grid: 3 | 5): Promise<Record<
   const top3 = points.filter((point) => point.position <= 3).length;
   const avgRank = points.reduce((sum, point) => sum + point.position, 0) / points.length;
   const expectedTown = String(lead.custom_fields?.town || lead.custom_fields?.city || "").toLowerCase();
-  const insideTown = expectedTown ? city?.toLowerCase() === expectedTown : null;
+  const insideTown = expectedTown ? matchedCity?.toLowerCase() === expectedTown : null;
   const tags = new Set(lead.tags.filter((tag) => !["top3-fit", "top3-reviews-first", "top3-already", "enrich-not-found"].includes(tag)));
   if (reviewRatio !== null && reviewRatio < 0.6) tags.add("top3-reviews-first");
   else if (top3 >= Math.ceil(points.length / 2)) tags.add("top3-already");
@@ -194,15 +335,15 @@ export async function enrichGoogle(leadId: string, grid: 3 | 5): Promise<Record<
   }) });
   // Places content is returned for immediate display, not persisted in the CRM.
   return { status: "ok", match_confidence: confidence, place_id: match.id,
-    name: match.displayName?.text, address: match.formattedAddress, city, state,
-    location: shop, website: match.websiteUri, rating: match.rating,
+    name: match.displayName?.text, address: match.formattedAddress, city: matchedCity, state: matchedState,
+    location: shop, website: listing?.website || match.websiteUri, rating: match.rating,
     review_count: match.userRatingCount, category: match.primaryType,
     hours: match.regularOpeningHours, business_status: match.businessStatus,
     grid: points, top3_points: top3, avg_rank: Math.round(avgRank * 10) / 10,
-    competitors: competitors.map((place) => ({ name: place.displayName?.text,
-      rating: place.rating, review_count: place.userRatingCount, place_id: place.id })),
+    competitors: competitors.map((place) => ({ place_id: place.id })),
     reviews_vs_top3_pct: reviewRatio === null ? null : Math.round(reviewRatio * 100),
-    suggested_tags: [...tags].filter((tag) => !lead.tags.includes(tag)), source: "Google Maps" };
+    suggested_tags: [...tags].filter((tag) => !lead.tags.includes(tag)), source: "Google Maps",
+    open_places: listing || null };
 }
 
 const AI_SYSTEM = `You research US home-service businesses for a B2B marketing agency. Use only public business information. Every field must come from a source you actually opened; put the URL in sources. If you cannot confirm something, return null. Never collect home addresses, personal phone numbers, family information, or personal social accounts. Return one JSON object only. Do not include Google Places ratings, review counts, hours, rank, or other Google Maps content in the persisted answer. Do not identify individuals or include personal data when using a free model.`;
@@ -257,12 +398,14 @@ async function anthropic(leadId: string, operation: string, prompt: string, maxS
     const data = await response.json() as { choices?: Array<{ message?: { content?: string;
       annotations?: Array<{ url_citation?: { url?: string } }> } }>;
       usage?: { cost?: number; prompt_tokens?: number; completion_tokens?: number;
-        server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number } };
+        server_tool_use_details?: { web_search_requests?: number; web_fetch_requests?: number } };
       error?: { message?: string } };
-    const searches = data.usage?.server_tool_use?.web_search_requests || 0;
+    const searches = data.usage?.server_tool_use_details?.web_search_requests || 0;
     const actual = Number(data.usage?.cost ?? searches * 0.007);
     await release(AI_RESERVE_USD - actual);
-    await logCall(leadId, "ai_research", { operation, searches, model: OPENROUTER_MODEL,
+    await logCall(leadId, "ai_research", { operation, searches,
+      fetches: data.usage?.server_tool_use_details?.web_fetch_requests || 0,
+      model: OPENROUTER_MODEL,
       input_tokens: data.usage?.prompt_tokens, output_tokens: data.usage?.completion_tokens },
       response.ok ? "ok" : "error", actual, data.error?.message);
     logged = true;
@@ -278,7 +421,8 @@ async function anthropic(leadId: string, operation: string, prompt: string, maxS
 }
 export async function enrichAi(leadId: string): Promise<Record<string, unknown>> {
   const lead = await leadById(leadId);
-  const prompt = `Research this business. Open each cited source with web_fetch before using it. Output JSON with exactly these fields: ${AI_KEYS.join(", ")}. Empty arrays for unknown lists, null for unknown scalar fields, and 2-3 factual call hooks. Set owner_name and owner_title to null. Company: ${lead.company || "unknown"}; state: ${lead.state || "unknown"}.`;
+  const listing = lead.custom_fields?.open_places as { website?: string; category?: string } | undefined;
+  const prompt = `Research this business. Open each cited source with web_fetch before using it. Output JSON with exactly these fields: ${AI_KEYS.join(", ")}. Empty arrays for unknown lists, null for unknown scalar fields, and 2-3 factual call hooks. Set owner_name and owner_title to null. Company: ${lead.company || "unknown"}; state: ${lead.state || "unknown"}; public listing website: ${listing?.website || "unknown"}; listing category: ${listing?.category || "unknown"}.`;
   let data: Record<string, unknown> | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
     const result = await anthropic(leadId, "research", prompt + (attempt ? " Return strictly valid JSON this time." : ""));
@@ -326,4 +470,4 @@ export async function runLead(leadId: string, mode: Mode, grid: 3 | 5): Promise<
 }
 export async function sendJobSummary(message: string): Promise<void> { await slack(message); }
 export const costEstimate = (mode: Mode, grid: 3 | 5) =>
-  (mode === "ai" ? 0 : (grid * grid + 2) * GOOGLE_CALL_USD) + (mode === "google" ? 0 : AI_RESERVE_USD);
+  (mode === "ai" ? 0 : (grid * grid + 1) * GOOGLE_CALL_USD) + (mode === "google" ? 0 : AI_RESERVE_USD);

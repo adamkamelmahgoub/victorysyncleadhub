@@ -7,7 +7,14 @@ test("enrichment budget and resumable queue", async () => {
   const db = new PGlite();
   try {
     await db.exec(`create role service_role; create role anon; create role authenticated;
-      create table public.leads(id uuid primary key, tags text[] not null default '{}');
+      create function public.outreach_phone(p text) returns text language sql immutable as $$
+        select right(regexp_replace(coalesce(p,''),'[^0-9]','','g'),10)
+      $$;
+      create table public.leads(id uuid primary key default gen_random_uuid(), phone text not null default '',
+        normalized_phone text generated always as (public.outreach_phone(phone)) stored,
+        company text, state text, source text, custom_fields jsonb not null default '{}'::jsonb,
+        tags text[] not null default '{}');
+      create table public.outreach_suppressions(identity_type text,identity_value text);
       create table public.segments(id uuid primary key);
       create table public.org_settings(org_id uuid primary key, service_level_target_seconds integer not null,
         created_at timestamptz not null default now(), updated_at timestamptz not null default now());
@@ -17,7 +24,24 @@ test("enrichment budget and resumable queue", async () => {
       // PGlite has no pg_cron or pg_net; the production scheduler is reviewed separately.
       .replace(/select cron\.schedule\([\s\S]*?\$cron\$\);/, "");
     await db.exec(migration);
+    await db.exec(await readFile(new URL("../supabase/migrations/20261010_open_places_incremental.sql", import.meta.url), "utf8"));
     assert.equal((await db.query("select service_level_target_seconds from public.org_settings")).rows[0].service_level_target_seconds, 300);
+    await db.exec("insert into public.enrichment_api_usage(provider,month,calls) values('open_places',date_trunc('month',now() at time zone 'UTC')::date,9499)");
+    assert.equal((await db.query<{ ok: boolean }>("select public.enrichment_reserve_api_call('open_places') as ok")).rows[0].ok, true);
+    assert.equal((await db.query<{ ok: boolean }>("select public.enrichment_reserve_api_call('open_places') as ok")).rows[0].ok, false);
+    await db.exec("insert into public.enrichment_api_usage(provider,month,calls) values('google_places',date_trunc('month',now() at time zone 'UTC')::date,899)");
+    assert.equal((await db.query<{ ok: boolean }>("select public.enrichment_reserve_api_call('google_places') as ok")).rows[0].ok, true);
+    assert.equal((await db.query<{ ok: boolean }>("select public.enrichment_reserve_api_call('google_places') as ok")).rows[0].ok, false);
+    await db.exec("insert into public.outreach_suppressions values ('phone','8565551212')");
+    const importResult = (await db.query<{ result: { inserted: number; skipped: number } }>(
+      `select public.enrichment_import_open_places($1::jsonb,'Collingswood','NJ') as result`,
+      [JSON.stringify([
+        { place_id: 'overture:one', name: 'Suppressed Plumbing', phone: '8565551212', address: { locality: 'Collingswood', region: 'nj' } },
+        { place_id: 'overture:two', name: 'New HVAC', phone: '8565553434', address: { locality: 'Collingswood', region: 'nj' } },
+      ])],
+    )).rows[0].result;
+    assert.deepEqual([importResult.inserted, importResult.skipped], [1, 1]);
+    assert.equal((await db.query("select count(*)::integer as count from public.leads where tags @> array['op-new']::text[]")).rows[0].count, 1);
     await db.exec(`update public.enrichment_settings set enrichment_budget_usd=2;
       insert into public.leads(id,tags) values
         ('00000000-0000-0000-0000-000000000001',array['top3-fit']::text[]),
