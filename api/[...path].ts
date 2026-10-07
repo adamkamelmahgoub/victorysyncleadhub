@@ -1373,6 +1373,7 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   const offset = (page - 1) * limit;
   const search = url.searchParams.get("search")?.trim();
   const status = url.searchParams.get("status")?.trim();
+  const tag = url.searchParams.get("tag")?.trim();
   const disposition = url.searchParams.get("disposition")?.trim();
   const sequenceEligible = url.searchParams.get("sequenceEligible") === "true";
 
@@ -1404,6 +1405,11 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   }
   if (status) query.set("status", `eq.${status}`);
   if (status) countQuery.set("status", `eq.${status}`);
+  if (tag) {
+    if (!/^[a-z0-9][a-z0-9_-]{0,99}$/i.test(tag)) { sendJson(res, 400, { error: "Invalid tag" }); return; }
+    query.set("tags", `cs.{${tag}}`);
+    countQuery.set("tags", `cs.{${tag}}`);
+  }
   if (disposition) query.set("disposition", `eq.${disposition}`);
   if (disposition) countQuery.set("disposition", `eq.${disposition}`);
   if (search) {

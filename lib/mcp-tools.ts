@@ -3,6 +3,7 @@ import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { mcpPool, type McpIdentity } from "./mcp-auth.js";
+import { enrichLead, bulkEnrich, jobStatus, askAboutLead, previewBulk } from "./enrichment-client.js";
 
 const ident = (s: string) => {
   if (!/^[a-z_][a-z0-9_]*$/i.test(s)) throw new Error("Invalid identifier");
@@ -1033,5 +1034,30 @@ export function createCrmMcpServer(who: McpIdentity) {
       ).rows;
     },
   );
+  if (process.env.ENRICHMENT_ENABLED === "true") {
+  tool(server, who, "enrich_lead",
+    "Run Google Places research, OpenRouter web research, or both for one CRM lead. Google results are returned for immediate use; only its place ID is saved under standard Places terms. AI research is saved.",
+    { lead_id: idSchema, mode: z.enum(["google", "ai", "both"]), grid: z.union([z.literal(3), z.literal(5)]).default(5) },
+    false, false, async (_db, a) => enrichLead(a.lead_id, a.mode, a.grid), 180);
+  tool(server, who, "bulk_enrich",
+    "Queue enrichment for a segment, a tag or tag intersection, or lead IDs. Returns a resumable job ID and conservative cost estimate.",
+    { segment_id: idSchema.optional(), tag: z.string().optional(), tags: z.array(z.string()).optional(),
+      lead_ids: z.array(idSchema).min(1).max(5000).optional(), mode: z.enum(["google", "ai", "both"]),
+      grid: z.union([z.literal(3), z.literal(5)]).default(3), max_cost_usd: z.number().positive().optional() },
+    false, false, async (_db, a) => bulkEnrich(a, a.mode, a.grid, a.max_cost_usd ?? null, who.userId));
+  tool(server, who, "enrichment_job_status",
+    "Show a queued enrichment job's progress, cost, failures and lead tag counts.",
+    { job_id: idSchema }, true, false, async (_db, a) => jobStatus(a.job_id));
+  tool(server, who, "ask_about_lead",
+    "Ask OpenRouter a sourced question about a lead using public web search. This may incur search API cost.",
+    { lead_id: idSchema, question: z.string().min(1).max(2000) },
+    false, false, async (_db, a) => askAboutLead(a.lead_id, a.question), 180);
+  tool(server, who, "enrichment_cost_preview",
+    "Estimate the lead count and maximum budget reservation before a bulk enrichment job.",
+    { segment_id: idSchema.optional(), tag: z.string().optional(), tags: z.array(z.string()).optional(),
+      lead_ids: z.array(idSchema).min(1).max(5000).optional(), mode: z.enum(["google", "ai", "both"]),
+      grid: z.union([z.literal(3), z.literal(5)]).default(3) },
+    true, false, async (_db, a) => previewBulk(a, a.mode, a.grid));
+  }
   return server;
 }

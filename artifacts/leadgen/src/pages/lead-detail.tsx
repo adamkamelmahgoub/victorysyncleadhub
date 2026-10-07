@@ -23,6 +23,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { asArray, type ArrayElement } from "@/lib/data-shape";
+import { EnrichmentCard } from "@/components/enrichment-card";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const STATUS_OPTIONS = ["new", "contacted", "qualified", "meeting_booked", "proposal", "converted", "lost"] as const;
@@ -504,6 +505,7 @@ export default function LeadDetail() {
         </div>
 
         {/* ── Body: sidebar + content ──────────────────────────────────────── */}
+        {import.meta.env.VITE_ENRICHMENT_ENABLED === "true" && (role === "owner" || role === "admin") && <EnrichmentCard leadId={id} />}
         <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4 items-start">
           {/* ── Left sidebar ─────────────────────────────────────────────────── */}
           <div className="bg-white rounded-2xl border border-border shadow-sm p-5 space-y-4">

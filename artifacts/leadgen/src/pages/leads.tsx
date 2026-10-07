@@ -17,6 +17,7 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { asArray } from "@/lib/data-shape";
 import { Checkbox } from "@/components/ui/checkbox";
+import { BulkEnrichmentPanel } from "@/components/bulk-enrichment-panel";
 
 type Lead = {
   id: string;
@@ -101,6 +102,8 @@ export default function Leads() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState("all");
+  const [showBulkEnrich, setShowBulkEnrich] = useState(false);
   const [page, setPage] = useState(1);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -128,13 +131,14 @@ export default function Leads() {
     return () => window.clearTimeout(timer);
   }, [search]);
 
-  const queryKey = ["contacts", page, debouncedSearch, statusFilter];
+  const queryKey = ["contacts", page, debouncedSearch, statusFilter, tagFilter];
   const { data, isLoading } = useQuery({
     queryKey,
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
       if (debouncedSearch) params.set("search", debouncedSearch);
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (tagFilter !== "all") params.set("tag", tagFilter);
       return apiFetch(`/api/leads?${params}`) as Promise<LeadsResponse>;
     },
   });
@@ -318,6 +322,7 @@ export default function Leads() {
             <PageDescription>Manage people, companies, activity, source, and pipeline context.</PageDescription>
           </div>
           <div className="flex gap-2">
+            {import.meta.env.VITE_ENRICHMENT_ENABLED === "true" && (role === "owner" || role === "admin") && <Button variant="outline" size="sm" onClick={() => setShowBulkEnrich(true)}>Enrich all</Button>}
             {role !== "client" && <><Button variant="outline" size="sm" onClick={() => void scanDuplicates()} disabled={scanningDuplicates} className="gap-1.5">
               <ScanSearch className="w-4 h-4" /> {scanningDuplicates ? "Scanning..." : "Find Duplicates"}
             </Button>
@@ -358,6 +363,10 @@ export default function Leads() {
                 onChange={(event) => setSearch(event.target.value)}
               />
             </div>
+            <Select value={tagFilter} onValueChange={(value) => { setTagFilter(value); setPage(1); }}>
+              <SelectTrigger className="w-48"><SelectValue placeholder="Any tag" /></SelectTrigger>
+              <SelectContent><SelectItem value="all">Any tag</SelectItem>{["top3-prospect", "region-tristate", "top3-fit", "top3-reviews-first", "top3-already", "review-leadgen", "franchise", "enrich-not-found"].map((tag) => <SelectItem key={tag} value={tag}>{tag}</SelectItem>)}</SelectContent>
+            </Select>
             <Select value={statusFilter} onValueChange={(value) => { setStatusFilter(value); setPage(1); }}>
               <SelectTrigger className="w-44">
                 <SelectValue placeholder="All statuses" />
@@ -642,6 +651,7 @@ export default function Leads() {
         </DialogContent>
       </Dialog>
 
+      {showBulkEnrich && <BulkEnrichmentPanel initialTags={tagFilter === "all" ? "" : tagFilter} onClose={() => setShowBulkEnrich(false)} />}
       <Dialog open={showImport} onOpenChange={setShowImport}>
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Import contacts via CSV</DialogTitle></DialogHeader>

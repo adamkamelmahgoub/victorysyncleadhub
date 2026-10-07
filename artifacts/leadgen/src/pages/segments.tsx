@@ -6,9 +6,11 @@ import { Users, Plus, Filter, Trash2, ChevronRight, Search, SlidersHorizontal, E
 import { Link } from "wouter";
 import { apiFetch } from "@/lib/api";
 import { asArray, type ArrayElement } from "@/lib/data-shape";
+import { BulkEnrichmentPanel } from "@/components/bulk-enrichment-panel";
+import { useAuth } from "@/lib/auth";
 
 interface Segment {
-  id: number;
+  id: string;
   name: string;
   description?: string;
   filters: {
@@ -35,6 +37,8 @@ const SEGMENT_COLORS = [
 
 export default function Segments() {
   const qc = useQueryClient();
+  const { role } = useAuth();
+  const [bulkSegmentId, setBulkSegmentId] = useState<string | null>(null);
   const { data: leadsData } = useListLeads();
   const allLeads = asArray<ArrayElement<NonNullable<typeof leadsData>["leads"]>>(leadsData?.leads);
 
@@ -54,7 +58,7 @@ export default function Segments() {
   });
 
   const remove = useMutation({
-    mutationFn: (id: number) => apiFetch(`/api/segments/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) => apiFetch(`/api/segments/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["segments"] }),
   });
 
@@ -182,6 +186,7 @@ export default function Segments() {
                         <ExternalLink className="w-3 h-3" /> View Contacts
                       </div>
                     </Link>
+                    {import.meta.env.VITE_ENRICHMENT_ENABLED === "true" && (role === "owner" || role === "admin") && <button onClick={() => setBulkSegmentId(seg.id)} className="flex-1 text-xs py-1.5 border border-border rounded-lg text-primary hover:bg-muted">Enrich all</button>}
                   </div>
                 </div>
               ))}
@@ -190,6 +195,7 @@ export default function Segments() {
         </div>
       </div>
 
+      {bulkSegmentId && <BulkEnrichmentPanel segmentId={bulkSegmentId} onClose={() => setBulkSegmentId(null)} />}
       {/* Create segment modal */}
       {showCreate && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowCreate(false)}>

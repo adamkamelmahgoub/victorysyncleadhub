@@ -5,7 +5,7 @@ import { authenticateToken, issuerUrl } from "../lib/mcp-auth.js";
 import { handleMcpOAuth } from "../lib/mcp-oauth.js";
 import { createCrmMcpServer } from "../lib/mcp-tools.js";
 
-export const config = { api: { bodyParser: false } };
+export const config = { api: { bodyParser: false }, maxDuration: 300 };
 
 export default async function handler(
   req: IncomingMessage,
