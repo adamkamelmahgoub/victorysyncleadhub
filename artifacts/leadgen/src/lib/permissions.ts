@@ -33,6 +33,8 @@ export function permissionForPath(path: string) {
 }
 
 export function canAccessPath(path: string, permissions: string[] | null, role?: string) {
+  const normalized = path.replace(/^\/leadgen(?=\/|$)/, "") || "/";
+  if (normalized === "/ai-assistant") return role === "owner" || role === "admin";
   if (role === "no_access") return false;
   if (role === "client" && path === "/victorysync") return true;
   if (role === "agent" && path === "/victorysync") return true;

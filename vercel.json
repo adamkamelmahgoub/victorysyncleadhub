@@ -4,6 +4,8 @@
   "buildCommand": "pnpm --filter @workspace/leadgen build",
   "outputDirectory": "artifacts/leadgen/dist/public",
   "routes": [
+    { "src": "^/api/assistant$", "dest": "/api/assistant.ts" },
+    { "src": "^/leadgen/api/assistant$", "dest": "/api/assistant.ts" },
     { "src": "^/api/enrichment$", "dest": "/api/enrichment.ts" },
     { "src": "^/api/enrichment-worker$", "dest": "/api/enrichment-worker.ts" },
     { "src": "^/api/mcp$", "dest": "/api/mcp.ts" },
