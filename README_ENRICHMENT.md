@@ -1,8 +1,8 @@
 # Victory Sync enrichment
 
-This is a review draft. Apply `supabase/migrations/20261009_lead_enrichment.sql` only after review, then deploy the four Supabase Edge Functions in `supabase/functions/` and the Vercel app. The new tables are service-role only; the Vercel UI endpoint checks the current Supabase Auth user against `MCP_ALLOWED_EMAILS`.
+The enrichment migrations, four Supabase Edge Functions, and Vercel app are deployed. The new tables are service-role only; the Vercel UI endpoint checks the current Supabase Auth user against `MCP_ALLOWED_EMAILS`.
 
-The UI and MCP tools remain hidden until the migration and secrets are ready. Set `VITE_ENRICHMENT_ENABLED=true` and `ENRICHMENT_ENABLED=true` in Vercel to enable them.
+The production UI and MCP tools are enabled with `VITE_ENRICHMENT_ENABLED=true` and `ENRICHMENT_ENABLED=true` in Vercel. The Edge Functions use a dedicated `ENRICHMENT_INVOKE_KEY` secret, also set in Vercel, for internal invocation.
 
 ## Required secrets
 
@@ -14,7 +14,7 @@ After the migration, set a monthly budget before any paid call:
 update public.enrichment_settings set enrichment_budget_usd = 1 where id = true;
 ```
 
-The default budget is zero. The requested production cap is $1/month; the five-lead 5x5 Google plus AI trial is conservatively estimated at $7.05 and cannot run under that cap. Every external call reserves a conservative estimated cost atomically through `enrichment_reserve_cost`. The queue pauses when the monthly budget or a job cap is reached. Google Text Search Enterprise calls are estimated at $0.035 each; OpenRouter research reserves up to $0.50 per request and settles against token and search usage. These are estimates, not an invoice.
+The live budget is $1/month; the five-lead 5x5 Google plus AI trial is conservatively estimated at $5.05 and cannot run under that cap. Every external call reserves a conservative estimated cost atomically through `enrichment_reserve_cost`. The queue pauses when the monthly budget or a job cap is reached. Google Text Search Enterprise calls are estimated at $0.035 each; OpenRouter research reserves up to $0.10 per request and settles against token and search usage. Timed-out requests retain their reservation because their provider cost is unknown. These are estimates, not an invoice.
 
 ## Google data handling
 
@@ -26,7 +26,7 @@ The Google card displays Google Maps attribution and keeps source data only in b
 
 The Edge worker claims at most ten leads per run and processes two at a time. Items retry up to three times with backoff. Postgres `pg_cron` calls the existing Vercel worker endpoint every minute; the Vercel endpoint invokes the Supabase Edge worker. A finished job posts counts, tag totals, and estimated spend to Slack if `SLACK_WEBHOOK_URL` is set as an Edge secret.
 
-Wittmaier Plumbing exists in the live CRM as `576af283-eb26-407a-a17a-ccdaf8be9049`. The current intersection of `top3-prospect` and `region-tristate` matches **278** leads. With both modes, the conservative reservation estimate is **$7.05** for five 5×5 leads and **$236.30** for 278 leads at 3×3. Use `enrichment_cost_preview` before `bulk_enrich` or the UI's **Enrich all** panel. Do not queue the 278 until the five-lead trial is checked for matching accuracy and costs.
+Wittmaier Plumbing exists in the live CRM as `576af283-eb26-407a-a17a-ccdaf8be9049`. The current intersection of `top3-prospect` and `region-tristate` matches **278** leads. With both modes, the conservative reservation estimate is **$5.05** for five 5×5 leads and **$125.10** for 278 leads at 3×3. Use `enrichment_cost_preview` before `bulk_enrich` or the UI's **Enrich all** panel. Do not queue the 278 until the five-lead trial is checked for matching accuracy and costs.
 
 Run the queue test without touching production:
 

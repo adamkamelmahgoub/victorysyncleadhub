@@ -57,7 +57,7 @@ export async function budgetStatus() {
 }
 export const estimateCost = (count: number, mode: EnrichmentMode, grid: 3 | 5) =>
   Math.round(count * ((mode === "ai" ? 0 : (grid * grid + 1) * 0.035) +
-    (mode === "google" ? 0 : 0.5)) * 100) / 100;
+    (mode === "google" ? 0 : 0.1)) * 100) / 100;
 
 type BulkSelector = { segment_id?: string; tag?: string; tags?: string[]; lead_ids?: string[] };
 async function selectLeadIds(selector: BulkSelector): Promise<string[]> {
