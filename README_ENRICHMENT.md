@@ -6,7 +6,7 @@ The production UI and MCP tools are enabled with `VITE_ENRICHMENT_ENABLED=true` 
 
 ## Required secrets
 
-Set `OPEN_PLACES_API_KEY`, `GOOGLE_PLACES_API_KEY` and `OPENROUTER_API_KEY` as **Supabase Edge Function secrets**. The default `OPENROUTER_MODEL` is `nvidia/nemotron-3.5-lightning:free`. The free endpoint receives only the public company name, state, and research question. It does not receive the lead's phone, email, stored research, or notes, and owner names are suppressed. Use a paid model if person-level research is needed. The existing `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are also needed by the Edge Functions. The Vercel app already uses `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_ANON_KEY`, `DATABASE_URL`, `MCP_ALLOWED_EMAILS`, and `OUTREACH_WORKER_TOKEN`. The database cron uses the existing Vault entries `victorysync_leadgen_origin` and `victorysync_native_worker_token`.
+Set `OPEN_PLACES_API_KEY`, `GOOGLE_PLACES_API_KEY` and `OPENROUTER_API_KEY` as **Supabase Edge Function secrets**. The default `OPENROUTER_MODEL` for discovery is `nvidia/nemotron-3.5-lightning:free`; `OPENROUTER_RESEARCH_MODEL` defaults to the structured-output endpoint `nvidia/nemotron-3.5-lightning` for JSON synthesis. OpenRouter web discovery uses the free endpoint first and falls back to the paid Nemotron endpoint if the free daily limit is reached. JSON synthesis uses the paid endpoint with a strict schema. Both requests send only public business information. Neither request receives the lead's phone, email, stored research, or notes; owner names remain suppressed. The existing `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are also needed by the Edge Functions. The Vercel app already uses `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_ANON_KEY`, `DATABASE_URL`, `MCP_ALLOWED_EMAILS`, and `OUTREACH_WORKER_TOKEN`. The database cron uses the existing Vault entries `victorysync_leadgen_origin` and `victorysync_native_worker_token`.
 
 After the migration, set a monthly budget before any paid call:
 
@@ -14,7 +14,7 @@ After the migration, set a monthly budget before any paid call:
 update public.enrichment_settings set enrichment_budget_usd = 10 where id = true;
 ```
 
-The live budget is $10/month; the five-lead 5x5 Google plus AI trial is conservatively estimated at $5.05. Every external call reserves a conservative estimated cost atomically through `enrichment_reserve_cost`. The queue pauses when the monthly budget or a job cap is reached. Google Text Search Enterprise calls are estimated at $0.035 each; OpenRouter research reserves up to $0.10 per request and settles against token and search usage. Timed-out requests retain their reservation because their provider cost is unknown. These are estimates, not an invoice.
+The live budget is $10/month; the five-lead 5x5 Google plus AI trial is conservatively estimated at $5.55. Every external call reserves a conservative estimated cost atomically through `enrichment_reserve_cost`. The queue pauses when the monthly budget or a job cap is reached. Google Text Search Enterprise calls are estimated at $0.035 each; OpenRouter research uses two calls and reserves up to $0.10 per call and settles against token and search usage. Timed-out requests retain their reservation because their provider cost is unknown. These are estimates, not an invoice.
 
 ## Google data handling
 
@@ -26,7 +26,7 @@ The Google card displays Google Maps attribution and keeps source data only in b
 
 The Edge worker claims at most ten leads per run and processes two at a time. Items retry up to three times with backoff. Postgres `pg_cron` calls the existing Vercel worker endpoint every minute; the Vercel endpoint invokes the Supabase Edge worker. A finished job posts counts, tag totals, and estimated spend to Slack if `SLACK_WEBHOOK_URL` is set as an Edge secret.
 
-Wittmaier Plumbing exists in the live CRM as `576af283-eb26-407a-a17a-ccdaf8be9049`. The current intersection of `top3-prospect` and `region-tristate` matches **278** leads. With both modes, the conservative reservation estimate is **$5.05** for five 5×5 leads and **$125.10** for 278 leads at 3×3. Use `enrichment_cost_preview` before `bulk_enrich` or the UI's **Enrich all** panel. Do not queue the 278 until the five-lead trial is checked for matching accuracy and costs.
+Wittmaier Plumbing exists in the live CRM as `576af283-eb26-407a-a17a-ccdaf8be9049`. The current intersection of `top3-prospect` and `region-tristate` matches **278** leads. With both modes, the conservative reservation estimate is **$5.55** for five 5×5 leads and **$152.90** for 278 leads at 3×3. Use `enrichment_cost_preview` before `bulk_enrich` or the UI's **Enrich all** panel. Do not queue the 278 until the five-lead trial is checked for matching accuracy and costs.
 
 Run the queue test without touching production:
 

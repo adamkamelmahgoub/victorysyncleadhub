@@ -10,6 +10,7 @@ const GOOGLE_KEY = Deno.env.get("GOOGLE_PLACES_API_KEY") || "";
 const OPEN_PLACES_KEY = Deno.env.get("OPEN_PLACES_API_KEY") || "";
 const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY") || "";
 const OPENROUTER_MODEL = Deno.env.get("OPENROUTER_MODEL") || "nvidia/nemotron-3.5-lightning:free";
+const OPENROUTER_RESEARCH_MODEL = Deno.env.get("OPENROUTER_RESEARCH_MODEL") || "nvidia/nemotron-3.5-lightning";
 const GOOGLE_CALL_USD = 0.035; // Conservative current Text Search Enterprise list price.
 const AI_RESERVE_USD = 0.1;
 const MONTHLY_BUDGET_MESSAGE = "Monthly enrichment budget reached";
@@ -302,7 +303,18 @@ export async function enrichGoogle(leadId: string, grid: 3 | 5): Promise<Record<
   const matchedCity = city || locality(match, "locality");
   const matchedState = state || locality(match, "administrative_area_level_1");
   const shop = listing ? { latitude: listing.lat, longitude: listing.lon } : match.location;
-  if (!shop || !matchedCity) throw new Error("Matched place needs a location and city for a rank grid");
+  if (!shop || !matchedCity) {
+    await rest(`leads?id=eq.${encodeURIComponent(leadId)}`, { method: "PATCH", body: JSON.stringify({
+      custom_fields: { ...lead.custom_fields, google: { place_id: match.id,
+        fetched_at: new Date().toISOString() } },
+    }) });
+    return { status: "matched_no_grid", match_confidence: confidence, place_id: match.id,
+      city: matchedCity, state: matchedState, location: shop,
+      website: listing?.website || match.websiteUri, rating: match.rating,
+      review_count: match.userRatingCount, category: match.primaryType,
+      hours: match.regularOpeningHours, business_status: match.businessStatus,
+      open_places: listing || null };
+  }
   const query = match.primaryType === "plumber" || /plumb/i.test(lead.company || "")
     ? "plumber" : /hvac|heating|cooling|air conditioning/i.test(`${lead.company} ${listing?.category || lead.custom_fields?.category || ""}`)
       ? "HVAC contractor" : "plumber";
@@ -366,34 +378,87 @@ const researchSchema = z.object({
   sources: z.array(z.object({ field: z.string(), url: publicUrl })),
   confidence: z.enum(["high", "medium", "low"]),
 });
+const nullableString = { type: ["string", "null"] };
+const nullableNumber = { type: ["number", "null"] };
+const nullableBoolean = { type: ["boolean", "null"] };
+const stringArray = { type: "array", items: { type: "string" } };
+const researchJsonSchema = {
+  type: "object", additionalProperties: false,
+  properties: {
+    owner_name: nullableString, owner_title: nullableString, website: nullableString,
+    website_issues: stringArray, years_in_business: nullableNumber,
+    license_numbers: stringArray, services: stringArray, service_area: stringArray,
+    emergency_24_7: nullableBoolean,
+    bbb: { type: "object", additionalProperties: false,
+      properties: { rating: nullableString, accredited: nullableBoolean, url: nullableString },
+      required: ["rating", "accredited", "url"] },
+    facebook: { type: "object", additionalProperties: false,
+      properties: { url: nullableString, last_post_date: nullableString },
+      required: ["url", "last_post_date"] },
+    instagram: { type: "object", additionalProperties: false,
+      properties: { url: nullableString, last_post_date: nullableString },
+      required: ["url", "last_post_date"] },
+    booking_software: nullableString, employees_estimate: nullableNumber,
+    is_franchise: nullableBoolean, is_lead_gen_listing: nullableBoolean,
+    call_hooks: stringArray, summary: { type: "string" },
+    sources: { type: "array", items: { type: "object", additionalProperties: false,
+      properties: { field: { type: "string" }, url: { type: "string" } },
+      required: ["field", "url"] } },
+    confidence: { type: "string", enum: ["high", "medium", "low"] },
+  }, required: AI_KEYS,
+};
 function parseResearch(text: string): Record<string, unknown> {
   const clean = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-  const data = researchSchema.parse(JSON.parse(clean));
+  const start = clean.indexOf("{");
+  const end = clean.lastIndexOf("}");
+  if (start < 0 || end <= start) throw new Error("AI response did not contain a JSON object");
+  const raw = JSON.parse(clean.slice(start, end + 1)) as Record<string, unknown>;
+  const data = researchSchema.parse({
+    owner_name: null, owner_title: null, website: null, website_issues: [],
+    years_in_business: null, license_numbers: [], services: [], service_area: [],
+    emergency_24_7: null, bbb: { rating: null, accredited: null, url: null },
+    facebook: { url: null, last_post_date: null },
+    instagram: { url: null, last_post_date: null },
+    booking_software: null, employees_estimate: null, is_franchise: null,
+    is_lead_gen_listing: null, call_hooks: [], summary: "", sources: [], confidence: "low",
+    ...raw,
+    bbb: { rating: null, accredited: null, url: null, ...(raw.bbb as object || {}) },
+    facebook: { url: null, last_post_date: null, ...(raw.facebook as object || {}) },
+    instagram: { url: null, last_post_date: null, ...(raw.instagram as object || {}) },
+  });
   for (const field of ["owner_name", "owner_title", "website", "website_issues",
     "years_in_business", "license_numbers", "services", "service_area", "emergency_24_7",
     "booking_software", "employees_estimate", "is_franchise", "is_lead_gen_listing"] as const) {
     const value = data[field];
     if (value !== null && (!Array.isArray(value) || value.length > 0) &&
         !data.sources.some((source) => source.field === field))
-      throw new Error(`${field} has no opened source`);
+      (data as Record<string, unknown>)[field] = Array.isArray(value) ? [] : null;
   }
   for (const field of ["bbb", "facebook", "instagram"] as const)
     if (Object.values(data[field]).some((value) => value !== null) &&
         !data.sources.some((source) => source.field === field))
-      throw new Error(`${field} has no opened source`);
+      (data as Record<string, unknown>)[field] = field === "bbb"
+        ? { rating: null, accredited: null, url: null }
+        : { url: null, last_post_date: null };
   return data;
 }
-async function anthropic(leadId: string, operation: string, prompt: string, maxSearches = 1): Promise<{ text: string; cost: number; sources: string[]; fetchedSources: string[] }> {
+async function anthropic(leadId: string, operation: string, prompt: string, maxSearches = 1, useTools = true, maxTokens = 1600, systemPrompt = AI_SYSTEM, model = OPENROUTER_MODEL, structured = false, forceSearch = false): Promise<{ text: string; cost: number; sources: string[]; fetchedSources: string[] }> {
   if (!OPENROUTER_KEY) throw new Error("OPENROUTER_API_KEY is not configured");
   try { await reserve(AI_RESERVE_USD); } catch (error) { await budgetNotice(); throw error; }
   let logged = false;
   try {
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST", headers: { authorization: `Bearer ${OPENROUTER_KEY}`, "content-type": "application/json" },
-      body: JSON.stringify({ model: OPENROUTER_MODEL, max_tokens: 1600,
-        messages: [{ role: "system", content: AI_SYSTEM }, { role: "user", content: prompt }],
-        tools: [{ type: "openrouter:web_search", parameters: { max_uses: maxSearches, max_total_results: maxSearches } },
-          { type: "openrouter:web_fetch" }], max_tool_calls: 3 }),
+      body: JSON.stringify({ model, max_tokens: maxTokens,
+        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: prompt }],
+        ...(structured ? { reasoning: { effort: "none" } } : {}),
+        ...(structured ? { response_format: { type: "json_schema", json_schema: {
+          name: "lead_research", strict: true, schema: researchJsonSchema } } } : {}),
+        ...(forceSearch ? { plugins: [{ id: "web", max_results: 2 }] } : {}),
+        ...(useTools ? { tools: [
+          ...(forceSearch ? [] : [
+          { type: "openrouter:web_search", parameters: { max_uses: maxSearches, max_total_results: Math.max(2, maxSearches) } },
+          ]), { type: "openrouter:web_fetch" }], max_tool_calls: forceSearch ? 2 : maxSearches > 1 ? 16 : 3 } : {}) }),
       signal: AbortSignal.timeout(120000),
     });
     const data = await response.json() as { choices?: Array<{ message?: { content?: string;
@@ -406,10 +471,14 @@ async function anthropic(leadId: string, operation: string, prompt: string, maxS
     await release(AI_RESERVE_USD - actual);
     await logCall(leadId, "ai_research", { operation, searches,
       fetches: data.usage?.server_tool_use_details?.web_fetch_requests || 0,
-      model: OPENROUTER_MODEL,
+      model,
       input_tokens: data.usage?.prompt_tokens, output_tokens: data.usage?.completion_tokens },
       response.ok ? "ok" : "error", actual, data.error?.message);
     logged = true;
+    if (!response.ok && model.endsWith(":free") &&
+        /free-models-per-day/i.test(data.error?.message || ""))
+      return anthropic(leadId, operation, prompt, maxSearches, useTools, maxTokens,
+        systemPrompt, OPENROUTER_RESEARCH_MODEL, structured, forceSearch);
     if (!response.ok) throw new Error(`OpenRouter API: ${data.error?.message || response.status}`);
     const message = data.choices?.[0]?.message;
     const cited = message?.annotations?.map((item) => item.url_citation?.url)
@@ -423,21 +492,43 @@ async function anthropic(leadId: string, operation: string, prompt: string, maxS
 export async function enrichAi(leadId: string): Promise<Record<string, unknown>> {
   const lead = await leadById(leadId);
   const listing = lead.custom_fields?.open_places as { website?: string; category?: string } | undefined;
-  const prompt = `Research this business. Open each cited source with web_fetch before using it. Output JSON with exactly these fields: ${AI_KEYS.join(", ")}. Empty arrays for unknown lists, null for unknown scalar fields, and 2-3 factual call hooks. Set owner_name and owner_title to null. Company: ${lead.company || "unknown"}; state: ${lead.state || "unknown"}; public listing website: ${listing?.website || "unknown"}; listing category: ${listing?.category || "unknown"}.`;
+  const discovery = await anthropic(leadId, "research_search",
+    `Search the web once for public business information about ${lead.company || "unknown"} in ${lead.state || "unknown"}. Return at most three short factual statements with cited source URLs. Do not include people's names, phone numbers, email addresses, or Google ratings. Public listing website: ${listing?.website || "unknown"}.`, 1, true, 450,
+    "Find public business facts with one web search. Cite source URLs in a short plain-text answer. Exclude people, phone numbers, email addresses, and Google Maps data.", OPENROUTER_MODEL, false, true);
+  if (!discovery.sources.length) throw new Error("AI web search returned no cited source");
+  const findings = discovery.text.replace(/\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b/gi, "[redacted]")
+    .replace(/\b(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}\b/g, "[redacted]").slice(0, 1500);
+  const prompt = `Using only these web search findings, output JSON with exactly these fields: ${AI_KEYS.join(", ")}. Empty arrays for unknown lists, null for unknown scalar fields, and 2-3 factual call hooks if supported. Set owner_name and owner_title to null. Cite only these source URLs: ${discovery.sources.join(", ")}. Findings: ${findings}. Company: ${lead.company || "unknown"}; state: ${lead.state || "unknown"}; public listing category: ${listing?.category || "unknown"}.`;
   let data: Record<string, unknown> | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const result = await anthropic(leadId, "research", prompt + (attempt ? " Return strictly valid JSON this time." : ""));
+    const result = await anthropic(leadId, "research_json", prompt + (attempt ? " Return strictly valid JSON this time." : ""),
+      0, false, 1600, AI_SYSTEM, OPENROUTER_RESEARCH_MODEL, true);
     try {
       data = parseResearch(result.text);
       if (OPENROUTER_MODEL.endsWith(":free")) {
         data.owner_name = null;
         data.owner_title = null;
       }
-      const opened = new Set(result.fetchedSources.map((url) => url.replace(/\/#?$/, "")));
-      for (const source of data.sources as Array<{ url: string }>)
-        if (!opened.has(source.url.replace(/\/#?$/, ""))) throw new Error(`Source was not opened: ${source.url}`);
+      const opened = new Set(discovery.sources.map((url) => url.replace(/\/#?$/, "")));
+      data.sources = (data.sources as Array<{ field: string; url: string }>).filter((source) =>
+        opened.has(source.url.replace(/\/#?$/, "")));
+      data = parseResearch(JSON.stringify(data));
+      if (!(data.sources as Array<unknown>).length) {
+        for (const field of ["website", "years_in_business", "emergency_24_7", "booking_software",
+          "employees_estimate", "is_franchise", "is_lead_gen_listing"]) data[field] = null;
+        for (const field of ["website_issues", "license_numbers", "services", "service_area", "call_hooks"]) data[field] = [];
+        data.bbb = { rating: null, accredited: null, url: null };
+        data.facebook = { url: null, last_post_date: null };
+        data.instagram = { url: null, last_post_date: null };
+        data.summary = "No verified public business facts found.";
+        data.confidence = "low";
+      }
       break;
-    } catch (error) { if (attempt) throw error; }
+    } catch (error) {
+      await logCall(leadId, "ai_research", { operation: "research_validation",
+        response_length: result.text.length }, "error", 0, String(error)).catch(() => {});
+      if (attempt) throw error;
+    }
   }
   if (!data) throw new Error("AI research validation failed");
   await logCall(leadId, "ai_research", { operation: "validated_research", result: data }, "ok", 0);
@@ -471,4 +562,4 @@ export async function runLead(leadId: string, mode: Mode, grid: 3 | 5): Promise<
 }
 export async function sendJobSummary(message: string): Promise<void> { await slack(message); }
 export const costEstimate = (mode: Mode, grid: 3 | 5) =>
-  (mode === "ai" ? 0 : (grid * grid + 1) * GOOGLE_CALL_USD) + (mode === "google" ? 0 : AI_RESERVE_USD);
+  (mode === "ai" ? 0 : (grid * grid + 1) * GOOGLE_CALL_USD) + (mode === "google" ? 0 : 2 * AI_RESERVE_USD);
