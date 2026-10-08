@@ -6,7 +6,7 @@ export function validUuid(value: string): boolean { return uuid.test(value); }
 
 export async function edgeCall(name: "enrich-google" | "enrich-ai" | "enrichment-worker" | "find-new-leads", body: unknown): Promise<any> {
   const base = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+  const key = process.env.ENRICHMENT_INVOKE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
   if (!base || !key) throw new Error("Supabase Edge Functions are not configured");
   const response = await fetch(`${base}/functions/v1/${name}`, {
     method: "POST", headers: { apikey: key, authorization: `Bearer ${key}`, "content-type": "application/json" },

@@ -5,6 +5,7 @@ declare const Deno: { env: { get(name: string): string | undefined } };
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+const INVOKE_KEY = Deno.env.get("ENRICHMENT_INVOKE_KEY") || SERVICE_KEY;
 const GOOGLE_KEY = Deno.env.get("GOOGLE_PLACES_API_KEY") || "";
 const OPEN_PLACES_KEY = Deno.env.get("OPEN_PLACES_API_KEY") || "";
 const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY") || "";
@@ -45,7 +46,7 @@ export function json(data: unknown, status = 200): Response {
 }
 export function authorize(req: Request): void {
   const header = req.headers.get("authorization") || "";
-  if (!SERVICE_KEY || header !== `Bearer ${SERVICE_KEY}`)
+  if (!INVOKE_KEY || header !== `Bearer ${INVOKE_KEY}`)
     throw new Error("Unauthorized enrichment request");
 }
 export function errorResponse(error: unknown): Response {
