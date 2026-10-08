@@ -28,7 +28,11 @@ export function CompanyEnrichment({ companyId }: { companyId: string }) {
       setGoogle(result.google || null);
       await cache.invalidateQueries({ queryKey: ["company-enrichment", companyId] });
       await cache.invalidateQueries({ queryKey: ["company-crm", "company", companyId] });
-    } catch (e) { setError(e instanceof Error ? e.message : "Enrichment failed"); }
+    } catch (e) {
+      await cache.invalidateQueries({ queryKey: ["company-enrichment", companyId] });
+      await cache.invalidateQueries({ queryKey: ["company-crm", "company", companyId] });
+      setError(e instanceof Error ? e.message : "Enrichment failed");
+    }
     finally { setBusy(false); }
   }
   async function ask() {

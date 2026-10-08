@@ -421,6 +421,8 @@ function parseResearch(text: string): Record<string, unknown> {
   const end = clean.lastIndexOf("}");
   if (start < 0 || end <= start) throw new Error("AI response did not contain a JSON object");
   const raw = JSON.parse(clean.slice(start, end + 1)) as Record<string, unknown>;
+  // The model occasionally returns four useful hooks; the CRM stores at most three.
+  if (Array.isArray(raw.call_hooks)) raw.call_hooks = raw.call_hooks.slice(0, 3);
   const data = researchSchema.parse({
     owner_name: null, owner_title: null, website: null, website_issues: [],
     years_in_business: null, license_numbers: [], services: [], service_area: [],
@@ -656,10 +658,22 @@ export async function enrichCompany(companyId: string, mode: Mode = "both", grid
     const discovery = await anthropic(null, "company_research_search",
       `Search once for public business information about ${company.name} in ${company.state || "unknown"}. Return three short facts with source URLs. Website: ${listing?.website || company.website || "unknown"}. Do not include personal contacts or Google data.`,
       1, true, 450, "Find public business facts with cited source URLs. Exclude people, private contact details and Google Maps data.", OPENROUTER_MODEL, false, true, companyId);
-    const synthesis = await anthropic(null, "company_research_json",
-      `Using only these cited findings, return the requested research JSON. Set owner_name and owner_title to null. Cite only these URLs: ${discovery.sources.join(", ")}. Findings: ${discovery.text.slice(0, 1500)}. Company: ${company.name}.`,
-      0, false, 1600, AI_SYSTEM, OPENROUTER_RESEARCH_MODEL, true, false, companyId);
-    const research = parseResearch(synthesis.text);
+    const prompt = `Using only these cited findings, return the requested research JSON. Include no more than 3 call_hooks. Set owner_name and owner_title to null. Cite only these URLs: ${discovery.sources.join(", ")}. Findings: ${discovery.text.slice(0, 1500)}. Company: ${company.name}.`;
+    let research: Record<string, unknown> | undefined;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const synthesis = await anthropic(null, "company_research_json",
+        prompt + (attempt ? " Correct the JSON schema and return valid JSON only." : ""),
+        0, false, 1600, AI_SYSTEM, OPENROUTER_RESEARCH_MODEL, true, false, companyId);
+      try { research = parseResearch(synthesis.text); break; }
+      catch (error) {
+        await logEntityCall(null, companyId, "ai_research", {
+          operation: "company_research_validation", attempt: attempt + 1,
+          response_length: synthesis.text.length,
+        }, "error", 0, String(error)).catch(() => {});
+        if (attempt) throw new Error("Company research returned invalid data after two attempts. Please retry enrichment.");
+      }
+    }
+    if (!research) throw new Error("Company research could not be validated");
     const opened = new Set(discovery.sources);
     research.sources = (research.sources as Array<{ field: string; url: string }>).filter((s) => opened.has(s.url));
     if (!(research.sources as Array<unknown>).length) {
