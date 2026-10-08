@@ -11,6 +11,7 @@ import { Slider } from "@/components/ui/slider";
 import { useToast } from "@/hooks/use-toast";
 import { asArray } from "@/lib/data-shape";
 import { BusinessDiscovery } from "@/components/business-discovery";
+import { CrmProspects } from "@/components/crm-prospects";
 
 interface Prospect { id: string; firstName: string; lastName: string; email?: string; title?: string; seniority?: string; department?: string; company?: string; companySize?: string; industry?: string; city?: string; state?: string; country?: string; technologies?: string[]; intentScore: number; emailVerified: boolean; savedToLeads: boolean; }
 
@@ -61,10 +62,12 @@ export default function ProspectSearch() {
   return (
     <div className="page-stack">
       <BusinessDiscovery />
+      <CrmProspects />
+      {prospects.length > 0 && <>
       <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
         <div>
-          <PageTitle>Prospect Search</PageTitle>
-          <PageDescription>Find and save high-intent prospects to your contacts</PageDescription>
+          <PageTitle>Imported prospect records</PageTitle>
+          <PageDescription>Prospects imported from another source that have not yet been saved as leads</PageDescription>
         </div>
         {selected.size > 0 && (
           <Button className="bg-primary text-white" onClick={() => saveMutation.mutate(selectedProspects)} disabled={saveMutation.isPending}>
@@ -193,6 +196,7 @@ export default function ProspectSearch() {
           <div className="text-xs text-muted-foreground text-center">{result?.total || 0} prospects found</div>
         </div>
       </div>
+      </>}
     </div>
   );
 }

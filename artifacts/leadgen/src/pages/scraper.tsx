@@ -10,6 +10,7 @@ import { getListLeadsQueryKey } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { asArray } from "@/lib/data-shape";
+import { BusinessDiscovery } from "@/components/business-discovery";
 import {
   Globe,
   Search,
@@ -157,7 +158,7 @@ export default function ScraperPage() {
   const [urlSelected, setUrlSelected] = useState<Set<string>>(new Set());
 
   // Domain tab
-  const [domainInput, setDomainInput] = useState("");
+  const [domainInput, setDomainInput] = useState(() => new URLSearchParams(window.location.search).get("domain") || "");
   const [domainResults, setDomainResults] = useState<ScrapedLead[]>([]);
   const [domainPatterns, setDomainPatterns] = useState<string[]>([]);
   const [domainLoading, setDomainLoading] = useState(false);
@@ -245,10 +246,11 @@ export default function ScraperPage() {
   return (
 
       <div className="page-stack">
+        <BusinessDiscovery />
         {/* Header */}
         <div>
           <PageTitle>Lead Finder</PageTitle>
-          <PageDescription>Find public business emails on company websites. For local business discovery, use <a className="underline" href="/prospect-search">Prospecting</a>.</PageDescription>
+          <PageDescription>Find businesses by category, then scan their public websites for contact emails.</PageDescription>
         </div>
 
         {/* Tab bar */}
@@ -290,7 +292,7 @@ export default function ScraperPage() {
               </div>
               <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                 <Info className="w-3.5 h-3.5 flex-shrink-0" />
-                Automatically checks /team, /about, /people, /contact and extracts email addresses
+                Checks public home, team, about, people, and contact pages. Some sites hide emails or require JavaScript.
               </p>
             </div>
 
@@ -341,19 +343,6 @@ export default function ScraperPage() {
               />
             )}
 
-            {/* Examples */}
-            {!domainResults.length && !domainLoading && !domainError && (
-              <div className="rounded-xl border border-border bg-card p-4">
-                <p className="text-xs text-muted-foreground font-medium mb-3">Try these examples:</p>
-                <div className="flex flex-wrap gap-2">
-                  {["stripe.com","notion.so","linear.app","vercel.com","github.com"].map((d) => (
-                    <button key={d} onClick={() => setDomainInput(d)} className="text-xs bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-border px-3 py-1.5 rounded-lg transition-colors font-mono">
-                      {d}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
 

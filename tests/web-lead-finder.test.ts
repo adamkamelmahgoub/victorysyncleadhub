@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractWebsiteContacts, safeWebsiteUrl } from "../lib/web-lead-finder.js";
+import { extractWebsiteContacts, publicAddress, safeWebsiteUrl } from "../lib/web-lead-finder.js";
 
 test("extracts public business emails and ignores scripts and repeat addresses", () => {
   const contacts = extractWebsiteContacts(`<html><title>Acme Plumbing | Tulsa</title>
@@ -15,6 +15,8 @@ test("extracts public business emails and ignores scripts and repeat addresses",
 });
 
 test("rejects private and credentialed URLs before fetching", async () => {
+  assert.equal(publicAddress("192.0.43.8"), true);
+  assert.equal(publicAddress("192.0.0.8"), false);
   await assert.rejects(safeWebsiteUrl("http://127.0.0.1/admin"), /public website/);
   await assert.rejects(safeWebsiteUrl("http://user:password@example.com"), /public website/);
   await assert.rejects(safeWebsiteUrl("http://localhost/admin"), /public website/);

@@ -61,7 +61,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const input = await body(req);
     if (action === "discover") {
       const discovered = await edgeCall("find-new-leads", { action: "preview", city: input.city,
-        state: input.state, radius_mi: input.radius_mi, pages: input.pages || 1 });
+        state: input.state, radius_mi: input.radius_mi, pages: input.pages || 1,
+        category: input.category, query: input.query });
       const places = Array.isArray(discovered.places) ? discovered.places : [];
       const phones = [...new Set(places.map((place: Record<string, any>) =>
         String(place.phone || "").replace(/\D/g, "").slice(-10)).filter((phone: string) => phone.length === 10))]

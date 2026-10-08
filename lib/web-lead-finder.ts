@@ -5,7 +5,7 @@ export type FoundContact = { firstName: string; lastName: string; email: string;
   phone: string | null; company: string | null; title: string | null;
   sourceUrl: string; confidence: "high" | "medium" | "low" };
 
-function publicAddress(address: string): boolean {
+export function publicAddress(address: string): boolean {
   if (address.includes(":")) {
     const lower = address.toLowerCase();
     return !(lower === "::1" || lower === "::" || lower.startsWith("fe80:") ||
@@ -16,7 +16,8 @@ function publicAddress(address: string): boolean {
   return !(a === 0 || a === 10 || a === 127 || a >= 224 ||
     a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 ||
     a === 192 && b === 168 || a === 100 && b >= 64 && b <= 127 ||
-    a === 192 && b === 0 || a === 198 && (b === 18 || b === 19));
+    a === 192 && b === 0 && parts[2] === 0 ||
+    a === 198 && (b === 18 || b === 19));
 }
 
 export async function safeWebsiteUrl(value: string): Promise<URL> {
@@ -87,7 +88,7 @@ export async function fetchWebsiteContacts(value: string): Promise<{ leads: Foun
 export async function scanDomain(value: string): Promise<{ leads: FoundContact[]; pagesChecked: number; emailPatterns: string[] }> {
   const origin = await safeWebsiteUrl(value);
   const base = `${origin.protocol}//${origin.host}`;
-  const paths = ['/', '/about', '/team', '/people', '/contact'];
+  const paths = ['/', '/about', '/about-us', '/team', '/our-team', '/people', '/staff', '/contact', '/contact-us'];
   const results = await Promise.allSettled(paths.map((path) => fetchWebsiteContacts(base + path)));
   const byEmail = new Map<string, FoundContact>();
   let pagesChecked = 0;

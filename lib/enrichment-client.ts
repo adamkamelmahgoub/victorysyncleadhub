@@ -27,11 +27,14 @@ export async function askAboutCompany(companyId: string, question: string) {
     throw new Error("Company ID and a question up to 2,000 characters are required");
   return edgeCall("enrich-company", { company_id: companyId, question });
 }
-export async function findNewLeads(city: string, state: string, radiusMi: number) {
+export async function findNewLeads(city: string, state: string, radiusMi: number,
+  category?: string, query?: string) {
   if (!city.trim() || city.length > 100 || !state.trim() || state.length > 40 ||
       !Number.isFinite(radiusMi) || radiusMi <= 0 || radiusMi > 50)
     throw new Error("City, state, and radius_mi from 1 to 50 are required");
-  return edgeCall("find-new-leads", { city: city.trim(), state: state.trim(), radius_mi: radiusMi });
+  if (category && query) throw new Error("Choose a category or a search phrase");
+  return edgeCall("find-new-leads", { city: city.trim(), state: state.trim(), radius_mi: radiusMi,
+    category: category?.trim(), query: query?.trim() });
 }
 export async function enrichLead(leadId: string, mode: EnrichmentMode, grid: 3 | 5,
   provider: EnrichmentProvider = "combined") {

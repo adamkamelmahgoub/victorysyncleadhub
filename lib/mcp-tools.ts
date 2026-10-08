@@ -1070,10 +1070,12 @@ export function createCrmMcpServer(who: McpIdentity) {
       grid: z.union([z.literal(3), z.literal(5)]).default(3) },
     true, false, async (_db, a) => previewBulk(a, a.mode, a.grid));
   tool(server, who, "find_new_leads",
-    "Find plumbing and HVAC businesses near a US city with Open Places / Overture, skip CRM and DNC phone numbers, and add new leads tagged op-new and needs-enrichment. Uses at most 40 API calls.",
+    "Find businesses of any Overture category, or by a business-type search phrase, near a US city with Open Places. Skips CRM and DNC phone numbers and adds new leads tagged op-new and needs-enrichment. Category and query are mutually exclusive; omitting both searches plumbing and HVAC for backward compatibility.",
     { city: z.string().min(1).max(100), state: z.string().min(2).max(40),
-      radius_mi: z.number().positive().max(50).default(25) },
-    false, false, async (_db, a) => findNewLeads(a.city, a.state, a.radius_mi), 180);
+      radius_mi: z.number().positive().max(50).default(25),
+      category: z.string().regex(/^[a-z0-9][a-z0-9_:-]{0,127}$/).optional(),
+      query: z.string().min(2).max(128).optional() },
+    false, false, async (_db, a) => findNewLeads(a.city, a.state, a.radius_mi, a.category, a.query), 180);
   }
   return server;
 }

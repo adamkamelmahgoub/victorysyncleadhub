@@ -9,7 +9,7 @@ import { EmailInputError, emailOperationError } from '../lib/email-security.js';
 import { mailboxTransport } from '../artifacts/api-server/src/lib/email-transports.js';
 import { inboxAdapter } from '../artifacts/api-server/src/lib/inbox-adapters.js';
 import { WorkflowService,isWorkflowEndpoint,isPublicWorkflowEndpoint } from '../lib/workflow-service.js';
-export const config = { api: { bodyParser: false } };
+export const config = { api: { bodyParser: false }, maxDuration: 60 };
 
 type VercelRequest = {
   method?: string;
@@ -2594,6 +2594,36 @@ async function getProspectFilters(res: VercelResponse) {
   });
 }
 
+async function listCrmProspects(req: VercelRequest, res: VercelResponse) {
+  const url = new URL(req.url ?? "/api/prospects/crm", "https://local.invalid");
+  const search = (url.searchParams.get("search") || "").trim().slice(0, 120);
+  const category = (url.searchParams.get("category") || "").trim().slice(0, 80);
+  const status = (url.searchParams.get("status") || "").trim().slice(0, 60);
+  const offset = Math.min(10000, Math.max(0, Number(url.searchParams.get("offset")) || 0));
+  const where = [`true`];
+  const args: unknown[] = [];
+  if (search) {
+    args.push(`%${search}%`);
+    where.push(`(coalesce(company,'') ilike $${args.length} or coalesce(first_name,'') ilike $${args.length}
+      or coalesce(last_name,'') ilike $${args.length} or coalesce(email,'') ilike $${args.length}
+      or coalesce(phone,'') ilike $${args.length})`);
+  }
+  if (category) {
+    args.push(`%${category}%`);
+    where.push(`coalesce(custom_fields->'open_places'->>'category',custom_fields->>'industry','') ilike $${args.length}`);
+  }
+  if (status) { args.push(status); where.push(`status=$${args.length}`); }
+  const filter = where.join(" and ");
+  const count = await mcpPool.query(`select count(*)::int as total from public.leads where ${filter}`, args);
+  const rows = await mcpPool.query(`select id,first_name,last_name,company,email,phone,status,source,state,
+    dnc,suppressed_reason,tags,created_at,custom_fields->>'city' as city,
+    coalesce(custom_fields->'open_places'->>'category',custom_fields->>'industry') as category
+    from public.leads where ${filter} order by created_at desc,id desc
+    limit 100 offset $${args.length + 1}`, [...args, offset]);
+  sendJson(res, 200, { prospects: rows.rows.map(toCamelValue), total: count.rows[0]?.total || 0,
+    limit: 100, offset });
+}
+
 async function listProspects(req: VercelRequest, res: VercelResponse) {
   const url = new URL(req.url ?? "/api/prospects", "https://local.invalid");
   const search = url.searchParams.get("search")?.trim().toLowerCase();
@@ -3140,6 +3170,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (method === "GET" && path === "/api/prospects/filters") {
       await getProspectFilters(res);
+      return;
+    }
+
+    if (method === "GET" && path === "/api/prospects/crm") {
+      await listCrmProspects(req, res);
       return;
     }
 
