@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import { mcpPool } from "../lib/mcp-auth.js";
+import { fetchWebsiteContacts, scanDomain } from "../lib/web-lead-finder.js";
 import { leadReports } from "../artifacts/api-server/src/lib/lead-reports.js";
 import { companyCrmRequest } from "../artifacts/api-server/src/lib/company-crm.js";
 import { DISPOSITIONS, parseCall, parseOutreachUpdate } from '../lib/outreach.js';
@@ -2583,10 +2585,12 @@ async function updateLeadStage(path: string, method: string, req: VercelRequest,
 }
 
 async function getProspectFilters(res: VercelResponse) {
+  const rows = await mcpPool.query("select distinct industry,company_size,seniority from public.prospects");
+  const options = (key: "industry" | "company_size" | "seniority") =>
+    [...new Set(rows.rows.map((row) => row[key]).filter((value) => typeof value === "string" && value.trim()))].sort();
   sendJson(res, 200, {
-    industries: ["Legal Services", "Healthcare", "Real Estate", "Home Services", "Professional Services"],
-    companySizes: ["1-10", "11-50", "51-200", "201-500", "501-1000", "1001-5000"],
-    seniorities: ["owner", "founder", "partner", "executive", "director", "manager"],
+    industries: options("industry"), companySizes: options("company_size"),
+    seniorities: options("seniority"),
   });
 }
 
@@ -2622,29 +2626,44 @@ async function listProspects(req: VercelRequest, res: VercelResponse) {
 }
 
 async function saveProspectsToLeads(req: VercelRequest, res: VercelResponse) {
-  const body = (await readJson(req)) as { prospects?: Array<Record<string, unknown>> };
-  const prospects = Array.isArray(body.prospects) ? body.prospects : [];
-  if (prospects.length === 0) {
-    sendJson(res, 400, { error: "prospects are required" });
+  const body = (await readJson(req)) as { ids?: string[] };
+  const ids = Array.isArray(body.ids) ? [...new Set(body.ids)] : [];
+  if (!ids.length || ids.length > 500 || ids.some((id) => !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id))) {
+    sendJson(res, 400, { error: "Select 1 to 500 prospects" });
     return;
   }
-  const payload = prospects.map((prospect) => ({
-    first_name: String(prospect.firstName ?? prospect.first_name ?? ""),
-    last_name: String(prospect.lastName ?? prospect.last_name ?? ""),
-    email: prospect.email ?? null,
-    phone: String(prospect.phone ?? "").trim(),
-    company: prospect.company ?? null,
-    title: prospect.title ?? null,
-    source: "prospect_search",
-    status: "new",
-    score: Number(prospect.score ?? 0),
-    custom_fields: prospect,
-  }));
-  const rows = await supabaseRest("leads", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  }, req) as LeadRow[];
-  sendJson(res, 201, { saved: rows.length, imported: rows.length, leads: rows.map(leadFromRow) });
+  const client = await mcpPool.connect();
+  let saved = 0;
+  try {
+    await client.query("begin");
+    const { rows } = await client.query(
+      "select * from public.prospects where id=any($1::uuid[]) for update", [ids]);
+    for (const prospect of rows) {
+      if (prospect.saved_to_leads) continue;
+      const phone = prospect.phone ? String(prospect.phone) : null;
+      const email = prospect.email ? String(prospect.email).trim().toLowerCase() : null;
+      if (!phone && !email) continue;
+      const eligible = await client.query(`select not exists (
+        select 1 from public.leads where (normalized_phone=public.outreach_phone($1))
+          or ($2::text is not null and normalized_email=$2)
+        union all select 1 from public.outreach_suppressions where
+          (identity_type='phone' and identity_value=public.outreach_phone($1)) or
+          (identity_type='email' and identity_value=$2)
+      ) as available`, [phone, email]);
+      if (!eligible.rows[0]?.available) continue;
+      const inserted = await client.query(`insert into public.leads
+        (first_name,last_name,email,phone,company,title,source,status,custom_fields)
+        values($1,$2,$3,$4,$5,$6,'prospect_search','new',$7::jsonb) returning id`,
+        [prospect.first_name, prospect.last_name, email, phone, prospect.company,
+          prospect.title, JSON.stringify({ prospect_id: prospect.id, city: prospect.city, state: prospect.state })]);
+      await client.query("update public.prospects set saved_to_leads=true,lead_id=$2,updated_at=now() where id=$1",
+        [prospect.id, inserted.rows[0].id]);
+      saved++;
+    }
+    await client.query("commit");
+    sendJson(res, 200, { saved, skipped: ids.length - saved });
+  } catch (error) { await client.query("rollback"); throw error; }
+  finally { client.release(); }
 }
 
 async function getOnboarding(req: VercelRequest, res: VercelResponse) {
@@ -2728,22 +2747,59 @@ async function sendEmail(req: VercelRequest, res: VercelResponse) {
 
 async function handleScraper(path: string, method: string, req: VercelRequest, res: VercelResponse) {
   if (method !== "POST") return false;
-  if (!["/api/scraper/url", "/api/scraper/domain", "/api/scraper/search"].includes(path)) {
+  if (!["/api/scraper/url", "/api/scraper/domain", "/api/scraper/search", "/api/scraper/import"].includes(path)) {
     return false;
   }
 
   const body = (await readJson(req)) as Record<string, unknown>;
+  if (path === "/api/scraper/import") {
+    const contacts = Array.isArray(body.contacts) ? body.contacts as Array<Record<string, unknown>> : [];
+    if (!contacts.length || contacts.length > 100) { sendJson(res, 400, { error: "Select 1 to 100 contacts" }); return true; }
+    const client = await mcpPool.connect();
+    let imported = 0;
+    try {
+      await client.query("begin");
+      for (const contact of contacts) {
+        const email = String(contact.email || "").trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) continue;
+        const phone = String(contact.phone || "").trim().slice(0, 40) || null;
+        const exists = await client.query(`select exists(
+          select 1 from public.leads where normalized_email=$1 or
+            ($2::text is not null and normalized_phone=public.outreach_phone($2))
+          union all select 1 from public.outreach_suppressions where
+            (identity_type='email' and identity_value=$1) or
+            (identity_type='phone' and identity_value=public.outreach_phone($2))
+        ) as blocked`, [email, phone]);
+        if (exists.rows[0]?.blocked) continue;
+        await client.query(`insert into public.leads(first_name,last_name,email,phone,company,title,source,status,custom_fields)
+          values($1,$2,$3,$4,$5,$6,'web_scrape','new',$7::jsonb)`, [
+          String(contact.firstName || "").slice(0, 100), String(contact.lastName || "").slice(0, 100),
+          email, phone, String(contact.company || "").slice(0, 200) || null,
+          String(contact.title || "").slice(0, 100) || null,
+          JSON.stringify({ source_url: String(contact.sourceUrl || "").slice(0, 500) }),
+        ]);
+        imported++;
+      }
+      await client.query("commit");
+      sendJson(res, 200, { imported, skipped: contacts.length - imported });
+    } catch (error) { await client.query("rollback"); throw error; }
+    finally { client.release(); }
+    return true;
+  }
   const query = String(body.url ?? body.domain ?? body.query ?? "").trim();
   if (!query) {
     sendJson(res, 400, { error: "url, domain, or query is required" });
     return true;
   }
 
-  sendJson(res, 200, {
-    success: true,
-    results: [],
-    message: "Scraper request accepted. Configure a scraping provider key to pull live external results.",
-  });
+  if (query.length > 500) { sendJson(res, 400, { error: "URL or domain is too long" }); return true; }
+  if (path === "/api/scraper/url") {
+    sendJson(res, 200, await fetchWebsiteContacts(query)); return true;
+  }
+  if (path === "/api/scraper/domain") {
+    sendJson(res, 200, await scanDomain(query)); return true;
+  }
+  sendJson(res, 400, { error: "For a local business search, use Prospecting. For website contacts, enter a company domain or a public URL." });
   return true;
 }
 

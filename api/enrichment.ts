@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { allowedEmail, mcpPool } from "../lib/mcp-auth.js";
-import { askAboutLead, askAboutCompany, bulkEnrich, enrichLead, enrichCompany, jobStatus, leadEnrichment, previewBulk, resumeEnrichmentJob, validUuid } from "../lib/enrichment-client.js";
+import { askAboutLead, askAboutCompany, bulkEnrich, edgeCall, enrichLead, enrichCompany, jobStatus, leadEnrichment, previewBulk, resumeEnrichmentJob, validUuid } from "../lib/enrichment-client.js";
 
 export const config = { api: { bodyParser: false }, maxDuration: 300 };
 function respond(res: ServerResponse, status: number, data: unknown) {
@@ -59,6 +59,28 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
     if (req.method !== "POST") { respond(res, 405, { error: "Method not allowed" }); return; }
     const input = await body(req);
+    if (action === "discover") {
+      const discovered = await edgeCall("find-new-leads", { action: "preview", city: input.city,
+        state: input.state, radius_mi: input.radius_mi, pages: input.pages || 1 });
+      const places = Array.isArray(discovered.places) ? discovered.places : [];
+      const phones = [...new Set(places.map((place: Record<string, any>) =>
+        String(place.phone || "").replace(/\D/g, "").slice(-10)).filter((phone: string) => phone.length === 10))]
+        .map((phone) => `+1${phone}`);
+      const unavailable = new Set<string>();
+      if (phones.length) {
+        const existing = await mcpPool.query(
+          `select identity_value from public.outreach_suppressions where identity_type='phone' and identity_value=any($1::text[])
+           union select normalized_phone from public.leads where normalized_phone=any($1::text[])`, [phones]);
+        for (const row of existing.rows) unavailable.add(String(row.identity_value || row.normalized_phone));
+      }
+      respond(res, 200, { ...discovered, places: places.map((place: Record<string, any>) => ({
+        ...place, already_saved: unavailable.has(`+1${String(place.phone || "").replace(/\D/g, "").slice(-10)}`),
+      })) }); return;
+    }
+    if (action === "import_places") {
+      respond(res, 200, await edgeCall("find-new-leads", { action: "import", city: input.city,
+        state: input.state, radius_mi: input.radius_mi, places: input.places })); return;
+    }
     if (["preview", "bulk", "enrich"].includes(action || "")) {
       input.mode ||= "both";
       input.grid ||= action === "enrich" ? 5 : 3;

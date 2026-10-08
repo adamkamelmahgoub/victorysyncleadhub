@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCreateLead, getListLeadsQueryKey } from "@workspace/api-client-react";
+import { getListLeadsQueryKey } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { asArray } from "@/lib/data-shape";
@@ -145,7 +145,6 @@ function ResultsPanel({
 export default function ScraperPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const createLead = useCreateLead();
   const [tab, setTab] = useState<Tab>("domain");
   const [importing, setImporting] = useState(false);
 
@@ -217,15 +216,15 @@ export default function ScraperPage() {
     const toImport = leads.filter((l) => selected.has(l.email));
     if (!toImport.length) { toast({ title: "Select at least one contact", variant: "destructive" }); return; }
     setImporting(true);
-    let ok = 0, fail = 0;
-    for (const l of toImport) {
-      await new Promise<void>((resolve) => {
-        createLead.mutate({ data: { firstName: l.firstName, lastName: l.lastName, email: l.email, phone: l.phone ?? undefined, company: l.company ?? undefined, title: l.title ?? undefined, source: "web_scrape" } }, { onSuccess: () => { ok++; resolve(); }, onError: () => { fail++; resolve(); } });
-      });
-    }
-    queryClient.invalidateQueries({ queryKey: getListLeadsQueryKey() });
-    setImporting(false);
-    toast({ title: `Imported ${ok} contact${ok !== 1 ? "s" : ""}${fail ? ` (${fail} skipped)` : ""}` });
+    try {
+      const result = await apiFetch("/api/scraper/import", { method: "POST",
+        body: JSON.stringify({ contacts: toImport }) }) as { imported: number; skipped: number };
+      queryClient.invalidateQueries({ queryKey: getListLeadsQueryKey() });
+      toast({ title: `Imported ${result.imported} contact${result.imported !== 1 ? "s" : ""}`,
+        description: result.skipped ? `${result.skipped} duplicates, suppressed, or invalid contacts skipped` : undefined });
+    } catch (error) {
+      toast({ title: "Import failed", description: String(error), variant: "destructive" });
+    } finally { setImporting(false); }
   }
 
   function toggle(set: Set<string>, setter: (s: Set<string>) => void, email: string) {
@@ -241,7 +240,6 @@ export default function ScraperPage() {
   const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "domain", label: "Company Domain", icon: <Building2 className="w-3.5 h-3.5" /> },
     { id: "url", label: "Scrape URL", icon: <Globe className="w-3.5 h-3.5" /> },
-    { id: "search", label: "Web Search", icon: <Search className="w-3.5 h-3.5" /> },
   ];
 
   return (
@@ -250,7 +248,7 @@ export default function ScraperPage() {
         {/* Header */}
         <div>
           <PageTitle>Lead Finder</PageTitle>
-          <PageDescription>Find and import contacts from the web</PageDescription>
+          <PageDescription>Find public business emails on company websites. For local business discovery, use <a className="underline" href="/prospect-search">Prospecting</a>.</PageDescription>
         </div>
 
         {/* Tab bar */}

@@ -10,10 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { useToast } from "@/hooks/use-toast";
 import { asArray } from "@/lib/data-shape";
+import { BusinessDiscovery } from "@/components/business-discovery";
 
-interface Prospect { id: number; firstName: string; lastName: string; email?: string; title?: string; seniority?: string; department?: string; company?: string; companySize?: string; industry?: string; city?: string; state?: string; country?: string; technologies?: string[]; intentScore: number; emailVerified: boolean; savedToLeads: boolean; }
+interface Prospect { id: string; firstName: string; lastName: string; email?: string; title?: string; seniority?: string; department?: string; company?: string; companySize?: string; industry?: string; city?: string; state?: string; country?: string; technologies?: string[]; intentScore: number; emailVerified: boolean; savedToLeads: boolean; }
 
-const SENIORITIES = ["individual_contributor", "manager", "director", "vp", "c_suite", "founder"];
 const SEN_LABELS: Record<string, string> = { individual_contributor: "IC", manager: "Manager", director: "Director", vp: "VP", c_suite: "C-Suite", founder: "Founder" };
 
 function IntentBadge({ score }: { score: number }) {
@@ -26,10 +26,10 @@ export default function ProspectSearch() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [filters, setFilters] = useState({ search: "", title: "", industry: "", companySize: "", seniority: "", minIntent: "0" });
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(true);
 
-  const { data: result, isLoading, refetch } = useQuery({
+  const { data: result, isLoading, error: searchError } = useQuery({
     queryKey: ["prospects", filters],
     queryFn: () => {
       const params = new URLSearchParams();
@@ -41,15 +41,18 @@ export default function ProspectSearch() {
   const { data: filterOptions } = useQuery({ queryKey: ["prospect-filters"], queryFn: () => apiFetch("/prospects/filters") });
 
   const saveMutation = useMutation({
-    mutationFn: (prospects: Prospect[]) => apiFetch("/prospects/save-to-leads", { method: "POST", body: JSON.stringify({ prospects }) }),
-    onSuccess: (data) => { toast({ title: `${data.saved} prospects saved as leads` }); setSelected(new Set()); },
+    mutationFn: (prospects: Prospect[]) => apiFetch("/prospects/save-to-leads", { method: "POST", body: JSON.stringify({ ids: prospects.map((p) => p.id) }) }),
+    onSuccess: (data) => { toast({ title: `${data.saved} prospects saved as leads`, description: data.skipped ? `${data.skipped} already saved or suppressed` : undefined }); setSelected(new Set()); qc.invalidateQueries({ queryKey: ["prospects"] }); },
+    onError: (error) => toast({ title: "Could not save prospects", description: String(error), variant: "destructive" }),
   });
 
   const prospects = asArray<Prospect>(result?.prospects);
   const industries = asArray<string>(filterOptions?.industries);
   const companySizes = asArray<string>(filterOptions?.companySizes);
-  const toggleSelect = (id: number) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const toggleAll = () => setSelected(selected.size === prospects.length ? new Set() : new Set(prospects.map(p => p.id)));
+  const seniorities = asArray<string>(filterOptions?.seniorities);
+  const toggleSelect = (id: string) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleAll = () => setSelected(selected.size === prospects.filter((p) => !p.savedToLeads).length
+    ? new Set() : new Set(prospects.filter((p) => !p.savedToLeads).map(p => p.id)));
   const selectedProspects = prospects.filter(p => selected.has(p.id));
 
   const setFilter = (k: string, v: string) => setFilters(f => ({ ...f, [k]: v }));
@@ -57,6 +60,7 @@ export default function ProspectSearch() {
 
   return (
     <div className="page-stack">
+      <BusinessDiscovery />
       <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
         <div>
           <PageTitle>Prospect Search</PageTitle>
@@ -107,7 +111,7 @@ export default function ProspectSearch() {
                   <SelectTrigger className="mt-1"><SelectValue placeholder="Any level" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Any</SelectItem>
-                    {SENIORITIES.map(s => <SelectItem key={s} value={s}>{SEN_LABELS[s]}</SelectItem>)}
+                    {seniorities.map(s => <SelectItem key={s} value={s}>{SEN_LABELS[s] || s}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -152,13 +156,15 @@ export default function ProspectSearch() {
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide w-16 text-center">Email</span>
               <span className="w-8" />
             </div>
-            {isLoading ? (
+            {searchError ? (
+              <div className="text-center py-16 text-destructive">Could not load stored prospects: {String(searchError)}</div>
+            ) : isLoading ? (
               <div className="text-center py-16 text-muted-foreground">Searching…</div>
             ) : prospects.length === 0 ? (
               <div className="text-center py-16 text-muted-foreground">No prospects found — try adjusting your filters</div>
             ) : prospects.map(p => (
               <div key={p.id} className={`flex min-w-[720px] items-center gap-3 px-4 py-3 border-b last:border-0 hover:bg-muted/20 transition-colors ${selected.has(p.id) ? "bg-primary/5" : ""}`}>
-                <button onClick={() => toggleSelect(p.id)} className="text-muted-foreground hover:text-foreground">
+                <button onClick={() => toggleSelect(p.id)} disabled={p.savedToLeads} className="text-muted-foreground hover:text-foreground disabled:opacity-30">
                   {selected.has(p.id) ? <CheckSquare className="w-4 h-4 text-primary" /> : <Square className="w-4 h-4" />}
                 </button>
                 <div className="flex-1 min-w-0">
@@ -179,7 +185,7 @@ export default function ProspectSearch() {
                   {p.emailVerified ? <span className="text-green-600 text-xs font-medium">✓ Valid</span> : <span className="text-muted-foreground text-xs">Unverified</span>}
                 </div>
                 <div className="w-8">
-                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => saveMutation.mutate([p])} title="Save to contacts"><UserPlus className="w-3.5 h-3.5" /></Button>
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={p.savedToLeads || saveMutation.isPending} onClick={() => saveMutation.mutate([p])} title={p.savedToLeads ? "Already saved" : "Save to contacts"}><UserPlus className="w-3.5 h-3.5" /></Button>
                 </div>
               </div>
             ))}
