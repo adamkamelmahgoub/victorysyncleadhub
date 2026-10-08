@@ -271,10 +271,10 @@ function gridPoints(location: { latitude: number; longitude: number }, size: 3 |
       longitude: location.longitude + x * 1609.344 / (111320 * Math.cos(location.latitude * Math.PI / 180)) };
   });
 }
-export async function enrichGoogle(leadId: string, grid: 3 | 5): Promise<Record<string, unknown>> {
+export async function enrichGoogle(leadId: string, grid: 3 | 5, useOpenPlaces = true): Promise<Record<string, unknown>> {
   let lead = await leadById(leadId);
   if (!lead.company) throw new Error("Lead has no company name");
-  const open = await enrichOpenPlaces(leadId);
+  const open = useOpenPlaces ? await enrichOpenPlaces(leadId) : { status: "not_found" as const };
   lead = await leadById(leadId);
   const phone = lead.normalized_phone || lead.phone || "";
   const listing = open.place;
@@ -570,7 +570,8 @@ export async function askAboutLead(leadId: string, question: string): Promise<Re
   }
   return { answer: prose, sources: answer.sources, cost_usd: answer.cost };
 }
-export async function enrichCompany(companyId: string, mode: Mode = "both", grid: 3 | 5 = 3): Promise<Record<string, unknown>> {
+export async function enrichCompany(companyId: string, mode: Mode = "both", grid: 3 | 5 = 3,
+  provider: "open_places" | "google_places" | "combined" = "combined"): Promise<Record<string, unknown>> {
   if (!/^[0-9a-f-]{36}$/i.test(companyId)) throw new Error("Invalid company ID");
   const rows = await rest<Array<{ id: string; name: string; phone: string | null; city: string | null;
     state: string | null; website: string | null; fit_notes: string | null; tags: string[];
@@ -582,11 +583,11 @@ export async function enrichCompany(companyId: string, mode: Mode = "both", grid
   const lines: string[] = [];
   const result: Record<string, unknown> = {};
   const date = new Date().toISOString().slice(0, 10);
-  let listing = fields.open_places as OpenPlace | undefined;
+  let listing = provider === "google_places" ? undefined : fields.open_places as OpenPlace | undefined;
   if (mode !== "ai") {
     const wantedState = stateCode(company.state) || stateFromAreaCode(company.phone);
     const center = leadSearchCenter(wantedState, company.phone);
-    if (center) {
+    if (center && provider !== "google_places") {
       const found = await openPlacesSearch(null, { q: company.name, lat: center[0], lon: center[1],
         radius_mi: 50, mode: "name", limit: 20, min_confidence: 0.7 });
       const candidates = found.results.filter((p) => !wantedState || stateCode(p.address?.region) === wantedState);
@@ -603,22 +604,31 @@ export async function enrichCompany(companyId: string, mode: Mode = "both", grid
       tags.delete("enrich-op-not-found");
       lines.push(`${date} | Business listing (Open Places / Overture) | ${listing.name} | ${listing.address?.locality || "unknown city"}, ${stateCode(listing.address?.region) || wantedState || "unknown state"} | ${listing.category || "unknown category"}`);
       result.open_places = fields.open_places;
-    } else { tags.add("enrich-op-not-found"); result.open_places = { status: "not_found" }; }
+    } else if (provider !== "google_places") {
+      tags.add("enrich-op-not-found"); result.open_places = { status: "not_found" };
+    }
     const city = listing?.address?.locality || company.city;
     const state = stateCode(listing?.address?.region || company.state) || company.state;
-    if (city && (listing || state)) {
+    if (provider !== "open_places" && (city || state)) {
       const matches = await placesSearch(null, "google_places", "company_match", {
-        textQuery: `${company.name} ${city} ${state || ""}`, pageSize: 20,
+        textQuery: `${company.name} ${city || ""} ${state || ""}`, pageSize: 20,
         ...(listing ? { locationBias: { circle: { center: { latitude: listing.lat,
           longitude: listing.lon }, radius: 1609.344 } } } : {}),
-      }, openMatchMask, companyId);
-      const place = matches[0];
+      }, listing ? openMatchMask : matchMask, companyId);
+      const knownId = (fields.google as { place_id?: string } | undefined)?.place_id;
+      const exactPhone = digits(company.phone) ? matches.find((candidate) =>
+        digits(candidate.nationalPhoneNumber) === digits(company.phone)) : undefined;
+      const bestName = matches.sort((a, b) => nameScore(company.name, b.displayName?.text || "") -
+        nameScore(company.name, a.displayName?.text || ""))[0];
+      const place = matches.find((candidate) => candidate.id === knownId) || exactPhone ||
+        (listing ? matches[0] : bestName && nameScore(company.name, bestName.displayName?.text || "") >= 0.6 ? bestName : undefined);
       if (place) {
         fields.google = { place_id: place.id, fetched_at: new Date().toISOString() };
         const points: Array<{ x: number; y: number; position: number }> = [];
-        if (listing) for (const point of gridPoints({ latitude: listing.lat, longitude: listing.lon }, grid)) {
+        const shop = listing ? { latitude: listing.lat, longitude: listing.lon } : place.location;
+        if (shop) for (const point of gridPoints(shop, grid)) {
           const ranked = await placesSearch(null, "google_rank", `company_rank_${point.x}_${point.y}`, {
-            textQuery: /hvac|heating|cooling|air conditioning/i.test(`${company.name} ${listing.category || ""}`)
+            textQuery: /hvac|heating|cooling|air conditioning/i.test(`${company.name} ${listing?.category || ""}`)
               ? "HVAC contractor" : "plumber", pageSize: 20,
             locationBias: { circle: { center: { latitude: point.latitude,
               longitude: point.longitude }, radius: 1609.344 } },
@@ -629,7 +639,7 @@ export async function enrichCompany(companyId: string, mode: Mode = "both", grid
         result.google = { place_id: place.id, rating: place.rating, review_count: place.userRatingCount,
           hours: place.regularOpeningHours, category: place.primaryType, grid: points,
           top3_points: points.filter((p) => p.position <= 3).length };
-        lines.push(`${date} | Google Places | ${place.rating ?? "no rating"} stars, ${place.userRatingCount ?? "no"} reviews | top 3 on ${points.filter((p) => p.position <= 3).length}/${points.length} grid points`);
+        lines.push(`${date} | Google Places match | place ID: ${place.id} | live rating and rank shown only in this enrichment result`);
       } else result.google = { status: "not_found" };
     }
   }

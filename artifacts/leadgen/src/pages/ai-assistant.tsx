@@ -9,7 +9,9 @@ const suggestions = [
   "Show my overdue CRM tasks and suggest what to do first",
   "Summarize my pipeline and flag deals needing attention",
 ];
-export default function AiAssistant() {
+export default function AiAssistant({ compact = false, pageContext }: {
+  compact?: boolean; pageContext?: { type: "lead" | "company"; id: string };
+}) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -23,15 +25,17 @@ export default function AiAssistant() {
     setMessages(next);
     setDraft(""); setBusy(true); setError("");
     try {
-      const result = await apiFetch("/api/assistant", { method: "POST", body: JSON.stringify({ messages: next, seller_context: profile }) }) as { answer: string };
+      const result = await apiFetch("/api/assistant", { method: "POST", body: JSON.stringify({
+        messages: next, seller_context: profile, page_context: pageContext,
+      }) }) as { answer: string };
       setMessages([...next, { role: "assistant", content: result.answer }]);
     } catch (err) { setError(err instanceof Error ? err.message : "The assistant could not respond"); }
     finally { setBusy(false); }
   }
-  return <div className="mx-auto flex h-full max-w-4xl flex-col gap-4 p-4 md:p-8">
-    <div><h1 className="text-2xl font-semibold">AI assistant</h1>
+  return <div className={`mx-auto flex h-full min-h-0 flex-col gap-4 ${compact ? "p-4" : "max-w-4xl p-4 md:p-8"}`}>
+    <div><h1 className={compact ? "text-lg font-semibold" : "text-2xl font-semibold"}>AI assistant</h1>
       <p className="text-sm text-slate-600">Ask about your CRM, draft outreach, or make changes. Powered by Nemotron.</p></div>
-    <details className="rounded-xl border bg-white p-4">
+    {!compact && <details className="rounded-xl border bg-white p-4">
       <summary className="cursor-pointer text-sm font-semibold">Calling from: {profile.company_name || "Set your company context"}</summary>
       <p className="mt-2 text-xs text-slate-600">Prefilled from VictorySync’s public website. Edit campaign-specific details before drafting outreach. Changes are saved in this browser.</p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">{([
@@ -50,7 +54,8 @@ export default function AiAssistant() {
       <button type="button" onClick={() => { saveAssistantProfile(profile); setProfileSaved(true); }}
         className="mt-3 rounded-lg border px-4 py-2 text-sm font-semibold">Save context</button>
       {profileSaved && <span role="status" className="ml-3 text-xs text-green-700">Saved for this browser</span>}
-    </details>
+    </details>}
+    {compact && pageContext && <p className="text-xs text-blue-700">Current {pageContext.type} record is available for this conversation.</p>}
     <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border bg-white p-4" aria-live="polite">
       {!messages.length && <div className="grid gap-2 sm:grid-cols-2">{suggestions.map((s) =>
         <button key={s} onClick={() => void submit(s)} className="rounded-lg border p-3 text-left text-sm hover:bg-slate-50">{s}</button>)}</div>}

@@ -51,6 +51,7 @@ import BillingIntegration from "@/pages/billing-integration";
 import VictorySyncHome from "@/pages/victorysync-home";
 import AgentTraining from "@/pages/agent-training";
 import { Layout } from "@/components/layout";
+import { AssistantLauncher } from "@/components/assistant-launcher";
 import Login from "@/pages/login";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { useEffect } from "react";
@@ -78,8 +79,8 @@ function Router() {
       <Route path="/" component={Companies} />
       <Route path="/companies" component={Companies} />
       <Route path="/companies/:id" component={CompanyDetail} />
-      <Route path="/ai-assistant" component={AiAssistant} />
-      <Route path="/leadgen/ai-assistant" component={AiAssistant} />
+      <Route path="/ai-assistant" component={() => <AiAssistant />} />
+      <Route path="/leadgen/ai-assistant" component={() => <AiAssistant />} />
       <Route path="/trial-queue" component={TrialQueue} />
       <Route path="/company-kpis" component={CompanyKpis} />
       <Route path="/crm-tasks" component={CompanyTasks} />
@@ -286,6 +287,7 @@ function AuthenticatedApp() {
       <Layout>
         <Router />
       </Layout>
+      <AssistantLauncher />
     </AppErrorBoundary>
   );
 }

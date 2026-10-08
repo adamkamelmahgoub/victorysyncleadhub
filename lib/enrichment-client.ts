@@ -1,6 +1,7 @@
 import { mcpPool } from "./mcp-auth.js";
 
 export type EnrichmentMode = "google" | "ai" | "both";
+export type EnrichmentProvider = "open_places" | "google_places" | "combined";
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function validUuid(value: string): boolean { return uuid.test(value); }
 
@@ -16,9 +17,10 @@ export async function edgeCall(name: "enrich-google" | "enrich-ai" | "enrich-com
   if (!response.ok) throw new Error(String(data.error || `Edge Function ${name} returned ${response.status}`));
   return data;
 }
-export async function enrichCompany(companyId: string, mode: EnrichmentMode = "both", grid: 3 | 5 = 3) {
+export async function enrichCompany(companyId: string, mode: EnrichmentMode = "both", grid: 3 | 5 = 3,
+  provider: EnrichmentProvider = "combined") {
   if (!validUuid(companyId)) throw new Error("Invalid company ID");
-  return edgeCall("enrich-company", { company_id: companyId, mode, grid });
+  return edgeCall("enrich-company", { company_id: companyId, mode, grid, provider });
 }
 export async function askAboutCompany(companyId: string, question: string) {
   if (!validUuid(companyId) || !question.trim() || question.length > 2000)
@@ -31,11 +33,13 @@ export async function findNewLeads(city: string, state: string, radiusMi: number
     throw new Error("City, state, and radius_mi from 1 to 50 are required");
   return edgeCall("find-new-leads", { city: city.trim(), state: state.trim(), radius_mi: radiusMi });
 }
-export async function enrichLead(leadId: string, mode: EnrichmentMode, grid: 3 | 5) {
+export async function enrichLead(leadId: string, mode: EnrichmentMode, grid: 3 | 5,
+  provider: EnrichmentProvider = "combined") {
   if (!validUuid(leadId)) throw new Error("Invalid lead ID");
   const result: Record<string, unknown> = {};
   if (mode === "google" || mode === "both")
-    result.google = await edgeCall("enrich-google", { lead_id: leadId, grid });
+    result[provider === "open_places" ? "open_places" : "google"] =
+      await edgeCall("enrich-google", { lead_id: leadId, grid, provider });
   if (mode === "ai" || mode === "both")
     result.ai = await edgeCall("enrich-ai", { lead_id: leadId });
   return result;

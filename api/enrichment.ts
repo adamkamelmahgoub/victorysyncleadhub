@@ -73,10 +73,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         input.max_cost_usd ?? null, user.id)); return;
     }
     if (action === "enrich") {
-      respond(res, 200, await enrichLead(input.lead_id, input.mode || "both", input.grid || 5)); return;
+      respond(res, 200, await enrichLead(input.lead_id, input.mode || "both", input.grid || 5,
+        input.provider || "combined")); return;
     }
     if (action === "company_enrich") {
-      respond(res, 200, await enrichCompany(input.company_id, input.mode || "both", input.grid || 3)); return;
+      respond(res, 200, await enrichCompany(input.company_id, input.mode || "both", input.grid || 3,
+        input.provider || "combined")); return;
     }
     if (action === "company_ask") {
       respond(res, 200, await askAboutCompany(input.company_id, input.question)); return;

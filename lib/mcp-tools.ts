@@ -1036,9 +1036,10 @@ export function createCrmMcpServer(who: McpIdentity) {
   );
   if (process.env.ENRICHMENT_ENABLED === "true") {
   tool(server, who, "enrich_lead",
-    "Run Google Places research, OpenRouter web research, or both for one CRM lead. Google results are returned for immediate use; only its place ID is saved under standard Places terms. AI research is saved.",
-    { lead_id: idSchema, mode: z.enum(["google", "ai", "both"]), grid: z.union([z.literal(3), z.literal(5)]).default(5) },
-    false, false, async (_db, a) => enrichLead(a.lead_id, a.mode, a.grid), 180);
+    "Enrich a lead with either Open Places (free business listing) or Google Places (rating and rank), plus optional OpenRouter AI research. Google results are returned for immediate use; only its place ID is saved. AI research is saved.",
+    { lead_id: idSchema, mode: z.enum(["google", "ai", "both"]), grid: z.union([z.literal(3), z.literal(5)]).default(5),
+      provider: z.enum(["open_places", "google_places", "combined"]).default("open_places") },
+    false, false, async (_db, a) => enrichLead(a.lead_id, a.mode, a.grid, a.provider), 180);
   tool(server, who, "bulk_enrich",
     "Queue enrichment for a segment, a tag or tag intersection, or lead IDs. Returns a resumable job ID and conservative cost estimate.",
     { segment_id: idSchema.optional(), tag: z.string().optional(), tags: z.array(z.string()).optional(),
@@ -1053,10 +1054,11 @@ export function createCrmMcpServer(who: McpIdentity) {
     { lead_id: idSchema, question: z.string().min(1).max(2000) },
     false, false, async (_db, a) => askAboutLead(a.lead_id, a.question), 180);
   tool(server, who, "enrich_company",
-    "Research a company using Open Places, Google Places and OpenRouter Nemotron, then save business listing, place ID, AI research and dated notes to its CRM record.",
+    "Enrich a company with Open Places or Google Places and optional Nemotron research. Save its listing, Google place ID when used, AI research and dated notes to the CRM record.",
     { company_id: idSchema, mode: z.enum(["google", "ai", "both"]).default("both"),
-      grid: z.union([z.literal(3), z.literal(5)]).default(3) },
-    false, false, async (_db, a) => enrichCompany(a.company_id, a.mode, a.grid), 180);
+      grid: z.union([z.literal(3), z.literal(5)]).default(3),
+      provider: z.enum(["open_places", "google_places", "combined"]).default("open_places") },
+    false, false, async (_db, a) => enrichCompany(a.company_id, a.mode, a.grid, a.provider), 180);
   tool(server, who, "ask_about_company",
     "Answer in normal prose about a company using its stored enrichment and public web research; useful for call scripts and cold emails.",
     { company_id: idSchema, question: z.string().min(1).max(2000) },
