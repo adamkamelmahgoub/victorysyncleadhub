@@ -1,0 +1,9 @@
+# VictorySync assistant context
+
+The in-app AI assistant speaks **from VictorySync** when drafting calls and email. A CRM lead or company is the **prospect** receiving that outreach. The server supplies a built-in seller profile based on [VictorySync's public website](https://www.victorysync.com/) (reviewed October 8, 2026). The profile describes VictorySync as a US-managed contact center with Cairo-based agents that handles inbound support, outbound calling, lead follow-up, qualification, and appointment setting. It also explains the human-led service, US-led management, account playbooks, CRM/calendar handoff, and reporting.
+
+The public site currently says dedicated agent engagements start from $10/hour, with final terms scoped on a discovery call. The assistant is told to verify current terms before making a customer-facing promise. It is also told not to represent VictorySync as a Google Maps SEO agency or promise rankings, lead volume, booked jobs, or ROI.
+
+The **Calling from** panel on `/ai-assistant` starts with this profile and lets the signed-in administrator edit the name, offer, audience, differentiators, call goal, tone, and signature for a campaign. Edits are kept in that browser's local storage and sent with each chat request. The server's baseline context still applies when no browser profile is present. Lead and company **Ask AI** use the same baseline VictorySync context. Prospect details must come from the CRM record or sourced public research.
+
+The backend enforces the existing `MCP_ALLOWED_EMAILS` list. Chat CRM actions reuse the same MCP tool implementations and audit path as the Claude connector. No database migration is needed for this context.

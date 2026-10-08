@@ -366,7 +366,8 @@ export async function enrichGoogle(leadId: string, grid: 3 | 5): Promise<Record<
     open_places: listing || null };
 }
 
-const AI_SYSTEM = `You research US home-service businesses for a B2B marketing agency. Use only public business information. Every field must come from a source you actually opened; put the URL in sources. If you cannot confirm something, return null. Never collect home addresses, personal phone numbers, family information, or personal social accounts. Return one JSON object only. Do not include Google Places ratings, review counts, hours, rank, or other Google Maps content in the persisted answer. Do not identify individuals or include personal data when using a free model.`;
+const VICTORYSYNC_CONTEXT = "VictorySync (Victory Sync LLC) is a US-managed contact center with Cairo-based trained agents. Human agents handle outbound calling, inbound support, lead follow-up, qualification, and appointment setting. AI assists with prompts, summaries, routing, and reporting; humans handle conversations. VictorySync serves US small and midsize businesses, including home services. The usual next step is a discovery call to scope a managed calling workflow. Do not portray VictorySync as a Google Maps SEO agency or promise rankings, leads, booked jobs, or ROI. Website: https://www.victorysync.com/.";
+const AI_SYSTEM = `You research US home-service businesses to prepare VictorySync's human calling team. ${VICTORYSYNC_CONTEXT} Use only public business information. Every field must come from a source you actually opened; put the URL in sources. If you cannot confirm something, return null. Never collect home addresses, personal phone numbers, family information, or personal social accounts. Return one JSON object only. Do not include Google Places ratings, review counts, hours, rank, or other Google Maps content in the persisted answer. Do not identify individuals or include personal data when using a free model. Ground call_hooks in verified facts and VictorySync's actual contact-center services.`;
 const AI_KEYS = ["owner_name", "owner_title", "website", "website_issues", "years_in_business", "license_numbers", "services", "service_area", "emergency_24_7", "bbb", "facebook", "instagram", "booking_software", "employees_estimate", "is_franchise", "is_lead_gen_listing", "call_hooks", "summary", "sources", "confidence"];
 const publicUrl = z.string().url().refine((value) => /^https?:\/\//i.test(value));
 const researchSchema = z.object({
@@ -560,7 +561,7 @@ export async function askAboutLead(leadId: string, question: string): Promise<Re
     throw new Error("Remove personal contact details from the question before using the free model");
   const answer = await anthropic(leadId, "ask",
     `Company: ${lead.company}; state: ${lead.state}. Question: ${question}`, 4, true, 1200,
-    "You are a practical CRM assistant. Answer in natural prose, not JSON. Help with call scripts, opening lines, follow-up plans, and cold emails when asked. Use only public business facts; cite a URL for any fact learned from web search. Do not include private contact details or invent facts. Keep the answer ready to copy and use.");
+    `You are a practical VictorySync CRM assistant. ${VICTORYSYNC_CONTEXT} Answer in natural prose, not JSON. Help with call scripts, opening lines, follow-up plans, and cold emails from VictorySync to this prospect when asked. Use only public business facts; cite a URL for any fact learned from web search. Do not include private contact details or invent facts. Keep the answer ready to copy and use.`);
   let prose = answer.text.trim();
   if (prose.startsWith("{")) {
     try { const parsed = JSON.parse(prose) as { answer?: string; response?: string };
@@ -682,7 +683,7 @@ export async function askAboutCompany(companyId: string, question: string): Prom
   if (!rows[0]) throw new Error("Company not found");
   const answer = await anthropic(null, "company_ask",
     `Company: ${rows[0].name}; state: ${rows[0].state}. Stored research: ${JSON.stringify(rows[0].custom_fields?.enrichment || {}).slice(0, 4000)}. Question: ${question}`,
-    2, true, 1200, "You are a practical CRM assistant. Answer in natural prose, not JSON. Help with scripts, openers and cold emails. Cite sourced business facts; do not invent facts or include private contacts.",
+    2, true, 1200, `You are a practical VictorySync CRM assistant. ${VICTORYSYNC_CONTEXT} Answer in natural prose, not JSON. Help with scripts, openers and cold emails from VictorySync to this prospect. Cite sourced business facts; do not invent facts or include private contacts.`,
     OPENROUTER_MODEL, false, false, companyId);
   return { answer: answer.text, sources: answer.sources, cost_usd: answer.cost };
 }
