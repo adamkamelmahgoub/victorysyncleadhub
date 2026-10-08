@@ -249,6 +249,8 @@ async function placesSearch(leadId: string | null, source: "google_places" | "go
     const result = await response.json() as { places?: Place[]; error?: { message?: string } };
     await logEntityCall(leadId, companyId, source, { operation, result_count: result.places?.length || 0 }, response.ok ? "ok" : "error", GOOGLE_CALL_USD, result.error?.message);
     logged = true;
+    if (response.status === 429 || /quota exceeded|resource exhausted/i.test(result.error?.message || ""))
+      throw new Error("Google Places daily quota reached. Choose Open Places or retry after Google's quota resets.");
     if (!response.ok) throw new Error(`Places API: ${result.error?.message || response.status}`);
     return result.places || [];
   } catch (error) {
