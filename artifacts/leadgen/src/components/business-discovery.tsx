@@ -3,6 +3,7 @@ import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 import categories from "@/data/overture-categories.json";
 
 type Place = { place_id: string; name: string; phone?: string; website?: string;
@@ -11,6 +12,7 @@ type Place = { place_id: string; name: string; phone?: string; website?: string;
 
 export function BusinessDiscovery() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
   const [radius, setRadius] = useState(25);
@@ -45,6 +47,7 @@ export function BusinessDiscovery() {
         { inserted: number; skipped: number };
       toast({ title: `${result.inserted} businesses added to leads`,
         description: result.skipped ? `${result.skipped} skipped as duplicates or suppressed` : undefined });
+      await queryClient.invalidateQueries({ queryKey: ["crm-prospects"] });
       setPlaces((current) => current.map((place) => selected.has(place.place_id)
         ? { ...place, already_saved: true } : place));
       setSelected(new Set());
