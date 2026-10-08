@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { allowedEmail, mcpPool } from "../lib/mcp-auth.js";
-import { askAboutLead, bulkEnrich, enrichLead, jobStatus, leadEnrichment, previewBulk, resumeEnrichmentJob, validUuid } from "../lib/enrichment-client.js";
+import { askAboutLead, askAboutCompany, bulkEnrich, enrichLead, enrichCompany, jobStatus, leadEnrichment, previewBulk, resumeEnrichmentJob, validUuid } from "../lib/enrichment-client.js";
 
 export const config = { api: { bodyParser: false }, maxDuration: 300 };
 function respond(res: ServerResponse, status: number, data: unknown) {
@@ -47,6 +47,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       if (!q.rows[0]) throw new Error("Lead not found");
       respond(res, 200, { ...q.rows[0], history: await leadEnrichment(id) }); return;
     }
+    if (req.method === "GET" && action === "company") {
+      const id = url.searchParams.get("company_id") || "";
+      if (!validUuid(id)) throw new Error("Invalid company ID");
+      const q = await mcpPool.query("select custom_fields,fit_notes from public.companies where id=$1", [id]);
+      if (!q.rows[0]) throw new Error("Company not found");
+      respond(res, 200, q.rows[0]); return;
+    }
     if (req.method === "GET" && action === "job") {
       respond(res, 200, await jobStatus(url.searchParams.get("job_id") || "")); return;
     }
@@ -67,6 +74,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
     if (action === "enrich") {
       respond(res, 200, await enrichLead(input.lead_id, input.mode || "both", input.grid || 5)); return;
+    }
+    if (action === "company_enrich") {
+      respond(res, 200, await enrichCompany(input.company_id, input.mode || "both", input.grid || 3)); return;
+    }
+    if (action === "company_ask") {
+      respond(res, 200, await askAboutCompany(input.company_id, input.question)); return;
     }
     if (action === "ask") {
       respond(res, 200, await askAboutLead(input.lead_id, input.question)); return;

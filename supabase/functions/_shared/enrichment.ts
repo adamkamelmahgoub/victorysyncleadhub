@@ -83,6 +83,13 @@ export async function logCall(leadId: string, source: "open_places" | "google_pl
       ? new Date(Date.now() + 29 * 86400000).toISOString() : null,
   }) });
 }
+async function logEntityCall(id: string | null, companyId: string | null, source: "google_places" | "google_rank" | "ai_research", data: Record<string, unknown>, status: "ok" | "not_found" | "error", cost: number, error?: string): Promise<void> {
+  if (id) return logCall(id, source, data, status, cost, error);
+  await rest("enrichment_api_log", { method: "POST", body: JSON.stringify({
+    provider: source, lead_id: null, request: { company_id: companyId, ...data, error }, status,
+    cost_usd: cost,
+  }) });
+}
 async function reserve(amount: number): Promise<void> {
   const allowed = await rest<boolean>("rpc/enrichment_reserve_cost", {
     method: "POST", body: JSON.stringify({ p_amount: amount }),
@@ -218,7 +225,7 @@ export async function enrichOpenPlaces(leadId: string): Promise<{ status: "ok" |
   }) });
   return { status: "ok", place: match, match_confidence: matchConfidence };
 }
-async function placesSearch(leadId: string, source: "google_places" | "google_rank", operation: string, body: Record<string, unknown>, fieldMask: string): Promise<Place[]> {
+async function placesSearch(leadId: string | null, source: "google_places" | "google_rank", operation: string, body: Record<string, unknown>, fieldMask: string, companyId: string | null = null): Promise<Place[]> {
   if (!GOOGLE_KEY) throw new Error("GOOGLE_PLACES_API_KEY is not configured");
   try { await reserve(GOOGLE_CALL_USD); } catch (error) { await budgetNotice(); throw error; }
   if (source === "google_places") {
@@ -240,13 +247,13 @@ async function placesSearch(leadId: string, source: "google_places" | "google_ra
       }, body: JSON.stringify(body), signal: AbortSignal.timeout(20000),
     });
     const result = await response.json() as { places?: Place[]; error?: { message?: string } };
-    await logCall(leadId, source, { operation, result_count: result.places?.length || 0 }, response.ok ? "ok" : "error", GOOGLE_CALL_USD, result.error?.message);
+    await logEntityCall(leadId, companyId, source, { operation, result_count: result.places?.length || 0 }, response.ok ? "ok" : "error", GOOGLE_CALL_USD, result.error?.message);
     logged = true;
     if (!response.ok) throw new Error(`Places API: ${result.error?.message || response.status}`);
     return result.places || [];
   } catch (error) {
     // The reservation is intentionally retained when billing status is unknown.
-    if (!logged) await logCall(leadId, source, { operation }, "error", GOOGLE_CALL_USD, String(error)).catch(() => {});
+    if (!logged) await logEntityCall(leadId, companyId, source, { operation }, "error", GOOGLE_CALL_USD, String(error)).catch(() => {});
     throw error;
   }
 }
@@ -442,7 +449,7 @@ function parseResearch(text: string): Record<string, unknown> {
         : { url: null, last_post_date: null };
   return data;
 }
-async function anthropic(leadId: string, operation: string, prompt: string, maxSearches = 1, useTools = true, maxTokens = 1600, systemPrompt = AI_SYSTEM, model = OPENROUTER_MODEL, structured = false, forceSearch = false): Promise<{ text: string; cost: number; sources: string[]; fetchedSources: string[] }> {
+async function anthropic(leadId: string | null, operation: string, prompt: string, maxSearches = 1, useTools = true, maxTokens = 1600, systemPrompt = AI_SYSTEM, model = OPENROUTER_MODEL, structured = false, forceSearch = false, companyId: string | null = null): Promise<{ text: string; cost: number; sources: string[]; fetchedSources: string[] }> {
   if (!OPENROUTER_KEY) throw new Error("OPENROUTER_API_KEY is not configured");
   try { await reserve(AI_RESERVE_USD); } catch (error) { await budgetNotice(); throw error; }
   let logged = false;
@@ -469,7 +476,7 @@ async function anthropic(leadId: string, operation: string, prompt: string, maxS
     const searches = data.usage?.server_tool_use_details?.web_search_requests || 0;
     const actual = Number(data.usage?.cost ?? searches * 0.007);
     await release(AI_RESERVE_USD - actual);
-    await logCall(leadId, "ai_research", { operation, searches,
+    await logEntityCall(leadId, companyId, "ai_research", { operation, searches,
       fetches: data.usage?.server_tool_use_details?.web_fetch_requests || 0,
       model,
       input_tokens: data.usage?.prompt_tokens, output_tokens: data.usage?.completion_tokens },
@@ -478,14 +485,14 @@ async function anthropic(leadId: string, operation: string, prompt: string, maxS
     if (!response.ok && model.endsWith(":free") &&
         /free-models-per-day/i.test(data.error?.message || ""))
       return anthropic(leadId, operation, prompt, maxSearches, useTools, maxTokens,
-        systemPrompt, OPENROUTER_RESEARCH_MODEL, structured, forceSearch);
+        systemPrompt, OPENROUTER_RESEARCH_MODEL, structured, forceSearch, companyId);
     if (!response.ok) throw new Error(`OpenRouter API: ${data.error?.message || response.status}`);
     const message = data.choices?.[0]?.message;
     const cited = message?.annotations?.map((item) => item.url_citation?.url)
       .filter((url): url is string => Boolean(url)) || [];
     return { text: message?.content || "", cost: actual, sources: [...new Set(cited)], fetchedSources: [...new Set(cited)] };
   } catch (error) {
-    if (!logged) await logCall(leadId, "ai_research", { operation }, "error", AI_RESERVE_USD, String(error)).catch(() => {});
+    if (!logged) await logEntityCall(leadId, companyId, "ai_research", { operation }, "error", AI_RESERVE_USD, String(error)).catch(() => {});
     throw error;
   }
 }
@@ -551,7 +558,132 @@ export async function askAboutLead(leadId: string, question: string): Promise<Re
   const lead = await leadById(leadId);
   if (OPENROUTER_MODEL.endsWith(":free") && (/\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b/i.test(question) || /\b\+?\d[\d\s().-]{8,}\d\b/.test(question)))
     throw new Error("Remove personal contact details from the question before using the free model");
-  const answer = await anthropic(leadId, "ask", `Answer this question about the business with source URLs for public facts. Company: ${lead.company}; state: ${lead.state}. Question: ${question}`, 8);
+  const answer = await anthropic(leadId, "ask",
+    `Company: ${lead.company}; state: ${lead.state}. Question: ${question}`, 4, true, 1200,
+    "You are a practical CRM assistant. Answer in natural prose, not JSON. Help with call scripts, opening lines, follow-up plans, and cold emails when asked. Use only public business facts; cite a URL for any fact learned from web search. Do not include private contact details or invent facts. Keep the answer ready to copy and use.");
+  let prose = answer.text.trim();
+  if (prose.startsWith("{")) {
+    try { const parsed = JSON.parse(prose) as { answer?: string; response?: string };
+      prose = parsed.answer || parsed.response || prose;
+    } catch { /* A plain answer can contain braces. */ }
+  }
+  return { answer: prose, sources: answer.sources, cost_usd: answer.cost };
+}
+export async function enrichCompany(companyId: string, mode: Mode = "both", grid: 3 | 5 = 3): Promise<Record<string, unknown>> {
+  if (!/^[0-9a-f-]{36}$/i.test(companyId)) throw new Error("Invalid company ID");
+  const rows = await rest<Array<{ id: string; name: string; phone: string | null; city: string | null;
+    state: string | null; website: string | null; fit_notes: string | null; tags: string[];
+    custom_fields: Record<string, unknown> }>>(`companies?id=eq.${encodeURIComponent(companyId)}&select=id,name,phone,city,state,website,fit_notes,tags,custom_fields`);
+  const company = rows[0];
+  if (!company) throw new Error("Company not found");
+  const fields = { ...(company.custom_fields || {}) };
+  const tags = new Set(company.tags || []);
+  const lines: string[] = [];
+  const result: Record<string, unknown> = {};
+  const date = new Date().toISOString().slice(0, 10);
+  let listing = fields.open_places as OpenPlace | undefined;
+  if (mode !== "ai") {
+    const wantedState = stateCode(company.state) || stateFromAreaCode(company.phone);
+    const center = leadSearchCenter(wantedState, company.phone);
+    if (center) {
+      const found = await openPlacesSearch(null, { q: company.name, lat: center[0], lon: center[1],
+        radius_mi: 50, mode: "name", limit: 20, min_confidence: 0.7 });
+      const candidates = found.results.filter((p) => !wantedState || stateCode(p.address?.region) === wantedState);
+      const phone = digits(company.phone);
+      const exact = phone ? candidates.find((p) => digits(p.phone) === phone) : undefined;
+      const best = candidates.sort((a, b) => nameScore(company.name, b.name) - nameScore(company.name, a.name))[0];
+      listing = exact || (best && nameScore(company.name, best.name) >= 0.6 ? best : undefined);
+    }
+    if (listing) {
+      const confidence = digits(company.phone) && digits(company.phone) === digits(listing.phone)
+        ? 1 : Math.round(nameScore(company.name, listing.name) * 100) / 100;
+      fields.open_places = { ...listing, match_confidence: confidence, fetched_at: new Date().toISOString(),
+        attribution: "Open Places / Overture Maps" };
+      tags.delete("enrich-op-not-found");
+      lines.push(`${date} | Business listing (Open Places / Overture) | ${listing.name} | ${listing.address?.locality || "unknown city"}, ${stateCode(listing.address?.region) || wantedState || "unknown state"} | ${listing.category || "unknown category"}`);
+      result.open_places = fields.open_places;
+    } else { tags.add("enrich-op-not-found"); result.open_places = { status: "not_found" }; }
+    const city = listing?.address?.locality || company.city;
+    const state = stateCode(listing?.address?.region || company.state) || company.state;
+    if (city && (listing || state)) {
+      const matches = await placesSearch(null, "google_places", "company_match", {
+        textQuery: `${company.name} ${city} ${state || ""}`, pageSize: 20,
+        ...(listing ? { locationBias: { circle: { center: { latitude: listing.lat,
+          longitude: listing.lon }, radius: 1609.344 } } } : {}),
+      }, openMatchMask, companyId);
+      const place = matches[0];
+      if (place) {
+        fields.google = { place_id: place.id, fetched_at: new Date().toISOString() };
+        const points: Array<{ x: number; y: number; position: number }> = [];
+        if (listing) for (const point of gridPoints({ latitude: listing.lat, longitude: listing.lon }, grid)) {
+          const ranked = await placesSearch(null, "google_rank", `company_rank_${point.x}_${point.y}`, {
+            textQuery: /hvac|heating|cooling|air conditioning/i.test(`${company.name} ${listing.category || ""}`)
+              ? "HVAC contractor" : "plumber", pageSize: 20,
+            locationBias: { circle: { center: { latitude: point.latitude,
+              longitude: point.longitude }, radius: 1609.344 } },
+          }, rankMask, companyId);
+          const position = ranked.findIndex((p) => p.id === place.id);
+          points.push({ x: point.x, y: point.y, position: position < 0 ? 21 : position + 1 });
+        }
+        result.google = { place_id: place.id, rating: place.rating, review_count: place.userRatingCount,
+          hours: place.regularOpeningHours, category: place.primaryType, grid: points,
+          top3_points: points.filter((p) => p.position <= 3).length };
+        lines.push(`${date} | Google Places | ${place.rating ?? "no rating"} stars, ${place.userRatingCount ?? "no"} reviews | top 3 on ${points.filter((p) => p.position <= 3).length}/${points.length} grid points`);
+      } else result.google = { status: "not_found" };
+    }
+  }
+  if (mode === "both" && lines.length) await rest(`companies?id=eq.${encodeURIComponent(companyId)}`, {
+    method: "PATCH", body: JSON.stringify({ custom_fields: fields,
+      fit_notes: `${lines.join("\n")}\n${company.fit_notes || ""}`,
+      tags: [...tags].slice(0, 30),
+      ...(!company.city && listing?.address?.locality ? { city: listing.address.locality } : {}),
+      ...(!company.state && listing?.address?.region ? { state: stateCode(listing.address.region) } : {}),
+      ...(!company.website && listing?.website ? { website: listing.website } : {}),
+    }),
+  });
+  if (mode !== "google") {
+    const discovery = await anthropic(null, "company_research_search",
+      `Search once for public business information about ${company.name} in ${company.state || "unknown"}. Return three short facts with source URLs. Website: ${listing?.website || company.website || "unknown"}. Do not include personal contacts or Google data.`,
+      1, true, 450, "Find public business facts with cited source URLs. Exclude people, private contact details and Google Maps data.", OPENROUTER_MODEL, false, true, companyId);
+    const synthesis = await anthropic(null, "company_research_json",
+      `Using only these cited findings, return the requested research JSON. Set owner_name and owner_title to null. Cite only these URLs: ${discovery.sources.join(", ")}. Findings: ${discovery.text.slice(0, 1500)}. Company: ${company.name}.`,
+      0, false, 1600, AI_SYSTEM, OPENROUTER_RESEARCH_MODEL, true, false, companyId);
+    const research = parseResearch(synthesis.text);
+    const opened = new Set(discovery.sources);
+    research.sources = (research.sources as Array<{ field: string; url: string }>).filter((s) => opened.has(s.url));
+    if (!(research.sources as Array<unknown>).length) {
+      for (const key of ["website", "years_in_business", "emergency_24_7", "booking_software",
+        "employees_estimate", "is_franchise", "is_lead_gen_listing"]) research[key] = null;
+      for (const key of ["website_issues", "license_numbers", "services", "service_area", "call_hooks"]) research[key] = [];
+      research.bbb = { rating: null, accredited: null, url: null };
+      research.facebook = { url: null, last_post_date: null };
+      research.instagram = { url: null, last_post_date: null };
+      research.summary = "No verified public business facts found.";
+      research.confidence = "low";
+    }
+    fields.enrichment = { ...research, fetched_at: new Date().toISOString() };
+    if (research.is_franchise === true) tags.add("franchise");
+    if (research.is_lead_gen_listing === true) tags.add("review-leadgen");
+    lines.push(`${date} | AI research | ${String(research.summary || "").replace(/[\r\n]+/g, " ").slice(0, 600)}`);
+    result.ai = research;
+  }
+  await rest(`companies?id=eq.${encodeURIComponent(companyId)}`, { method: "PATCH", body: JSON.stringify({
+    custom_fields: fields, fit_notes: `${lines.join("\n")}\n${company.fit_notes || ""}`,
+    tags: [...tags].slice(0, 30),
+    ...(!company.city && listing?.address?.locality ? { city: listing.address.locality } : {}),
+    ...(!company.state && listing?.address?.region ? { state: stateCode(listing.address.region) } : {}),
+    ...(!company.website && listing?.website ? { website: listing.website } : {}),
+  }) });
+  return result;
+}
+export async function askAboutCompany(companyId: string, question: string): Promise<Record<string, unknown>> {
+  const rows = await rest<Array<{ name: string; state: string | null; custom_fields: Record<string, unknown> }>>(
+    `companies?id=eq.${encodeURIComponent(companyId)}&select=name,state,custom_fields`);
+  if (!rows[0]) throw new Error("Company not found");
+  const answer = await anthropic(null, "company_ask",
+    `Company: ${rows[0].name}; state: ${rows[0].state}. Stored research: ${JSON.stringify(rows[0].custom_fields?.enrichment || {}).slice(0, 4000)}. Question: ${question}`,
+    2, true, 1200, "You are a practical CRM assistant. Answer in natural prose, not JSON. Help with scripts, openers and cold emails. Cite sourced business facts; do not invent facts or include private contacts.",
+    OPENROUTER_MODEL, false, false, companyId);
   return { answer: answer.text, sources: answer.sources, cost_usd: answer.cost };
 }
 export async function runLead(leadId: string, mode: Mode, grid: 3 | 5): Promise<Record<string, unknown>> {

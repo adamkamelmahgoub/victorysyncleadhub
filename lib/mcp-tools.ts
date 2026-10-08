@@ -3,7 +3,7 @@ import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { mcpPool, type McpIdentity } from "./mcp-auth.js";
-import { enrichLead, bulkEnrich, jobStatus, askAboutLead, previewBulk, findNewLeads } from "./enrichment-client.js";
+import { enrichLead, enrichCompany, askAboutCompany, bulkEnrich, jobStatus, askAboutLead, previewBulk, findNewLeads } from "./enrichment-client.js";
 
 const ident = (s: string) => {
   if (!/^[a-z_][a-z0-9_]*$/i.test(s)) throw new Error("Invalid identifier");
@@ -1052,6 +1052,15 @@ export function createCrmMcpServer(who: McpIdentity) {
     "Ask OpenRouter a sourced question about a lead using public web search. This may incur search API cost.",
     { lead_id: idSchema, question: z.string().min(1).max(2000) },
     false, false, async (_db, a) => askAboutLead(a.lead_id, a.question), 180);
+  tool(server, who, "enrich_company",
+    "Research a company using Open Places, Google Places and OpenRouter Nemotron, then save business listing, place ID, AI research and dated notes to its CRM record.",
+    { company_id: idSchema, mode: z.enum(["google", "ai", "both"]).default("both"),
+      grid: z.union([z.literal(3), z.literal(5)]).default(3) },
+    false, false, async (_db, a) => enrichCompany(a.company_id, a.mode, a.grid), 180);
+  tool(server, who, "ask_about_company",
+    "Answer in normal prose about a company using its stored enrichment and public web research; useful for call scripts and cold emails.",
+    { company_id: idSchema, question: z.string().min(1).max(2000) },
+    false, false, async (_db, a) => askAboutCompany(a.company_id, a.question), 180);
   tool(server, who, "enrichment_cost_preview",
     "Estimate the lead count and maximum budget reservation before a bulk enrichment job.",
     { segment_id: idSchema.optional(), tag: z.string().optional(), tags: z.array(z.string()).optional(),

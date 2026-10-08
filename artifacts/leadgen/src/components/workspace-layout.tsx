@@ -11,6 +11,7 @@ import {
   Megaphone,
   Layers,
   Zap,
+  Sparkles,
   FileText,
   BarChart3,
   Plug,
@@ -27,6 +28,7 @@ import { useAuth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
 type Item = { href: string; label: string; icon: ElementType };
 const core: Item[] = [
+  { href: "/ai-assistant", label: "AI assistant", icon: Sparkles },
   { href: "/call-queue", label: "Call queue", icon: Phone },
   { href: "/companies", label: "Companies", icon: Building2 },
   { href: "/leads", label: "Contacts", icon: Users },

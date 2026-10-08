@@ -14,6 +14,7 @@ import ActivityLog from '@/pages/activity-log';
 import Pipeline from "@/pages/pipeline";
 import Companies from "@/pages/companies";
 import CompanyDetail from "@/pages/company-detail";
+import AiAssistant from "@/pages/ai-assistant";
 import TrialQueue from "@/pages/trial-queue";
 import CompanyKpis from "@/pages/company-kpis";
 import CompanyTasks from "@/pages/company-tasks";
@@ -77,6 +78,8 @@ function Router() {
       <Route path="/" component={Companies} />
       <Route path="/companies" component={Companies} />
       <Route path="/companies/:id" component={CompanyDetail} />
+      <Route path="/ai-assistant" component={AiAssistant} />
+      <Route path="/leadgen/ai-assistant" component={AiAssistant} />
       <Route path="/trial-queue" component={TrialQueue} />
       <Route path="/company-kpis" component={CompanyKpis} />
       <Route path="/crm-tasks" component={CompanyTasks} />

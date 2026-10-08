@@ -1,4 +1,5 @@
 export const PAGE_PERMISSIONS = [
+  { key: "ai-assistant", label: "AI Assistant", paths: ["/ai-assistant"] },
   { key: "home", label: "Home", paths: ["/", "/dashboard", "/victorysync"] },
   { key: "client-accounts", label: "Client Accounts", paths: ["/sub-accounts"] },
   { key: "team", label: "Team & Invites", paths: ["/team"] },

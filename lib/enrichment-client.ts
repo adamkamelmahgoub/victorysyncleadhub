@@ -4,7 +4,7 @@ export type EnrichmentMode = "google" | "ai" | "both";
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function validUuid(value: string): boolean { return uuid.test(value); }
 
-export async function edgeCall(name: "enrich-google" | "enrich-ai" | "enrichment-worker" | "find-new-leads", body: unknown): Promise<any> {
+export async function edgeCall(name: "enrich-google" | "enrich-ai" | "enrich-company" | "enrichment-worker" | "find-new-leads", body: unknown): Promise<any> {
   const base = process.env.SUPABASE_URL;
   const key = process.env.ENRICHMENT_INVOKE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
   if (!base || !key) throw new Error("Supabase Edge Functions are not configured");
@@ -15,6 +15,15 @@ export async function edgeCall(name: "enrich-google" | "enrich-ai" | "enrichment
   const data = await response.json().catch(() => ({})) as Record<string, any>;
   if (!response.ok) throw new Error(String(data.error || `Edge Function ${name} returned ${response.status}`));
   return data;
+}
+export async function enrichCompany(companyId: string, mode: EnrichmentMode = "both", grid: 3 | 5 = 3) {
+  if (!validUuid(companyId)) throw new Error("Invalid company ID");
+  return edgeCall("enrich-company", { company_id: companyId, mode, grid });
+}
+export async function askAboutCompany(companyId: string, question: string) {
+  if (!validUuid(companyId) || !question.trim() || question.length > 2000)
+    throw new Error("Company ID and a question up to 2,000 characters are required");
+  return edgeCall("enrich-company", { company_id: companyId, question });
 }
 export async function findNewLeads(city: string, state: string, radiusMi: number) {
   if (!city.trim() || city.length > 100 || !state.trim() || state.length > 40 ||
@@ -57,7 +66,7 @@ export async function budgetStatus() {
 }
 export const estimateCost = (count: number, mode: EnrichmentMode, grid: 3 | 5) =>
   Math.round(count * ((mode === "ai" ? 0 : (grid * grid + 1) * 0.035) +
-    (mode === "google" ? 0 : 0.1)) * 100) / 100;
+    (mode === "google" ? 0 : 0.2)) * 100) / 100;
 
 type BulkSelector = { segment_id?: string; tag?: string; tags?: string[]; lead_ids?: string[] };
 async function selectLeadIds(selector: BulkSelector): Promise<string[]> {
