@@ -11,10 +11,10 @@ Set `OPEN_PLACES_API_KEY`, `GOOGLE_PLACES_API_KEY` and `OPENROUTER_API_KEY` as *
 After the migration, set a monthly budget before any paid call:
 
 ```sql
-update public.enrichment_settings set enrichment_budget_usd = 1 where id = true;
+update public.enrichment_settings set enrichment_budget_usd = 10 where id = true;
 ```
 
-The live budget is $1/month; the five-lead 5x5 Google plus AI trial is conservatively estimated at $5.05 and cannot run under that cap. Every external call reserves a conservative estimated cost atomically through `enrichment_reserve_cost`. The queue pauses when the monthly budget or a job cap is reached. Google Text Search Enterprise calls are estimated at $0.035 each; OpenRouter research reserves up to $0.10 per request and settles against token and search usage. Timed-out requests retain their reservation because their provider cost is unknown. These are estimates, not an invoice.
+The live budget is $10/month; the five-lead 5x5 Google plus AI trial is conservatively estimated at $5.05. Every external call reserves a conservative estimated cost atomically through `enrichment_reserve_cost`. The queue pauses when the monthly budget or a job cap is reached. Google Text Search Enterprise calls are estimated at $0.035 each; OpenRouter research reserves up to $0.10 per request and settles against token and search usage. Timed-out requests retain their reservation because their provider cost is unknown. These are estimates, not an invoice.
 
 ## Google data handling
 

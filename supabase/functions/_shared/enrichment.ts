@@ -383,17 +383,17 @@ function parseResearch(text: string): Record<string, unknown> {
       throw new Error(`${field} has no opened source`);
   return data;
 }
-async function anthropic(leadId: string, operation: string, prompt: string, maxSearches = 4): Promise<{ text: string; cost: number; sources: string[]; fetchedSources: string[] }> {
+async function anthropic(leadId: string, operation: string, prompt: string, maxSearches = 1): Promise<{ text: string; cost: number; sources: string[]; fetchedSources: string[] }> {
   if (!OPENROUTER_KEY) throw new Error("OPENROUTER_API_KEY is not configured");
   try { await reserve(AI_RESERVE_USD); } catch (error) { await budgetNotice(); throw error; }
   let logged = false;
   try {
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST", headers: { authorization: `Bearer ${OPENROUTER_KEY}`, "content-type": "application/json" },
-      body: JSON.stringify({ model: OPENROUTER_MODEL, max_tokens: 2200,
+      body: JSON.stringify({ model: OPENROUTER_MODEL, max_tokens: 1600,
         messages: [{ role: "system", content: AI_SYSTEM }, { role: "user", content: prompt }],
         tools: [{ type: "openrouter:web_search", parameters: { max_uses: maxSearches, max_total_results: maxSearches } },
-          { type: "openrouter:web_fetch" }], max_tool_calls: 10 }),
+          { type: "openrouter:web_fetch" }], max_tool_calls: 3 }),
       signal: AbortSignal.timeout(120000),
     });
     const data = await response.json() as { choices?: Array<{ message?: { content?: string;
