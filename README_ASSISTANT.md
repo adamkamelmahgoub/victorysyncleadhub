@@ -6,7 +6,15 @@ The public site currently says dedicated agent engagements start from $10/hour, 
 
 The **Calling from** panel on `/ai-assistant` starts with this profile and lets the signed-in administrator edit the name, offer, audience, differentiators, call goal, tone, and signature for a campaign. Edits are kept in that browser's local storage and sent with each chat request. The server's baseline context still applies when no browser profile is present. Lead and company **Ask AI** use the same baseline VictorySync context. Prospect details must come from the CRM record or sourced public research.
 
-The backend enforces the existing `MCP_ALLOWED_EMAILS` list. Chat CRM actions reuse the same MCP tool implementations and audit path as the Claude connector. No database migration is needed for this context.
+The backend enforces the existing `MCP_ALLOWED_EMAILS` list. Chat CRM actions reuse the same MCP tool implementations and audit path as the Claude connector.
+
+## Chat history, tool activity, and memory
+
+Apply `supabase/migrations/20261011_assistant_memory.sql` before deploying this version. It creates private, server-only tables for conversations, messages, and saved memories. Existing CRM tables and RLS policies are unchanged. The assistant API checks the signed-in Supabase user and the allowed-email list, then scopes every history and memory operation to that user. No new environment variables are required; the server uses `DATABASE_URL`.
+
+The History selector opens up to 100 recent conversations. Messages persist across refreshes and across the full page and bottom-right widget. The assistant receives the last 24 messages of the current conversation plus up to 30 saved memories. Each assistant reply stores the names and success/error states of tools it used; the user can expand **Tools used** under the reply. Raw tool arguments and results are not stored in this activity display.
+
+Use **Memory** to add or remove lasting company facts and preferences. **Remember this** under a user message saves it as memory, and messages beginning with “Remember ...” are saved automatically. Saved memories are supplied as context in future chats. Deleting a conversation deletes its messages; deleting a memory removes it from future context. The calling profile remains editable in the full assistant and is saved in that browser.
 
 The bottom-right chat button opens the assistant from any signed-in CRM page for an owner or administrator. On a lead or company detail page, the widget sends that record ID as screen context so the assistant can fetch the right CRM data when asked about "this lead" or "this company". The full assistant page remains available for editing the seller profile.
 
