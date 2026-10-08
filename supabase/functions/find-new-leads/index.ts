@@ -9,7 +9,7 @@ Deno.serve(async (request) => {
     if (request.method !== "POST") return json({ error: "POST required" }, 405);
     const input = await request.json() as { city?: string; state?: string; radius_mi?: number;
       action?: "preview" | "import"; places?: Record<string, unknown>[]; pages?: number;
-      category?: string; query?: string };
+      category?: string; query?: string; min_confidence?: number };
     const city = String(input.city || "").trim();
     const state = stateCode(input.state);
     const radius = Number(input.radius_mi ?? 25);
@@ -22,6 +22,9 @@ Deno.serve(async (request) => {
     if (query && (query.length < 2 || query.length > 128))
       throw new Error("Search phrase must be 2-128 characters");
     if (category && query) throw new Error("Use a category or a search phrase, not both");
+    const minConfidence = Number(input.min_confidence ?? 0.7);
+    if (!Number.isFinite(minConfidence) || minConfidence < 0 || minConfidence > 1)
+      throw new Error("min_confidence must be between 0 and 1");
     if (input.action === "import") {
       const places = input.places;
       if (!Array.isArray(places) || places.length < 1 || places.length > 500 || places.some((place) =>
@@ -47,7 +50,7 @@ Deno.serve(async (request) => {
       for (let page = 0; page < pages && calls < 500; page++) {
         const result = await openPlacesSearch(null, { ...search, lat: center[0], lon: center[1],
           radius_mi: radius, limit: "category" in search ? 50 : 20,
-          ...("category" in search ? { offset } : {}), min_confidence: 0.7 });
+          ...("category" in search ? { offset } : {}), min_confidence: minConfidence });
         calls++;
         for (const place of result.results) if (place.place_id)
           found.set(place.place_id, place as unknown as Record<string, unknown>);

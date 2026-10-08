@@ -4,8 +4,8 @@ import { loadAssistantProfile, saveAssistantProfile, type AssistantProfile } fro
 
 type Message = { role: "user" | "assistant"; content: string };
 const suggestions = [
-  "Write a cold email offering VictorySync appointment setting to a plumbing company",
-  "Give me three opening lines about missed-call follow-up",
+  "Find 10 roofing businesses in Tulsa, OK that fit VictorySync and show why",
+  "Draft a cold email for a lead in my CRM using only verified details",
   "Show my overdue CRM tasks and suggest what to do first",
   "Summarize my pipeline and flag deals needing attention",
 ];
@@ -34,7 +34,7 @@ export default function AiAssistant({ compact = false, pageContext }: {
   }
   return <div className={`mx-auto flex h-full min-h-0 flex-col gap-4 ${compact ? "p-4" : "max-w-4xl p-4 md:p-8"}`}>
     <div><h1 className={compact ? "text-lg font-semibold" : "text-2xl font-semibold"}>AI assistant</h1>
-      <p className="text-sm text-slate-600">Ask about your CRM, draft outreach, or make changes. Powered by Nemotron.</p></div>
+      <p className="text-sm text-slate-600">Find and qualify real prospects, work in your CRM, and draft outreach. Powered by Nemotron.</p></div>
     {!compact && <details className="rounded-xl border bg-white p-4">
       <summary className="cursor-pointer text-sm font-semibold">Calling from: {profile.company_name || "Set your company context"}</summary>
       <p className="mt-2 text-xs text-slate-600">Prefilled from VictorySync’s public website. Edit campaign-specific details before drafting outreach. Changes are saved in this browser.</p>

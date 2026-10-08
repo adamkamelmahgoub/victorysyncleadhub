@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { mcpPool, type McpIdentity } from "./mcp-auth.js";
 import { enrichLead, enrichCompany, askAboutCompany, bulkEnrich, jobStatus, askAboutLead, previewBulk, findNewLeads } from "./enrichment-client.js";
+import { generateGtmLeads } from "./gtm-leads.js";
 
 const ident = (s: string) => {
   if (!/^[a-z_][a-z0-9_]*$/i.test(s)) throw new Error("Invalid identifier");
@@ -1076,6 +1077,16 @@ export function createCrmMcpServer(who: McpIdentity) {
       category: z.string().regex(/^[a-z0-9][a-z0-9_:-]{0,127}$/).optional(),
       query: z.string().min(2).max(128).optional() },
     false, false, async (_db, a) => findNewLeads(a.city, a.state, a.radius_mi, a.category, a.query), 180);
+  tool(server, who, "generate_gtm_leads",
+    "Search real Open Places / Overture businesses for a VictorySync prospect list. Exclude existing CRM and suppressed phone numbers, rank by verified listing completeness and category match, and optionally save the shortlist as leads. The score is a sourcing signal, not proof of demand, revenue, intent, or a decision maker. Use save=false to preview and save=true only when the user asks to add or generate leads in the CRM. Returns source details and new lead IDs.",
+    { city: z.string().min(1).max(100), state: z.string().min(2).max(40),
+      category: z.string().regex(/^[a-z0-9][a-z0-9_:-]{0,127}$/).optional(),
+      query: z.string().min(2).max(128).optional(),
+      radius_mi: z.number().min(1).max(50).default(25),
+      max_results: z.number().int().min(1).max(50).default(15),
+      min_score: z.number().min(0).max(100).default(65),
+      require_website: z.boolean().default(false), save: z.boolean().default(false) },
+    false, false, async (_db, a) => generateGtmLeads(a), 180);
   }
   return server;
 }
