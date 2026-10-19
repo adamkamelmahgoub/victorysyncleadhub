@@ -1,0 +1,100 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { socialRest } from '../lib/social-service.js';
+import type { InboundEvent } from '../lib/social-providers.js';
+
+export const config = { maxDuration: 60 };
+type Job = { id: string; provider: string; payload: InboundEvent; attempts: number };
+type Account = { id: string; organization_id: string };
+type Profile = { entity_type: string; entity_id: string };
+
+async function processEvent(job: Job) {
+  const event = job.payload;
+  const accounts = await socialRest<Account[]>(`connected_accounts?platform=eq.${encodeURIComponent(event.channel)}&external_account_id=eq.${encodeURIComponent(event.accountId)}&status=eq.active&select=id,organization_id&limit=2`);
+  if (accounts.length !== 1) throw new Error('No unique active connected account for webhook recipient');
+  const account = accounts[0];
+  const participantId = event.isEcho ? event.recipientId : event.senderId;
+  const profiles = await socialRest<Profile[]>(`social_profiles?organization_id=eq.${account.organization_id}&platform=eq.${encodeURIComponent(event.channel)}&platform_user_id=eq.${encodeURIComponent(participantId)}&select=entity_type,entity_id&limit=2`);
+  let matched = profiles.length === 1 ? profiles[0] : undefined;
+  if (!matched && event.channel === 'whatsapp') {
+    const phone = participantId.replace(/\D/g, '');
+    const leads = await socialRest<Array<{ id: string }>>(`leads?organization_id=eq.${account.organization_id}&normalized_phone=eq.${phone}&select=id&limit=2`);
+    if (leads.length === 1) matched = { entity_type: 'lead', entity_id: leads[0].id };
+  }
+  const thread = `${account.id}:${participantId}`;
+  type Conversation = { id: string; company_id: string | null; contact_id: string | null; lead_id: string | null };
+  let conversations = await socialRest<Conversation[]>(`conversations?organization_id=eq.${account.organization_id}&channel=eq.${event.channel}&connected_account_id=eq.${account.id}&external_thread_id=eq.${encodeURIComponent(thread)}&select=id,company_id,contact_id,lead_id&limit=1`);
+  if (!conversations.length) conversations = await socialRest<Conversation[]>(
+    'conversations?on_conflict=organization_id,channel,connected_account_id,external_thread_id', {
+      method: 'POST', headers: { prefer: 'resolution=ignore-duplicates,return=representation' },
+      body: JSON.stringify({ organization_id: account.organization_id, channel: event.channel,
+        connected_account_id: account.id, external_thread_id: thread, participant_platform_id: participantId,
+        contact_id: matched?.entity_type === 'contact' ? matched.entity_id : null,
+        company_id: matched?.entity_type === 'company' ? matched.entity_id : null,
+        lead_id: matched?.entity_type === 'lead' ? matched.entity_id : null }),
+    });
+  if (!conversations.length) conversations = await socialRest<Conversation[]>(`conversations?organization_id=eq.${account.organization_id}&channel=eq.${event.channel}&connected_account_id=eq.${account.id}&external_thread_id=eq.${encodeURIComponent(thread)}&select=id,company_id,contact_id,lead_id&limit=1`);
+  const conversation = conversations[0];
+  const existing = await socialRest<Array<{ id: string }>>(`messages?conversation_id=eq.${conversation.id}&external_message_id=eq.${encodeURIComponent(event.externalMessageId)}&select=id&limit=1`);
+  if (existing.length) return;
+  if (event.isEcho) {
+    const manual = await socialRest<Array<{ id: string }>>(`messages?conversation_id=eq.${conversation.id}&direction=eq.outbound&sent_via=eq.manual_assisted&external_message_id=is.null&body=eq.${encodeURIComponent(event.body)}&created_at=gte.${encodeURIComponent(new Date(Date.now()-10*60*1000).toISOString())}&select=id&order=created_at.desc&limit=2`);
+    if (manual.length === 1) {
+      await socialRest(`messages?id=eq.${manual[0].id}`, { method: 'PATCH', body: JSON.stringify({ external_message_id: event.externalMessageId, status: 'sent' }) });
+      return;
+    }
+  }
+  const inserted = await socialRest<Array<{ id: string }>>('messages?on_conflict=conversation_id,external_message_id', {
+    method: 'POST', headers: { prefer: 'resolution=ignore-duplicates,return=representation' },
+    body: JSON.stringify({ organization_id: account.organization_id, conversation_id: conversation.id,
+      direction: event.isEcho ? 'outbound' : 'inbound', body: event.body, attachments: event.attachments,
+      external_message_id: event.externalMessageId, sent_via: event.isEcho ? 'echo' : null,
+      status: 'sent', created_at: event.timestamp }),
+  });
+  if (!inserted.length) return;
+  const timestamp = new Date(event.timestamp);
+  const update: Record<string, unknown> = { last_message_at: timestamp.toISOString(), updated_at: new Date().toISOString() };
+  if (event.isEcho) update.last_outbound_at = timestamp.toISOString();
+  else {
+    update.last_inbound_at = timestamp.toISOString();
+    update.reply_window_expires_at = new Date(timestamp.getTime() + 24*3600000).toISOString();
+    update.unread_count = 1;
+    await socialRest(`dm_enrollments?organization_id=eq.${account.organization_id}&state=in.(queued,step_due,sent)&${matched?.entity_type === 'lead' ? `entity_type=eq.lead&entity_id=eq.${matched.entity_id}` : `id=eq.00000000-0000-0000-0000-000000000000`}`,
+      { method: 'PATCH', body: JSON.stringify({ state: 'replied', stopped_at: new Date().toISOString(), stop_reason: 'inbound_reply' }) });
+  }
+  await socialRest(`conversations?id=eq.${conversation.id}`, { method: 'PATCH', body: JSON.stringify(update) });
+  if (conversation.company_id) await socialRest('crm_activities', { method: 'POST',
+    body: JSON.stringify({ organization_id: account.organization_id, company_id: conversation.company_id,
+      contact_id: conversation.contact_id, type: event.isEcho ? 'dm_sent' : 'dm_reply', body: event.body,
+      occurred_at: timestamp, metadata: { channel: event.channel, external_message_id: event.externalMessageId, conversation_id: conversation.id } }) });
+  await socialRest(`connected_accounts?id=eq.${account.id}`, { method: 'PATCH', body: JSON.stringify({ last_webhook_at: new Date().toISOString() }) });
+}
+
+export default async function handler(req: IncomingMessage, res: ServerResponse) {
+  const secret = process.env.CRON_SECRET || process.env.OUTREACH_WORKER_TOKEN;
+  if (!secret || req.headers.authorization !== `Bearer ${secret}`) { res.statusCode = 401; res.end('Unauthorized'); return; }
+  try {
+    const jobs = await socialRest<Job[]>(`social_webhook_events?status=eq.queued&next_attempt_at=lte.${encodeURIComponent(new Date().toISOString())}&select=id,provider,payload,attempts&order=created_at.asc&limit=50`);
+    let processed = 0;
+    for (const job of jobs) {
+      const claimed = await socialRest<Job[]>(`social_webhook_events?id=eq.${job.id}&status=eq.queued`, {
+        method: 'PATCH', body: JSON.stringify({ status: 'processing', attempts: job.attempts + 1 }),
+      });
+      if (!claimed.length) continue;
+      try {
+        await processEvent(job);
+        await socialRest(`social_webhook_events?id=eq.${job.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'processed', processed_at: new Date().toISOString(), error: null }) });
+        processed++;
+      } catch (error) {
+        const dead = job.attempts + 1 >= 5;
+        await socialRest(`social_webhook_events?id=eq.${job.id}`, { method: 'PATCH', body: JSON.stringify({
+          status: dead ? 'dead' : 'queued', next_attempt_at: new Date(Date.now()+Math.min(3600, 30*2**job.attempts)*1000).toISOString(),
+          error: String(error).slice(0, 500),
+        }) });
+        if (dead) await socialRest('integration_alerts', { method: 'POST', body: JSON.stringify({
+          provider: job.provider, event_type: 'webhook_dead_letter', source_id: job.id, error: String(error).slice(0, 500),
+        }) });
+      }
+    }
+    res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ processed, inspected: jobs.length }));
+  } catch (error) { res.statusCode = 500; res.end(JSON.stringify({ error: String(error) })); }
+}
