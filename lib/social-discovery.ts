@@ -57,6 +57,31 @@ export function discoverSocialLinks(html: string, website: string): SocialCandid
   return results;
 }
 
+/** AI can select an index from observed URLs; it never supplies a handle. */
+export async function resolveAmbiguousSocials(candidates:SocialCandidate[],website:string):Promise<SocialCandidate[]> {
+  const key=process.env.OPENROUTER_API_KEY;
+  if(!key)return candidates;
+  for(const platform of new Set(candidates.map((item)=>item.platform)){
+    const options=candidates.filter((item)=>item.platform===platform);
+    if(options.length<2)continue;
+    try{
+      const response=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',
+        headers:{authorization:`Bearer ${key}`,'content-type':'application/json'},signal:AbortSignal.timeout(12000),
+        body:JSON.stringify({model:process.env.OPENROUTER_MODEL||'nvidia/nemotron-3.5-lightning:free',temperature:0,max_tokens:12,
+          messages:[{role:'system',content:'Choose which observed social profile belongs to the website. Output only the zero-based candidate index, or -1 if uncertain. Never create a new URL or handle.'},
+            {role:'user',content:JSON.stringify({website,platform,candidates:options.map((item)=>item.profileUrl)})}]}),
+      });
+      if(!response.ok)continue;
+      const result=await response.json() as {choices?:Array<{message?:{content?:string}}>};
+      const answer=result.choices?.[0]?.message?.content?.trim()||'';
+      if(!/^-?\d+$/.test(answer))continue;
+      const index=Number(answer);
+      if(index>=0&&index<options.length)options[index].confidence=Math.max(72,options[index].confidence);
+    }catch{/* Keep ambiguous candidates in review when the free model is unavailable. */}
+  }
+  return candidates;
+}
+
 function publicAddress(address: string): boolean {
   if (isIP(address) === 4) {
     const [a,b] = address.split('.').map(Number);

@@ -45,17 +45,22 @@ create or replace function public.social_conversation_guard() returns trigger
 language plpgsql security definer set search_path = '' as $$
 begin
   if new.connected_account_id is not null and not exists
-    (select 1 from public.connected_accounts a where a.id=new.connected_account_id and a.organization_id=new.organization_id and a.platform=new.channel) then
+    (select 1 from public.connected_accounts a where a.id=new.connected_account_id and a.organization_id=new.organization_id
+      and (a.platform=new.channel or new.channel='other')) then
     raise exception 'Connected account does not belong to conversation organization/channel';
   end if;
   if new.contact_id is not null and not public.social_entity_belongs(new.organization_id,'contact',new.contact_id) then
     raise exception 'Contact does not belong to conversation organization'; end if;
   if new.company_id is not null and not public.social_entity_belongs(new.organization_id,'company',new.company_id) then
     raise exception 'Company does not belong to conversation organization'; end if;
+  if new.legacy_company_id is not null and (new.organization_id<>'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1'::uuid or
+    not exists(select 1 from public.companies where id=new.legacy_company_id)) then
+    raise exception 'Legacy company does not belong to conversation organization'; end if;
   if new.lead_id is not null and not public.social_entity_belongs(new.organization_id,'lead',new.lead_id) then
     raise exception 'Lead does not belong to conversation organization'; end if;
   return new;
 end $$;
+alter table public.conversations add column if not exists legacy_company_id uuid references public.companies(id);
 create trigger social_conversation_guard before insert or update on public.conversations
 for each row execute function public.social_conversation_guard();
 create unique index social_conversation_no_account_idx on public.conversations(organization_id,channel,external_thread_id)
@@ -69,6 +74,18 @@ create table public.social_sync_cursors (
 alter table public.social_sync_cursors enable row level security;
 revoke all on public.social_sync_cursors from public,anon,authenticated;
 insert into public.social_sync_cursors(source) values('outreach_inbound_messages'),('mightycall_sms_messages');
+
+create table public.social_send_attempts (
+  id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id),
+  connected_account_id uuid not null references public.connected_accounts(id),
+  conversation_id uuid not null references public.conversations(id),
+  sent_by uuid, status text not null default 'reserved' check(status in ('reserved','sent','failed')),
+  external_message_id text, error text, created_at timestamptz not null default now(), completed_at timestamptz
+);
+create index social_send_attempts_cap_idx on public.social_send_attempts(connected_account_id,created_at)
+  where status in ('reserved','sent');
+alter table public.social_send_attempts enable row level security;
+revoke all on public.social_send_attempts from public,anon,authenticated;
 
 create or replace function public.social_message_guard() returns trigger
 language plpgsql security definer set search_path = '' as $$
@@ -95,7 +112,7 @@ begin
       (identity_type='email' and identity_value=v_email) or
       (identity_type='phone' and identity_value in (public.outreach_phone(v_phone),regexp_replace(coalesce(v_phone,''),'[^0-9]','','g'))))
     or exists(select 1 from public.conversations c where c.organization_id=p_org and c.intent in ('unsubscribe','not_interested')
-      and (c.lead_id=v_lead or c.contact_id=p_id and p_type='contact' or c.company_id=v_company))
+      and (c.lead_id=v_lead or c.contact_id=p_id and p_type='contact' or c.company_id=v_company or c.legacy_company_id=v_company))
     or exists(select 1 from public.crm_contacts c join public.leads l on l.id=c.source_lead_id
       where c.company_id=v_company and l.dnc)
     or exists(select 1 from public.crm_contacts c join public.outreach_suppressions s on
@@ -112,6 +129,77 @@ language sql stable security definer set search_path = '' as $$
 $$;
 revoke all on function public.is_suppressed(uuid,text,uuid) from public,anon;
 grant execute on function public.is_suppressed(uuid,text,uuid) to authenticated;
+
+create or replace function public.social_reserve_reply(p_conversation_id uuid,p_sent_by uuid) returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare v_thread public.conversations%rowtype; v_account public.connected_accounts%rowtype; v_count integer; v_attempt uuid;
+declare v_type text; v_entity uuid;
+begin
+  select * into v_thread from public.conversations where id=p_conversation_id for update;
+  if v_thread.id is null or v_thread.channel not in ('facebook','whatsapp') or v_thread.connected_account_id is null then
+    raise exception 'API reply is unavailable for this conversation'; end if;
+  if v_thread.last_inbound_at is null or v_thread.last_inbound_at <= now()-interval '24 hours' then
+    raise exception 'The 24-hour reply window is closed'; end if;
+  if v_thread.participant_platform_id is null then raise exception 'Recipient platform ID is missing'; end if;
+  select * into v_account from public.connected_accounts where id=v_thread.connected_account_id for update;
+  if v_account.id is null or v_account.organization_id<>v_thread.organization_id or v_account.status<>'active' or
+    (v_account.token_expires_at is not null and v_account.token_expires_at<=now()) then
+    raise exception 'Connected account is inactive or expired'; end if;
+  v_type:=case when v_thread.lead_id is not null then 'lead' when v_thread.contact_id is not null then 'contact'
+               when v_thread.company_id is not null or v_thread.legacy_company_id is not null then 'company' else null end;
+  v_entity:=coalesce(v_thread.lead_id,v_thread.contact_id,v_thread.company_id,v_thread.legacy_company_id);
+  if v_type is null or public.social_is_suppressed_internal(v_thread.organization_id,v_type,v_entity) then
+    raise exception 'Recipient is unmatched or suppressed'; end if;
+  perform pg_advisory_xact_lock(hashtextextended(v_account.id::text,0));
+  select count(*) into v_count from public.social_send_attempts where connected_account_id=v_account.id
+    and created_at>=date_trunc('day',now() at time zone 'UTC') at time zone 'UTC' and status in ('reserved','sent');
+  if v_count>=v_account.daily_followup_cap then raise exception 'Daily account reply cap reached'; end if;
+  insert into public.social_send_attempts(organization_id,connected_account_id,conversation_id,sent_by)
+  values(v_thread.organization_id,v_account.id,v_thread.id,p_sent_by) returning id into v_attempt;
+  return v_attempt;
+end $$;
+revoke all on function public.social_reserve_reply(uuid,uuid) from public,anon,authenticated;
+grant execute on function public.social_reserve_reply(uuid,uuid) to service_role;
+
+create or replace function public.social_match_manual_echo(p_account_id uuid,p_participant_id text,p_body text,p_external_id text)
+returns uuid language plpgsql security definer set search_path = '' as $$
+declare v_account public.connected_accounts%rowtype; v_match record; v_count integer; v_message_id uuid; v_existing uuid; v_thread text;
+declare v_type text; v_entity uuid;
+begin
+  select * into v_account from public.connected_accounts where id=p_account_id;
+  if v_account.id is null or v_account.platform not in ('instagram','facebook') or p_external_id is null then return null; end if;
+  select count(*),min(m.id::text)::uuid into v_count,v_message_id from public.messages m join public.conversations c on c.id=m.conversation_id
+  where c.connected_account_id=p_account_id and c.channel=v_account.platform and m.direction='outbound'
+    and m.sent_via='manual_assisted' and m.external_message_id is null and m.body=p_body
+    and m.created_at>now()-interval '10 minutes';
+  if v_count<>1 then return null; end if;
+  select m.id message_id,c.id conversation_id,c.lead_id,c.contact_id,c.company_id,c.legacy_company_id
+    into v_match from public.messages m join public.conversations c on c.id=m.conversation_id
+    where m.id=v_message_id for update of m,c;
+  v_thread:=p_account_id::text||':'||p_participant_id;
+  select id into v_existing from public.conversations where organization_id=v_account.organization_id
+    and channel=v_account.platform and connected_account_id=p_account_id and external_thread_id=v_thread;
+  if v_existing is not null and v_existing<>v_match.conversation_id then
+    update public.messages set conversation_id=v_existing,external_message_id=p_external_id where id=v_match.message_id;
+  else
+    update public.conversations set external_thread_id=v_thread,participant_platform_id=p_participant_id,
+      last_outbound_at=now(),last_message_at=now() where id=v_match.conversation_id;
+    v_existing:=v_match.conversation_id;
+    update public.messages set external_message_id=p_external_id where id=v_match.message_id;
+  end if;
+  v_type:=case when v_match.lead_id is not null then 'lead' when v_match.contact_id is not null then 'contact'
+               when v_match.company_id is not null or v_match.legacy_company_id is not null then 'company' else null end;
+  v_entity:=coalesce(v_match.lead_id,v_match.contact_id,v_match.company_id,v_match.legacy_company_id);
+  if v_type is not null then
+    update public.social_profiles set platform_user_id=p_participant_id where id=(
+      select id from public.social_profiles where organization_id=v_account.organization_id and entity_type=v_type
+        and entity_id=v_entity and platform=v_account.platform and platform_user_id is null
+      order by is_primary desc,confidence desc limit 1);
+  end if;
+  return v_existing;
+end $$;
+revoke all on function public.social_match_manual_echo(uuid,text,text,text) from public,anon,authenticated;
+grant execute on function public.social_match_manual_echo(uuid,text,text,text) to service_role;
 
 create or replace function public.dm_enrollment_guard() returns trigger
 language plpgsql security definer set search_path = '' as $$
@@ -162,23 +250,31 @@ grant execute on function public.social_set_primary(uuid) to service_role;
 create or replace function public.social_slack_notify(p_event_type text,p_conversation_id uuid,p_text text) returns void
 language plpgsql security definer set search_path = '' as $$
 declare v_webhook text; v_origin text; v_request bigint; v_text text;
+declare v_table text;
 begin
+  v_table:=case when p_event_type in ('token_expiring','account_disconnected','webhook_failure')
+                then 'connected_accounts' else 'conversations' end;
+  if p_event_type='token_expiring' and exists(select 1 from public.slack_notification_log
+    where lead_table=v_table and lead_id=p_conversation_id::text and event_type=p_event_type
+      and created_at>now()-interval '7 days') then return; end if;
   select decrypted_secret into v_webhook from vault.decrypted_secrets where name='victorysync_slack_meeting_webhook' limit 1;
   select decrypted_secret into v_origin from vault.decrypted_secrets where name='victorysync_leadgen_origin' limit 1;
   if v_webhook is null or v_webhook !~ '^https://hooks.slack.com/services/' then
     insert into public.slack_notification_log(lead_table,lead_id,event_type,status,error_message)
-    values('conversations',p_conversation_id::text,p_event_type,'skipped','Slack webhook missing from Vault');
+    values(v_table,p_conversation_id::text,p_event_type,'skipped','Slack webhook missing from Vault');
     return;
   end if;
   v_text:=left(p_text,500);
-  if v_origin ~ '^https://[^/]+$' then v_text:=v_text||E'\n'||v_origin||'/conversations?id='||p_conversation_id::text; end if;
+  if v_origin ~ '^https://[^/]+$' then
+    v_text:=v_text||E'\n'||v_origin||case when v_table='connected_accounts' then '/settings' else '/conversations?id='||p_conversation_id::text end;
+  end if;
   select net.http_post(url:=v_webhook,body:=jsonb_build_object('text',v_text),
     headers:='{"Content-Type":"application/json"}'::jsonb) into v_request;
   insert into public.slack_notification_log(lead_table,lead_id,event_type,request_id,status)
-  values('conversations',p_conversation_id::text,p_event_type,v_request,'queued');
+  values(v_table,p_conversation_id::text,p_event_type,v_request,'queued');
 exception when others then
   insert into public.slack_notification_log(lead_table,lead_id,event_type,status,error_message)
-  values('conversations',p_conversation_id::text,p_event_type,'failed',left(sqlerrm,1000));
+  values(v_table,p_conversation_id::text,p_event_type,'failed',left(sqlerrm,1000));
 end $$;
 revoke all on function public.social_slack_notify(text,uuid,text) from public,anon,authenticated;
 grant execute on function public.social_slack_notify(text,uuid,text) to service_role;
@@ -197,6 +293,17 @@ begin
 end $$;
 create trigger social_message_inbound_notify after insert on public.messages
 for each row execute function public.social_message_inbound_notify();
+
+create or replace function public.social_account_changed() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if new.status='disconnected' and new.status is distinct from old.status then
+    perform public.social_slack_notify('account_disconnected',new.id,'Social account disconnected: '||new.label);
+  end if;
+  return new;
+end $$;
+create trigger social_account_changed after update of status on public.connected_accounts
+for each row execute function public.social_account_changed();
 
 create or replace function public.social_conversation_changed() returns trigger
 language plpgsql security definer set search_path = '' as $$
@@ -233,7 +340,8 @@ begin
     where organization_id=new.organization_id and state in ('queued','step_due','sent') and
       ((new.lead_id is not null and entity_type='lead' and entity_id=new.lead_id)
        or (new.contact_id is not null and entity_type='contact' and entity_id=new.contact_id)
-       or (new.company_id is not null and entity_type='company' and entity_id=new.company_id));
+       or (new.company_id is not null and entity_type='company' and entity_id=new.company_id)
+       or (new.legacy_company_id is not null and entity_type='company' and entity_id=new.legacy_company_id));
   end if;
   if new.intent='interested' and new.intent is distinct from old.intent then
     perform public.social_slack_notify('positive_reply',new.id,'Interested reply in Victory Sync ('||new.channel||')');

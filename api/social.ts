@@ -1,8 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { allowedEmail } from '../lib/mcp-auth.js';
 import { normalizeSocial, SOCIAL_PLATFORMS, type SocialPlatform } from '../lib/social-handles.js';
-import { discoverWebsiteSocials } from '../lib/social-discovery.js';
+import { discoverWebsiteSocials,resolveAmbiguousSocials } from '../lib/social-discovery.js';
 import { socialRest } from '../lib/social-service.js';
+import { assertSocialOrganization } from '../lib/social-auth.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 30 };
 const LEGACY_ORG = 'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
@@ -49,11 +50,12 @@ function platform(value: unknown): SocialPlatform {
 }
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   try {
-    await admin(req);
+    const user=await admin(req);
     const url = new URL(req.url || '/', 'https://local.invalid');
     const type = url.searchParams.get('entity_type') || '';
     const id = url.searchParams.get('entity_id') || '';
     const entity = await resolveEntity(type,id);
+    await assertSocialOrganization(user.id,entity.org);
     if (req.method === 'GET') {
       const rows = await socialRest<any[]>(`social_profiles?organization_id=eq.${entity.org}&entity_type=eq.${entity.type}&entity_id=eq.${entity.id}&select=*&order=platform.asc,confidence.desc`);
       return reply(res,200,{ profiles:rows });
@@ -61,7 +63,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const input = await body(req);
     if (req.method === 'POST' && input.action === 'find') {
       if (!entity.website) return reply(res,400,{ error:'No company website is stored' });
-      const candidates = await discoverWebsiteSocials(entity.website);
+      const candidates = await resolveAmbiguousSocials(await discoverWebsiteSocials(entity.website),entity.website);
       let saved = 0;
       for (const item of candidates) {
         const inserted = await socialRest<any[]>('social_profiles?on_conflict=organization_id,platform,normalized_handle,entity_type,entity_id', {
@@ -71,6 +73,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             confidence:item.confidence,is_primary:false,source:item.source }),
         });
         saved += inserted.length;
+        if(item.confidence>=70&&inserted.length){
+          const current=await socialRest<any[]>(`social_profiles?organization_id=eq.${entity.org}&entity_type=eq.${entity.type}&entity_id=eq.${entity.id}&platform=eq.${item.platform}&is_primary=eq.true&select=id&limit=1`);
+          if(!current.length)await socialRest('rpc/social_set_primary',{method:'POST',body:JSON.stringify({p_profile_id:inserted[0].id})});
+        }
       }
       return reply(res,200,{ candidates,saved,review:candidates.filter((item)=>item.confidence<70) });
     }

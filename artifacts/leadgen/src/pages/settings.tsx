@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { Building2, Bell, Users, Key, Check } from "lucide-react";
 import { Link } from "wouter";
+import { ConnectedAccounts } from "@/components/connected-accounts";
 
 export default function Settings() {
   const { toast } = useToast();
@@ -35,6 +36,8 @@ export default function Settings() {
           <PageTitle>Settings</PageTitle>
           <PageDescription>Organization and notification preferences</PageDescription>
         </div>
+
+        <ConnectedAccounts />
 
         {/* Organization */}
         <Card className="p-6 border border-border bg-card">

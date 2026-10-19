@@ -15,6 +15,15 @@ async function processEvent(job: Job) {
   if (accounts.length !== 1) throw new Error('No unique active connected account for webhook recipient');
   const account = accounts[0];
   const participantId = event.isEcho ? event.recipientId : event.senderId;
+  if(event.isEcho){
+    const confirmed=await socialRest<string|null>('rpc/social_match_manual_echo',{method:'POST',body:JSON.stringify({
+      p_account_id:account.id,p_participant_id:participantId,p_body:event.body,p_external_id:event.externalMessageId,
+    })});
+    if(confirmed){
+      await socialRest(`connected_accounts?id=eq.${account.id}`,{method:'PATCH',body:JSON.stringify({last_webhook_at:new Date().toISOString()})});
+      return;
+    }
+  }
   const profiles = await socialRest<Profile[]>(`social_profiles?organization_id=eq.${account.organization_id}&platform=eq.${encodeURIComponent(event.channel)}&platform_user_id=eq.${encodeURIComponent(participantId)}&select=entity_type,entity_id&limit=2`);
   let matched = profiles.length === 1 ? profiles[0] : undefined;
   if (!matched && event.channel === 'whatsapp') {
@@ -23,18 +32,24 @@ async function processEvent(job: Job) {
     if (leads.length === 1) matched = { entity_type: 'lead', entity_id: leads[0].id };
   }
   const thread = `${account.id}:${participantId}`;
-  type Conversation = { id: string; company_id: string | null; contact_id: string | null; lead_id: string | null };
-  let conversations = await socialRest<Conversation[]>(`conversations?organization_id=eq.${account.organization_id}&channel=eq.${event.channel}&connected_account_id=eq.${account.id}&external_thread_id=eq.${encodeURIComponent(thread)}&select=id,company_id,contact_id,lead_id&limit=1`);
+  type Conversation = { id: string; company_id: string | null; legacy_company_id: string | null; contact_id: string | null; lead_id: string | null };
+  let legacyCompanyId:string|null=null;
+  if(matched?.entity_type==='company'){
+    const crm=await socialRest<Array<{id:string}>>(`crm_companies?id=eq.${matched.entity_id}&select=id&limit=1`);
+    if(!crm.length)legacyCompanyId=matched.entity_id;
+  }
+  let conversations = await socialRest<Conversation[]>(`conversations?organization_id=eq.${account.organization_id}&channel=eq.${event.channel}&connected_account_id=eq.${account.id}&external_thread_id=eq.${encodeURIComponent(thread)}&select=id,company_id,legacy_company_id,contact_id,lead_id&limit=1`);
   if (!conversations.length) conversations = await socialRest<Conversation[]>(
     'conversations?on_conflict=organization_id,channel,connected_account_id,external_thread_id', {
       method: 'POST', headers: { prefer: 'resolution=ignore-duplicates,return=representation' },
       body: JSON.stringify({ organization_id: account.organization_id, channel: event.channel,
         connected_account_id: account.id, external_thread_id: thread, participant_platform_id: participantId,
         contact_id: matched?.entity_type === 'contact' ? matched.entity_id : null,
-        company_id: matched?.entity_type === 'company' ? matched.entity_id : null,
+        company_id: matched?.entity_type === 'company' && !legacyCompanyId ? matched.entity_id : null,
+        legacy_company_id:legacyCompanyId,
         lead_id: matched?.entity_type === 'lead' ? matched.entity_id : null }),
     });
-  if (!conversations.length) conversations = await socialRest<Conversation[]>(`conversations?organization_id=eq.${account.organization_id}&channel=eq.${event.channel}&connected_account_id=eq.${account.id}&external_thread_id=eq.${encodeURIComponent(thread)}&select=id,company_id,contact_id,lead_id&limit=1`);
+  if (!conversations.length) conversations = await socialRest<Conversation[]>(`conversations?organization_id=eq.${account.organization_id}&channel=eq.${event.channel}&connected_account_id=eq.${account.id}&external_thread_id=eq.${encodeURIComponent(thread)}&select=id,company_id,legacy_company_id,contact_id,lead_id&limit=1`);
   const conversation = conversations[0];
   const existing = await socialRest<Array<{ id: string }>>(`messages?conversation_id=eq.${conversation.id}&external_message_id=eq.${encodeURIComponent(event.externalMessageId)}&select=id&limit=1`);
   if (existing.length) return;
@@ -100,6 +115,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           provider: job.provider, alert_type: 'webhook_dead_letter', message: String(error).slice(0, 500),
           metadata: { event_id: job.id },
         }) });
+        if(dead)await socialRest('rpc/social_slack_notify',{method:'POST',body:JSON.stringify({
+          p_event_type:'webhook_failure',p_conversation_id:job.id,p_text:`Social webhook failed after 5 attempts (${job.provider})`,
+        })}).catch(()=>{});
       }
     }
     const legacy = await syncLegacyInbound();

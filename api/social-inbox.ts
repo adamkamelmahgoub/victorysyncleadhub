@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { allowedEmail } from '../lib/mcp-auth.js';
 import { replyAllowed } from '../lib/social-providers.js';
 import { socialRest } from '../lib/social-service.js';
+import { socialOrganizationIds } from '../lib/social-auth.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 30 };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -13,15 +14,17 @@ async function authenticate(req:IncomingMessage) {
   if(typeof token!=='string'||!token.startsWith('Bearer ')||!key||!process.env.SUPABASE_URL) throw new Error('Sign in first');
   const response=await fetch(`${process.env.SUPABASE_URL}/auth/v1/user`,{headers:{apikey:key,authorization:token},signal:AbortSignal.timeout(10000)});
   if(!response.ok) throw new Error('Session expired');
-  const user=await response.json() as {email:string;email_confirmed_at?:string};
+  const user=await response.json() as {id:string;email:string;email_confirmed_at?:string};
   if(!user.email_confirmed_at||!allowedEmail(user.email)) throw new Error('CRM administrator access required');
+  return user;
 }
 async function input(req:IncomingMessage) {let raw='';for await(const part of req){raw+=part;if(raw.length>100000)throw new Error('Request too large');}return JSON.parse(raw||'{}');}
 type Conversation={id:string;organization_id:string;channel:string;connected_account_id:string|null;participant_platform_id:string|null;
-  contact_id:string|null;company_id:string|null;lead_id:string|null;last_inbound_at:string|null;reply_window_expires_at:string|null;[key:string]:unknown};
+  contact_id:string|null;company_id:string|null;legacy_company_id:string|null;lead_id:string|null;last_inbound_at:string|null;reply_window_expires_at:string|null;[key:string]:unknown};
 export default async function handler(req:IncomingMessage,res:ServerResponse) {
   try {
-    await authenticate(req);
+    const user=await authenticate(req);
+    const organizations=await socialOrganizationIds(user.id);
     const url=new URL(req.url||'/','https://local.invalid');
     const id=url.searchParams.get('id');
     if(req.method==='GET'&&id) {
@@ -29,21 +32,26 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
       const rows=await socialRest<Conversation[]>(`conversations?id=eq.${id}&select=*&limit=1`);
       if(!rows.length)return reply(res,404,{error:'Conversation not found'});
       const thread=rows[0];
+      if(!organizations.includes(thread.organization_id))throw new Error('Organization access denied');
       const [messages,profiles]=await Promise.all([
         socialRest<any[]>(`messages?conversation_id=eq.${id}&select=*&order=created_at.asc&limit=500`),
-        thread.lead_id||thread.contact_id||thread.company_id
-          ? socialRest<any[]>(`social_profiles?organization_id=eq.${thread.organization_id}&entity_type=eq.${thread.lead_id?'lead':thread.contact_id?'contact':'company'}&entity_id=eq.${thread.lead_id||thread.contact_id||thread.company_id}&select=*&order=platform.asc`)
+        thread.lead_id||thread.contact_id||thread.company_id||thread.legacy_company_id
+          ? socialRest<any[]>(`social_profiles?organization_id=eq.${thread.organization_id}&entity_type=eq.${thread.lead_id?'lead':thread.contact_id?'contact':'company'}&entity_id=eq.${thread.lead_id||thread.contact_id||thread.company_id||thread.legacy_company_id}&select=*&order=platform.asc`)
           : Promise.resolve([]),
       ]);
-      return reply(res,200,{conversation:thread,messages,profiles,canReply:replyAllowed(thread.channel as any,thread.last_inbound_at?new Date(thread.last_inbound_at):null)});
+      return reply(res,200,{conversation:thread,messages,profiles,
+        canReply:['facebook','whatsapp'].includes(thread.channel)&&Boolean(thread.connected_account_id)&&
+          replyAllowed(thread.channel as any,thread.last_inbound_at?new Date(thread.last_inbound_at):null)});
     }
     if(req.method==='GET') {
+      if(!organizations.length)return reply(res,200,{conversations:[]});
       const filters=['select=*','order=last_message_at.desc.nullslast','limit=100'];
+      filters.push(`organization_id=in.(${organizations.join(',')})`);
       for(const name of ['channel','status','intent','connected_account_id','assigned_to']) {
         const value=url.searchParams.get(name);if(value)filters.push(`${name}=eq.${encodeURIComponent(value)}`);
       }
       if(url.searchParams.get('unread')==='true')filters.push('unread_count=gt.0');
-      if(url.searchParams.get('unmatched')==='true')filters.push('contact_id=is.null','company_id=is.null','lead_id=is.null');
+      if(url.searchParams.get('unmatched')==='true')filters.push('contact_id=is.null','company_id=is.null','legacy_company_id=is.null','lead_id=is.null');
       const conversations=await socialRest<Conversation[]>(`conversations?${filters.join('&')}`);
       return reply(res,200,{conversations});
     }
@@ -53,6 +61,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
     const rows=await socialRest<Conversation[]>(`conversations?id=eq.${data.id}&select=*&limit=1`);
     if(!rows.length)return reply(res,404,{error:'Conversation not found'});
     const thread=rows[0];
+    if(!organizations.includes(thread.organization_id))throw new Error('Organization access denied');
     const update:Record<string,unknown>={updated_at:new Date().toISOString()};
     if(data.action==='link') {
       const type=String(data.entity_type||'');const entityId=String(data.entity_id||'');
@@ -62,7 +71,9 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
       if(!target.length&&type==='company'&&thread.organization_id===LEGACY_ORG)
         target=await socialRest<any[]>(`companies?id=eq.${entityId}&select=id&limit=1`);
       if(!target.length||(target[0].organization_id||LEGACY_ORG)!==thread.organization_id)throw new Error('Target belongs to another organization');
-      update.lead_id=type==='lead'?entityId:null;update.contact_id=type==='contact'?entityId:null;update.company_id=type==='company'?entityId:null;
+      update.lead_id=type==='lead'?entityId:null;update.contact_id=type==='contact'?entityId:null;
+      update.company_id=type==='company'&&target[0].organization_id?entityId:null;
+      update.legacy_company_id=type==='company'&&!target[0].organization_id?entityId:null;
       const profiles=await socialRest<any[]>(`social_profiles?organization_id=eq.${thread.organization_id}&entity_type=eq.${type}&entity_id=eq.${entityId}&platform=eq.${thread.channel}&select=id,platform_user_id&order=is_primary.desc&limit=1`);
       if(profiles.length&&thread.participant_platform_id&&!profiles[0].platform_user_id)
         await socialRest(`social_profiles?id=eq.${profiles[0].id}`,{method:'PATCH',body:JSON.stringify({platform_user_id:thread.participant_platform_id})});
