@@ -53,7 +53,7 @@ function GroupEditor({ group, onChange, sequences, depth = 0 }: { group: Group; 
 export default function SegmentsV2() {
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
-  const { data, isLoading, error } = useQuery<Segment[]>({ queryKey: ["segments"], queryFn: () => apiFetch("/api/segments") });
+  const { data, isLoading, error } = useQuery<Segment[]>({ queryKey: ["segments", "live"], queryFn: () => apiFetch("/api/segments?liveCounts=1"), staleTime: 60_000 });
   const segments = asArray<Segment>(data);
   const { data: sequencesResponse } = useQuery<SequenceOption[]>({ queryKey: ["segment-sequences"], queryFn: () => apiFetch("/api/sequences"), enabled: open });
   const sequences = asArray<SequenceOption>(sequencesResponse);

@@ -1,6 +1,6 @@
 import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useEffect, useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -83,6 +83,8 @@ export default function Leads() {
   const [tagFilter, setTagFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("");
   const [stateFilter, setStateFilter] = useState("");
+  const [debouncedSource, setDebouncedSource] = useState("");
+  const [debouncedState, setDebouncedState] = useState("");
   const [sort, setSort] = useState("created_at");
   const [direction, setDirection] = useState("desc");
   const [layoutVersion, setLayoutVersion] = useState(0);
@@ -115,20 +117,39 @@ export default function Leads() {
     return () => window.clearTimeout(timer);
   }, [search]);
 
-  const queryKey = ["contacts", page, debouncedSearch, statusFilter, tagFilter, sourceFilter, stateFilter, sort, direction];
-  const { data, isLoading, error: contactsError } = useQuery({
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSource(sourceFilter);
+      setDebouncedState(stateFilter);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [sourceFilter, stateFilter]);
+
+  const queryKey = ["contacts", page, debouncedSearch, statusFilter, tagFilter, debouncedSource, debouncedState, sort, direction];
+  const { data, isLoading, isFetching, error: contactsError } = useQuery({
     queryKey,
     queryFn: async () => {
-      const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
+      const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE), includeActivity: "false" });
       if (debouncedSearch) params.set("search", debouncedSearch);
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (tagFilter !== "all") params.set("tag", tagFilter);
-      if (sourceFilter.trim()) params.set("source", sourceFilter.trim());
-      if (stateFilter.trim()) params.set("state", stateFilter.trim());
+      if (debouncedSource.trim()) params.set("source", debouncedSource.trim());
+      if (debouncedState.trim()) params.set("state", debouncedState.trim());
       params.set("sort", sort);
       params.set("direction", direction);
       return apiFetch(`/api/leads?${params}`) as Promise<LeadsResponse>;
     },
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const activityIds = data?.leads.map((lead) => lead.id).join(",") ?? "";
+  const { data: activityResponse = [] } = useQuery<Array<{leadId:string;lastActivityAt:string}>>({
+    queryKey: ["contact-last-activity", activityIds],
+    queryFn: () => apiFetch("/api/contacts/last-activity", { method: "POST", body: JSON.stringify({ ids: activityIds.split(",").filter(Boolean) }) }),
+    enabled: !!activityIds,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
   });
   const { data: savedViewsResponse = [] } = useQuery<Array<{id:string;name:string;filters:Record<string,unknown>}>>({
     queryKey: ["contact-views"], queryFn: () => apiFetch("/api/contact-views"), enabled: role !== "client",
@@ -137,29 +158,30 @@ export default function Leads() {
   const { data: dispositionsResponse = [] } = useQuery<{ id: string; name: string; color: string }[]>({
     queryKey: ["dispositions"],
     queryFn: () => apiFetch("/dispositions"),
-    enabled: role !== "client",
+    enabled: role !== "client" && showDispositions,
   });
   const dispositions = asArray<{ id: string; name: string; color: string }>(dispositionsResponse);
   const { data: contactGroupsResponse = [] } = useQuery<ContactGroup[]>({
     queryKey: ["contact-groups"],
     queryFn: () => apiFetch("/api/contact-groups"),
-    enabled: role !== "client",
+    enabled: role !== "client" && showGroupAssignment,
   });
   const { data: clientAccountsResponse = [] } = useQuery<AssignmentOption[]>({
     queryKey: ["sub-accounts"],
     queryFn: () => apiFetch("/sub-accounts"),
-    enabled: role !== "client",
+    enabled: role !== "client" && showGroupAssignment,
   });
   const { data: teamResponse = [] } = useQuery<AssignmentOption[]>({
     queryKey: ["team"],
     queryFn: () => apiFetch("/team"),
-    enabled: role !== "client",
+    enabled: role !== "client" && showGroupAssignment,
   });
   const contactGroups = asArray<ContactGroup>(contactGroupsResponse);
   const clientAccounts = asArray<AssignmentOption>(clientAccountsResponse);
   const agents = asArray<AssignmentOption>(teamResponse).filter((member) => member.role === "agent" || member.role === "member");
 
-  const leads = asArray<Lead>(data?.leads);
+  const activityById = new Map(activityResponse.map((event) => [event.leadId, event.lastActivityAt]));
+  const leads = asArray<Lead>(data?.leads).map((lead) => ({ ...lead, lastActivityAt: activityById.get(lead.id) ?? lead.lastActivityAt }));
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
@@ -402,6 +424,7 @@ export default function Leads() {
           </div>
 
           {contactsError && <p role="alert" className="p-4 text-destructive">{contactsError instanceof Error ? contactsError.message : "Could not load contacts"}</p>}
+          {isFetching && !isLoading && <p role="status" className="px-4 py-2 text-xs text-muted-foreground">Updating contacts…</p>}
           {isLoading ? <div className="p-6"><Skeleton className="h-72 w-full" /></div> : !contactsError && <ContactGrid key={layoutVersion} contacts={leads} selected={selected} onSelect={(id) => setSelected((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; })} onDelete={role === "client" ? undefined : (id) => { if (window.confirm("Delete this contact?")) void handleDelete(id); }} canEdit={role !== "client"} />}
           {["owner", "admin", "member"].includes(role) && selected.size > 0 && <ContactBulkActions selected={selected} onDone={() => { setSelected(new Set()); void refresh(); }} />}
           <div className="px-4 py-3 border-t border-border flex flex-wrap items-center justify-between gap-3">

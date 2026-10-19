@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { MessageCircle, X } from "lucide-react";
-import AiAssistant from "@/pages/ai-assistant";
+const AiAssistant = lazy(() => import("@/pages/ai-assistant"));
 import { useAuth } from "@/lib/auth";
 
 export function AssistantLauncher() {
@@ -25,7 +25,7 @@ export function AssistantLauncher() {
         <Link href="/ai-assistant" onClick={() => setOpen(false)} className="font-medium text-blue-700 underline">Open full assistant and edit context</Link>
         <button type="button" aria-label="Close AI assistant" onClick={() => setOpen(false)} className="rounded p-2 hover:bg-slate-100"><X className="h-4 w-4" /></button>
       </div>
-      <div className="min-h-0 flex-1"><AiAssistant compact pageContext={pageContext} /></div>
+      <div className="min-h-0 flex-1">{open && <Suspense fallback={<div className="p-4 text-sm text-slate-500">Loading assistant…</div>}><AiAssistant compact pageContext={pageContext} /></Suspense>}</div>
     </section>
     <button type="button" aria-label={open ? "Close AI assistant" : "Open AI assistant"}
       aria-expanded={open} onClick={() => setOpen(!open)}

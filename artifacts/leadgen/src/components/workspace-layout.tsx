@@ -30,6 +30,12 @@ import { canAccessPath } from "@/lib/permissions";
 import { apiFetch } from "@/lib/api";
 import { asArray } from "@/lib/data-shape";
 type Item = { href: string; label: string; icon: ElementType };
+const pageModules = import.meta.glob("../pages/*.tsx");
+function prefetchPage(href: string) {
+  const path = href.startsWith("/contacts/segments/") ? "segments-v2" : href.slice(1);
+  const name = path === "crm-tasks" ? "company-tasks" : path === "segments" ? "segments-v2" : path;
+  void pageModules[`../pages/${name}.tsx`]?.();
+}
 const core: Item[] = [
   { href: "/ai-assistant", label: "AI assistant", icon: Sparkles },
   { href: "/call-queue", label: "Call queue", icon: Phone },
@@ -106,16 +112,23 @@ export function Layout({ children }: { children: ReactNode }) {
   const [mobile, setMobile] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [search, setSearch] = useState("");
+  const [refreshLiveSegments, setRefreshLiveSegments] = useState(false);
   const { user, role, pagePermissions, signOut } = useAuth();
   const canSeeSegments = role !== "client" && role !== "agent" && canAccessPath("/segments", pagePermissions, role);
-  const { data: segmentResponse } = useQuery<Array<{id:string;name:string;contactCount:number}>>({ queryKey: ["segments"], queryFn: () => apiFetch("/api/segments"), enabled: canSeeSegments });
-  const segments = asArray<{id:string;name:string;contactCount:number}>(segmentResponse);
+  const { data: segmentResponse } = useQuery<Array<{id:string;name:string;contactCount:number}>>({ queryKey: ["segments"], queryFn: () => apiFetch("/api/segments"), enabled: canSeeSegments, staleTime: 5 * 60_000, refetchOnWindowFocus: false });
+  const { data: liveSegmentResponse } = useQuery<Array<{id:string;name:string;contactCount:number}>>({ queryKey: ["segments", "live"], queryFn: () => apiFetch("/api/segments?liveCounts=1"), enabled: canSeeSegments && refreshLiveSegments, staleTime: 5 * 60_000, refetchOnWindowFocus: false });
+  const segments = asArray<{id:string;name:string;contactCount:number}>(liveSegmentResponse ?? segmentResponse);
   const path = location.replace(/^\/leadgen/, "") || "/";
   const active = (href: string) =>
     href === "/companies"
       ? path === "/" || path === "/dashboard" || path.startsWith("/companies")
       : href === "/leads" ? path.startsWith("/leads") || path.startsWith("/contacts/segments") : path.startsWith(href);
   useEffect(() => setMobile(false), [location]);
+  useEffect(() => {
+    if (!canSeeSegments) return;
+    const timer = window.setTimeout(() => setRefreshLiveSegments(true), 3000);
+    return () => window.clearTimeout(timer);
+  }, [canSeeSegments]);
   useEffect(() => {
     if (!mobile) return;
     const dismiss = (event: KeyboardEvent) => { if (event.key === "Escape") setMobile(false); };
@@ -131,6 +144,8 @@ export function Layout({ children }: { children: ReactNode }) {
       <Link
         key={item.href}
         href={item.href}
+        onMouseEnter={() => prefetchPage(item.href)}
+        onFocus={() => prefetchPage(item.href)}
         aria-current={active(item.href) ? "page" : undefined}
         title={collapsed ? item.label : undefined}
         className={`flex h-10 items-center gap-3 rounded-lg px-3 text-[13px] font-medium transition-colors ${active(item.href) ? "bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"}`}
@@ -177,8 +192,8 @@ export function Layout({ children }: { children: ReactNode }) {
           {(!collapsed || mobile) && <p className="px-3 pb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Workspace</p>}
           {core.map(navLink)}
           {(!collapsed || mobile) && canSeeSegments && <div className="ml-7 border-l border-slate-200 pl-2">
-            <Link href="/segments" className="block rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">Segments</Link>
-            {segments.map((segment) => <Link key={segment.id} href={`/contacts/segments/${segment.id}`} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-50"><span className="truncate">{segment.name}</span><span>{segment.contactCount.toLocaleString()}</span></Link>)}
+            <Link href="/segments" onMouseEnter={() => prefetchPage("/segments")} onFocus={() => prefetchPage("/segments")} className="block rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">Segments</Link>
+            {segments.map((segment) => <Link key={segment.id} href={`/contacts/segments/${segment.id}`} onMouseEnter={() => void pageModules["../pages/segment-detail.tsx"]?.()} onFocus={() => void pageModules["../pages/segment-detail.tsx"]?.()} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-50"><span className="truncate">{segment.name}</span><span>{segment.contactCount.toLocaleString()}</span></Link>)}
           </div>}
           {!collapsed || mobile
             ? groups.map((group) => {

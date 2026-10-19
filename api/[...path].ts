@@ -545,11 +545,18 @@ async function authenticateRequest(req: VercelRequest): Promise<AuthenticatedUse
   return user;
 }
 
-async function recordPortalActivity(req:VercelRequest,user:AuthenticatedUser,event:{eventType:string;action:string;pagePath?:string|null;target?:string|null;requestMethod?:string|null;requestStatus?:number|null;sessionId?:string|null;metadata?:Record<string,unknown>}) {
+type PortalActivityEvent = {eventType:string;action:string;pagePath?:string|null;target?:string|null;requestMethod?:string|null;requestStatus?:number|null;sessionId?:string|null;metadata?:Record<string,unknown>};
+async function recordPortalActivities(req:VercelRequest,user:AuthenticatedUser,events:PortalActivityEvent[]) {
   const clean=(value:unknown,max=500)=>typeof value==='string'?value.replace(/[\r\n\t]+/g,' ').trim().slice(0,max):null;
   const forwarded=String(getHeader(req,'x-forwarded-for')??'').split(',')[0].trim();
-  const metadata=event.metadata&&typeof event.metadata==='object'?Object.fromEntries(Object.entries(event.metadata).slice(0,20).map(([k,v])=>[k.slice(0,80),typeof v==='string'?v.slice(0,500):v])):{};
-  try{await supabaseRest('portal_activity_log',{method:'POST',body:JSON.stringify({actor_id:user.id,actor_email:clean(user.email,320),actor_name:clean(user.user_metadata?.full_name??user.user_metadata?.name,200),organization_id:clean(user.user_metadata?.org_id,200),client_account_id:clean(user.user_metadata?.client_account_id,200),session_id:clean(event.sessionId,200),event_type:clean(event.eventType,80)??'activity',action:clean(event.action,200)??'unknown',page_path:clean(event.pagePath,1000),target:clean(event.target,500),request_method:clean(event.requestMethod,20),request_status:event.requestStatus??null,ip_address:clean(forwarded||getHeader(req,'x-real-ip'),100),user_agent:clean(getHeader(req,'user-agent'),1000),metadata})},req);}catch(error){console.warn('Portal activity logging failed',error instanceof Error?error.message:'unknown');}
+  const rows=events.map((event)=>{
+    const metadata=event.metadata&&typeof event.metadata==='object'?Object.fromEntries(Object.entries(event.metadata).slice(0,20).map(([k,v])=>[k.slice(0,80),typeof v==='string'?v.slice(0,500):v])):{};
+    return {actor_id:user.id,actor_email:clean(user.email,320),actor_name:clean(user.user_metadata?.full_name??user.user_metadata?.name,200),organization_id:clean(user.user_metadata?.org_id,200),client_account_id:clean(user.user_metadata?.client_account_id,200),session_id:clean(event.sessionId,200),event_type:clean(event.eventType,80)??'activity',action:clean(event.action,200)??'unknown',page_path:clean(event.pagePath,1000),target:clean(event.target,500),request_method:clean(event.requestMethod,20),request_status:event.requestStatus??null,ip_address:clean(forwarded||getHeader(req,'x-real-ip'),100),user_agent:clean(getHeader(req,'user-agent'),1000),metadata};
+  });
+  try{await supabaseRest('portal_activity_log',{method:'POST',body:JSON.stringify(rows),headers:{prefer:'return=minimal'}},req);}catch(error){console.warn('Portal activity logging failed',error instanceof Error?error.message:'unknown');}
+}
+async function recordPortalActivity(req:VercelRequest,user:AuthenticatedUser,event:PortalActivityEvent) {
+  await recordPortalActivities(req,user,[event]);
 }
 
 async function syncDashboardTeamMember(user: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
@@ -1403,6 +1410,21 @@ async function contactsWithActivity(rows: LeadRow[], req: VercelRequest) {
   return rows.map((row) => ({ ...leadFromRow(row), lastActivityAt: byId.get(String(row.id)) ?? null }));
 }
 
+async function handleContactActivity(path: string, method: string, req: VercelRequest, res: VercelResponse): Promise<boolean> {
+  if (path !== '/api/contacts/last-activity' || method !== 'POST') return false;
+  const body = await readJson(req) as { ids?: unknown } | null;
+  const ids = body?.ids;
+  if (!Array.isArray(ids) || ids.length > 100 || ids.some((id) => typeof id !== 'string' || !uuidPattern.test(id))) {
+    sendJson(res, 400, { error: 'Provide up to 100 contact ids' }); return true;
+  }
+  if (!ids.length) { sendJson(res, 200, []); return true; }
+  const visible = await supabaseRest(`leads?select=id&id=in.(${ids.join(',')})`, { method: 'GET' }, req) as Array<{ id: string }>;
+  if (!visible.length) { sendJson(res, 200, []); return true; }
+  const events = await supabaseRest('rpc/crm_contacts_last_activity', { method: 'POST', body: JSON.stringify({ p_ids: visible.map((row) => row.id) }) }, req) as Array<{ lead_id: string; last_activity_at: string }>;
+  sendJson(res, 200, events.map((event) => ({ leadId: event.lead_id, lastActivityAt: event.last_activity_at })));
+  return true;
+}
+
 async function handleContactSegments(path: string, method: string, user: AuthenticatedUser, req: VercelRequest, res: VercelResponse): Promise<boolean> {
   const match = path.match(/^\/api\/segments(?:\/([^/]+))?(?:\/(contacts|members))?$/);
   if (!match) return false;
@@ -1419,8 +1441,9 @@ async function handleContactSegments(path: string, method: string, user: Authent
   const segment = id ? rows[0] : null;
   if (id && !segment) { sendJson(res, 404, { error: 'Segment not found' }); return true; }
   if (method === 'GET' && !id) {
+    const liveCounts = new URL(req.url ?? '', 'https://local.invalid').searchParams.get('liveCounts') === '1';
     const results = await Promise.all(rows.map(async (row) => {
-      const count = (await segmentPage(row, req, { limit: 1 })).total;
+      const count = liveCounts ? (await segmentPage(row, req, { limit: 1 })).total : row.contact_count;
       return { ...toCamelValue(row) as Record<string, unknown>, filters: normalizeSegmentFilters(row.filters), filterSummary: segmentSummary(row), contactCount: count };
     }));
     sendJson(res, 200, results);
@@ -1744,7 +1767,7 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   ]);
 
   sendJson(res, 200, {
-    leads: await contactsWithActivity(rows, req),
+    leads: url.searchParams.get('includeActivity') === 'false' ? rows.map(leadFromRow) : await contactsWithActivity(rows, req),
     total: sequenceEligible
       ? (rows.length === limit ? offset + rows.length + 1 : offset + rows.length)
       : count,
@@ -3219,6 +3242,7 @@ async function handleOAuth(path: string, method: string, req: VercelRequest, res
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  let auditPromise: Promise<void> | undefined;
   try {
     const path = pathFromUrl(req.url);
     const method = (req.method ?? "GET").toUpperCase();
@@ -3269,8 +3293,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const currentUser = await authenticateRequest(req);
     if(path==='/api/activity/events'&&method==='POST'){
-      const body=await readJson(req) as Record<string,unknown>;
-      await recordPortalActivity(req,currentUser,{eventType:String(body.eventType??'interaction'),action:String(body.action??'unknown'),pagePath:typeof body.pagePath==='string'?body.pagePath:null,target:typeof body.target==='string'?body.target:null,requestMethod:typeof body.requestMethod==='string'?body.requestMethod:null,requestStatus:typeof body.requestStatus==='number'?body.requestStatus:null,sessionId:typeof body.sessionId==='string'?body.sessionId:null,metadata:body.metadata&&typeof body.metadata==='object'?body.metadata as Record<string,unknown>:undefined});
+      const body=await readJson(req) as Record<string,unknown> | null;
+      const entries=Array.isArray(body?.events)?body.events:[body];
+      if (!entries.length || entries.length > 50 || entries.some((item) => !item || typeof item !== 'object' || Array.isArray(item))) {
+        sendJson(res,400,{error:'Provide 1 to 50 activity events'});return;
+      }
+      const events=entries.map((item) => {
+        const event=item as Record<string,unknown>;
+        return {eventType:String(event.eventType??'interaction'),action:String(event.action??'unknown'),pagePath:typeof event.pagePath==='string'?event.pagePath:null,target:typeof event.target==='string'?event.target:null,requestMethod:typeof event.requestMethod==='string'?event.requestMethod:null,requestStatus:typeof event.requestStatus==='number'?event.requestStatus:null,sessionId:typeof event.sessionId==='string'?event.sessionId:null,metadata:event.metadata&&typeof event.metadata==='object'&&!Array.isArray(event.metadata)?event.metadata as Record<string,unknown>:undefined};
+      });
+      await recordPortalActivities(req,currentUser,events);
       sendJson(res,201,{recorded:true});return;
     }
     if(path==='/api/activity/logs'&&method==='GET'){
@@ -3278,7 +3310,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const q=new URL(req.url??'/', 'https://local.invalid').searchParams;
       const result=await supabaseRest('rpc/portal_activity_list',{method:'POST',body:JSON.stringify({p_query:q.get('query'),p_event_type:q.get('type'),p_limit:Number(q.get('limit')??100),p_offset:Number(q.get('offset')??0),p_org:null})},req);sendJson(res,200,result);return;
     }
-    await recordPortalActivity(req,currentUser,{eventType:'api',action:'api_request',pagePath:path,requestMethod:method});
+    auditPromise = recordPortalActivity(req,currentUser,{eventType:'api',action:'api_request',pagePath:path,requestMethod:method});
     if (/^\/api\/(companies|company-crm)(\/|$)/.test(path)) {
       const result = await companyCrmRequest(method, req.url ?? path, getHeader(req, "authorization") ?? "", currentUser, () => readJson(req));
       sendJson(res, result.status, result.data);
@@ -3629,6 +3661,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    if (await handleContactActivity(path, method, req, res)) {
+      return;
+    }
+
     if (await handleContactSegments(path, method, currentUser, req, res)) {
       return;
     }
@@ -3668,5 +3704,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
     sendJson(res, 500, { error: message });
+  } finally {
+    // Finish the audit after the response has been sent, without delaying data work.
+    if (auditPromise) await auditPromise;
   }
 }
