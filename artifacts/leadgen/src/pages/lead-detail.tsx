@@ -23,6 +23,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { asArray, type ArrayElement } from "@/lib/data-shape";
+import { getDisplayName, getInitials } from "@/lib/contact-display";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const STATUS_OPTIONS = ["new", "contacted", "qualified", "meeting_booked", "proposal", "converted", "lost"] as const;
@@ -78,6 +79,11 @@ interface ContactTask {
   id: number; leadId: number; title: string; description?: string;
   dueDate?: string; isCompleted: boolean; completedAt?: string; priority: string; createdAt: string;
 }
+type ContactContext = {
+  timeline: Array<{ id: string; type: string; description: string; createdAt: string; _type: string }>;
+  opportunities: Array<{ id: string; title: string; stageName: string; nextAction?: string | null }>;
+  openTasks: Array<{ id: string; title: string; dueDate?: string | null }>;
+};
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
 const AVATAR_COLORS = [
@@ -87,7 +93,7 @@ const AVATAR_COLORS = [
 function getAvatarColor(name: string) {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]!;
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length] ?? "bg-slate-500";
 }
 
 // ── Score Ring ────────────────────────────────────────────────────────────────
@@ -121,7 +127,7 @@ function groupByDate<T extends { createdAt: string }>(items: T[]) {
   for (const item of [...items].sort((a, b) => parseISO(b.createdAt).getTime() - parseISO(a.createdAt).getTime())) {
     const day = format(parseISO(item.createdAt), "yyyy-MM-dd");
     groups[day] ??= [];
-    groups[day]!.push(item);
+    groups[day]?.push(item);
   }
   return Object.entries(groups).sort(([a], [b]) => b.localeCompare(a));
 }
@@ -221,6 +227,9 @@ export default function LeadDetail() {
   const [meetingLocal, setMeetingLocal] = useState("");
   const [addingTag, setAddingTag] = useState(false);
   const [newTag, setNewTag] = useState("");
+  const [sequencePicker, setSequencePicker] = useState(false);
+  const [sequenceId, setSequenceId] = useState("");
+  const [quickActionError, setQuickActionError] = useState("");
   const [localScore, setLocalScore] = useState<number | null>(null);
   const tagInputRef = useRef<HTMLInputElement>(null);
 
@@ -234,6 +243,9 @@ export default function LeadDetail() {
     queryFn: () => apiFetch(`/api/leads/${id}/tasks`),
     enabled: !!id && role !== "client",
   });
+  const { data: context } = useQuery<ContactContext>({ queryKey: ["contact-context", id], queryFn: () => apiFetch(`/api/contacts/${id}/context`), enabled: !!id && role !== "client" });
+  const { data: sequenceOptionsResponse } = useQuery<Array<{id:string;name:string}>>({ queryKey: ["contact-sequence-options"], queryFn: () => apiFetch("/api/sequences"), enabled: sequencePicker });
+  const sequenceOptions = asArray<{id:string;name:string}>(sequenceOptionsResponse);
   const stages = asArray<PipelineStage>(stagesResponse);
   const tasks = asArray<ContactTask>(tasksResponse);
   const activities = asArray<ArrayElement<NonNullable<typeof activitiesResponse>>>(activitiesResponse);
@@ -341,10 +353,34 @@ export default function LeadDetail() {
     });
   }
 
+  async function enrollQuick() {
+    if (!sequenceId || !id) return;
+    setQuickActionError("");
+    try {
+      await apiFetch("/api/contacts/bulk", { method: "POST", body: JSON.stringify({ action: "enroll_sequence", ids: [id], sequenceId }) });
+      setSequencePicker(false); setSequenceId("");
+      await qc.invalidateQueries({ queryKey: ["contact-context", id] });
+      toast({ title: "Contact enrolled" });
+    } catch (cause) { setQuickActionError(cause instanceof Error ? cause.message : "Could not enroll contact"); }
+  }
+
+  async function createOpportunity() {
+    if (!id) return;
+    const title = window.prompt("Opportunity title", `${getDisplayName(lead ?? {})} opportunity`)?.trim();
+    if (!title) return;
+    setQuickActionError("");
+    try {
+      await apiFetch(`/api/contacts/${id}/opportunities`, { method: "POST", body: JSON.stringify({ title }) });
+      await qc.invalidateQueries({ queryKey: ["contact-context", id] });
+      toast({ title: "Opportunity created" });
+    } catch (cause) { setQuickActionError(cause instanceof Error ? cause.message : "Could not create opportunity"); }
+  }
+
   // Build merged timeline
   const timelineItems = [
     ...activities.map((a) => ({ ...a, _type: "activity" as const })),
     ...notes.map((n) => ({ id: n.id, type: "note", description: n.content, createdAt: n.createdAt, _type: "note" as const })),
+    ...(context?.timeline ?? []),
   ];
 
   const currentStage = stages.find((s) => s.id === lead?.pipelineStageId);
@@ -373,7 +409,7 @@ export default function LeadDetail() {
 
   if (role === "client") return (
     <div className="page-stack rounded-xl border bg-white p-6">
-      <h1 className="text-xl font-semibold">{lead.firstName} {lead.lastName}</h1>
+      <h1 className="text-xl font-semibold">{getDisplayName(lead)}</h1>
       <p className="text-sm text-muted-foreground">{lead.company || "N/A"}</p>
       <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
         <div><dt className="font-medium">Email</dt><dd>{lead.email || "N/A"}</dd></div>
@@ -385,9 +421,9 @@ export default function LeadDetail() {
     </div>
   );
 
-  const fullName = `${lead.firstName} ${lead.lastName}`;
+  const fullName = getDisplayName(lead);
   const avatarColor = getAvatarColor(fullName);
-  const initials = `${lead.firstName[0] ?? ""}${lead.lastName[0] ?? ""}`.toUpperCase();
+  const initials = getInitials(lead);
   const cf = customFields;
   const importedCustomFields = Object.entries(cf).filter(([key]) => ![
     "industry", "annualRevenue", "employeeCount", "city", "state", "country", "timezone",
@@ -429,6 +465,7 @@ export default function LeadDetail() {
                       {lead.title && lead.company && <span className="text-muted-foreground/40">·</span>}
                       {lead.company && <span className="font-medium text-foreground">{lead.company}</span>}
                     </div>
+                    <div className="mt-1 flex flex-wrap gap-3 text-xs text-muted-foreground"><span>{lead.email || "No email"}</span><span>{lead.phone || "No phone"}</span></div>
                     <div className="flex items-center gap-2 mt-2 flex-wrap">
                       {/* Status badge (editable) */}
                       {editingStatus ? (
@@ -444,6 +481,7 @@ export default function LeadDetail() {
                         </button>
                       )}
                       {lead.source && <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{lead.source}</span>}
+                      {asArray<string>(lead.tags).map((tag) => <span key={tag} className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">{tag}</span>)}
                       {(lead as typeof lead & { meetingAt?: string | null }).meetingAt && <span className="text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">Meeting: {new Date((lead as typeof lead & { meetingAt?: string | null }).meetingAt!).toLocaleString()}</span>}
                       {(cf.doNotEmail === true || cf.doNotEmail === "true") && (
                         <span className="text-xs bg-red-50 text-red-600 border border-red-200 px-2 py-0.5 rounded-full flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Do Not Email</span>
@@ -476,9 +514,9 @@ export default function LeadDetail() {
             )}
             {/* Quick actions */}
             <div className="flex gap-2 mt-5 flex-wrap">
-              <a href={`mailto:${lead.email}`} className="flex items-center gap-2 px-3.5 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary/90 transition-colors">
+              {lead.email && <a href={`mailto:${lead.email}`} className="flex items-center gap-2 px-3.5 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary/90 transition-colors">
                 <Mail className="w-3.5 h-3.5" /> Send Email
-              </a>
+              </a>}
               {lead.phone && (
                 <a href={`tel:${lead.phone}`} className="flex items-center gap-2 px-3.5 py-2 border border-border text-sm font-medium rounded-xl hover:bg-muted transition-colors text-foreground">
                   <Phone className="w-3.5 h-3.5" /> Call
@@ -492,27 +530,36 @@ export default function LeadDetail() {
               <button onClick={() => { setTab("tasks"); setShowAddTask(true); }} className="flex items-center gap-2 px-3.5 py-2 border border-border text-sm font-medium rounded-xl hover:bg-muted transition-colors text-foreground">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Add Task
               </button>
+              <button onClick={() => setTab("notes")} className="flex items-center gap-2 px-3.5 py-2 border border-border text-sm font-medium rounded-xl hover:bg-muted transition-colors text-foreground"><MessageSquare className="w-3.5 h-3.5" /> Add Note</button>
+              {["owner", "admin", "member"].includes(role) && <><button onClick={() => setSequencePicker((value) => !value)} className="flex items-center gap-2 px-3.5 py-2 border border-border text-sm font-medium rounded-xl hover:bg-muted transition-colors text-foreground"><Layers className="w-3.5 h-3.5" /> Add to Sequence</button>
+              <button onClick={() => void createOpportunity()} className="flex items-center gap-2 px-3.5 py-2 border border-border text-sm font-medium rounded-xl hover:bg-muted transition-colors text-foreground"><Briefcase className="w-3.5 h-3.5" /> Create Opportunity</button></>}
               <button onClick={() => setTab("timeline")} className="flex items-center gap-2 px-3.5 py-2 border border-border text-sm font-medium rounded-xl hover:bg-muted transition-colors text-foreground">
                 <Activity className="w-3.5 h-3.5" /> Log Activity
               </button>
               <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
                 <Clock className="w-3.5 h-3.5" />
-                Added {formatDistanceToNow(parseISO(lead.createdAt), { addSuffix: true })}
+                Added {lead.createdAt ? formatDistanceToNow(parseISO(lead.createdAt), { addSuffix: true }) : "unknown date"}
               </div>
             </div>
+            {sequencePicker && <div className="mt-3 flex flex-wrap gap-2"><select className="workspace-control rounded border px-2 py-2 text-sm" value={sequenceId} onChange={(event) => setSequenceId(event.target.value)} aria-label="Sequence"><option value="">Choose sequence</option>{sequenceOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select><button className="rounded bg-primary px-3 py-2 text-sm text-white disabled:opacity-50" disabled={!sequenceId} onClick={() => void enrollQuick()}>Enroll</button></div>}
+            {quickActionError && <p role="alert" className="mt-2 text-sm text-destructive">{quickActionError}</p>}
           </div>
         </div>
 
         {/* ── Body: sidebar + content ──────────────────────────────────────── */}
+        {role !== "client" && <div className="grid gap-4 lg:grid-cols-2">
+          <section className="rounded-xl border bg-card p-4"><h2 className="font-semibold">Open tasks</h2>{context?.openTasks.length ? <div className="mt-2 space-y-2">{context.openTasks.map((task) => <div key={task.id} className="rounded border p-2 text-sm"><div>{task.title}</div>{task.dueDate && <div className="text-xs text-muted-foreground">Due {new Date(task.dueDate).toLocaleDateString()}</div>}</div>)}</div> : <p className="mt-2 text-sm text-muted-foreground">No open tasks. Use Add Task to schedule a follow-up.</p>}</section>
+          <section className="rounded-xl border bg-card p-4"><h2 className="font-semibold">Opportunities</h2>{context?.opportunities.length ? <div className="mt-2 space-y-2">{context.opportunities.map((deal) => <div key={deal.id} className="rounded border p-2 text-sm"><div className="font-medium">{deal.title}</div><div className="text-xs text-muted-foreground">{deal.stageName}{deal.nextAction ? ` · ${deal.nextAction}` : ""}</div></div>)}</div> : <p className="mt-2 text-sm text-muted-foreground">No linked opportunities. Use Create Opportunity to start one.</p>}</section>
+        </div>}
         <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4 items-start">
           {/* ── Left sidebar ─────────────────────────────────────────────────── */}
           <div className="bg-white rounded-2xl border border-border shadow-sm p-5 space-y-4">
 
             {/* Contact Details */}
             <SideSection title="Contact" icon={User}>
-              <EditableField label="First Name" value={lead.firstName} onSave={(v) => saveField("firstName", v)} />
-              <EditableField label="Last Name" value={lead.lastName} onSave={(v) => saveField("lastName", v)} />
-              <EditableField label="Email" value={lead.email} icon={Mail} type="email" onSave={(v) => saveField("email", v)} />
+              <EditableField label="First Name" value={lead.firstName ?? ""} onSave={(v) => saveField("firstName", v)} />
+              <EditableField label="Last Name" value={lead.lastName ?? ""} onSave={(v) => saveField("lastName", v)} />
+              <EditableField label="Email" value={lead.email ?? ""} icon={Mail} type="email" onSave={(v) => saveField("email", v)} />
               <EditableField label="Phone" value={lead.phone ?? ""} icon={Phone} placeholder="Add phone" type="tel" onSave={(v) => saveField("phone", v)} />
               <EditableField label="Title" value={lead.title ?? ""} icon={Briefcase} placeholder="Job title" onSave={(v) => saveField("title", v)} />
               <div className="px-2 py-1">
@@ -681,7 +728,7 @@ export default function LeadDetail() {
                         <div key={day}>
                           <div className="flex items-center gap-3 mb-3">
                             <div className="h-px flex-1 bg-border" />
-                            <span className="text-xs font-semibold text-muted-foreground">{friendlyDate(items[0]!.createdAt)}</span>
+                            <span className="text-xs font-semibold text-muted-foreground">{friendlyDate(items[0]?.createdAt ?? day)}</span>
                             <div className="h-px flex-1 bg-border" />
                           </div>
                           <div className="space-y-3 pl-2">
@@ -936,8 +983,8 @@ export default function LeadDetail() {
                     <div className="bg-muted/30 rounded-xl p-4 border border-border text-xs space-y-1.5">
                       <div className="font-semibold text-muted-foreground mb-2">Record Info</div>
                       <div><span className="text-muted-foreground">ID: </span><span className="font-mono text-foreground">{lead.id}</span></div>
-                      <div><span className="text-muted-foreground">Created: </span><span className="text-foreground">{format(parseISO(lead.createdAt), "MMM d, yyyy 'at' h:mm a")}</span></div>
-                      <div><span className="text-muted-foreground">Updated: </span><span className="text-foreground">{format(parseISO(lead.updatedAt), "MMM d, yyyy 'at' h:mm a")}</span></div>
+                      <div><span className="text-muted-foreground">Created: </span><span className="text-foreground">{lead.createdAt ? format(parseISO(lead.createdAt), "MMM d, yyyy 'at' h:mm a") : "Not set"}</span></div>
+                      <div><span className="text-muted-foreground">Updated: </span><span className="text-foreground">{lead.updatedAt ? format(parseISO(lead.updatedAt), "MMM d, yyyy 'at' h:mm a") : "Not set"}</span></div>
                       <div><span className="text-muted-foreground">Lead Score: </span><span className="font-semibold text-foreground">{lead.score}</span></div>
                     </div>
                   </div>
