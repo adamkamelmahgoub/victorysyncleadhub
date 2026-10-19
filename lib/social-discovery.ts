@@ -61,7 +61,7 @@ export function discoverSocialLinks(html: string, website: string): SocialCandid
 export async function resolveAmbiguousSocials(candidates:SocialCandidate[],website:string):Promise<SocialCandidate[]> {
   const key=process.env.OPENROUTER_API_KEY;
   if(!key)return candidates;
-  for(const platform of new Set(candidates.map((item)=>item.platform)){
+  for(const platform of new Set(candidates.map((item)=>item.platform))){
     const options=candidates.filter((item)=>item.platform===platform);
     if(options.length<2)continue;
     try{
