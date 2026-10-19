@@ -91,7 +91,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           error: String(error).slice(0, 500),
         }) });
         if (dead) await socialRest('integration_alerts', { method: 'POST', body: JSON.stringify({
-          provider: job.provider, event_type: 'webhook_dead_letter', source_id: job.id, error: String(error).slice(0, 500),
+          provider: job.provider, alert_type: 'webhook_dead_letter', message: String(error).slice(0, 500),
+          metadata: { event_id: job.id },
         }) });
       }
     }

@@ -183,17 +183,6 @@ do $$ declare t text; begin
   end loop;
 end $$;
 
-create table public.integration_alerts (
-  id uuid primary key default gen_random_uuid(), organization_id uuid references public.organizations(id),
-  provider text not null, event_type text not null, source_id text, error text not null,
-  status text not null default 'open' check(status in ('open','resolved')),
-  created_at timestamptz not null default now(), resolved_at timestamptz
-);
-alter table public.integration_alerts enable row level security;
-create policy integration_alerts_admin on public.integration_alerts for select to authenticated
-  using(public.wf_role()='admin' and (organization_id is null or public.social_org_access(organization_id)));
-grant select on public.integration_alerts to authenticated;
-
 create table public.social_webhook_events (
   id uuid primary key default gen_random_uuid(), provider text not null, organization_id uuid,
   inbox_id bigint references public.webhook_inbox(id), event_key text not null,
