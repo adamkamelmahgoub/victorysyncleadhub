@@ -1692,6 +1692,7 @@ async function handleContactOpportunity(path: string, method: string, user: Auth
 
 async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
   const url = new URL(req.url ?? "/api/leads", "https://local.invalid");
+  const compactList = url.searchParams.get("includeActivity") === "false";
   const page = Math.max(Number(url.searchParams.get("page") ?? "1"), 1);
   const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? "50"), 1), 1000);
   const offset = (page - 1) * limit;
@@ -1714,7 +1715,9 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   const sequenceEligible = url.searchParams.get("sequenceEligible") === "true";
 
   const query = new URLSearchParams({
-    select: "*",
+    select: compactList
+      ? "id,client_account_id,first_name,last_name,email,phone,company,title,source,state,status,disposition,contact_attempts,score,tags,custom_fields,created_at,updated_at,meeting_at"
+      : "*",
     order: orders[sort],
     limit: String(limit),
     offset: String(offset),

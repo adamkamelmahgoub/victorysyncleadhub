@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { cacheScope, clearApiCache, isCacheablePath, readApiCache, writeApiCache } from "./api-cache";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -9,6 +10,13 @@ export async function apiFetch(path: string, opts?: RequestInit) {
     : `${BASE}/api${normalizedPath}`;
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
+  const method = (opts?.method ?? "GET").toUpperCase();
+  const scope = data.session?.user.id ? cacheScope(data.session.user.id, token) : "";
+  const useCache = method === "GET" && !!scope && isCacheablePath(normalizedPath) && !opts?.signal;
+  if (useCache) {
+    const cached = readApiCache(scope, normalizedPath);
+    if (cached !== undefined) return cached;
+  }
   const headers = new Headers(opts?.headers);
   headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -29,8 +37,11 @@ export async function apiFetch(path: string, opts?: RequestInit) {
       throw error;
     }
   }
+  if (method !== "GET" && normalizedPath !== "/api/contacts/last-activity") clearApiCache();
   if (res.status === 204) return null;
-  return res.json();
+  const result = await res.json();
+  if (useCache) writeApiCache(scope, normalizedPath, result);
+  return result;
 }
 
 export async function apiDownloadCsv(path: string, body: unknown, filename = "contacts.csv") {

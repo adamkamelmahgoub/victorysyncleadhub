@@ -60,9 +60,11 @@ import { useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { canAccessPath } from "@/lib/permissions";
 import {ActivityTracker} from '@/components/activity-tracker';
+import { clearApiCache } from "@/lib/api-cache";
 
 const queryClient = new QueryClient({
   mutationCache: new MutationCache({
+    onSuccess: () => clearApiCache(),
     onError: (error) => {
       window.dispatchEvent(new CustomEvent("victorysync-api-error", {
         detail: error instanceof Error ? error.message : String(error),
@@ -70,7 +72,7 @@ const queryClient = new QueryClient({
     },
   }),
   defaultOptions: {
-    queries: { staleTime: 30_000, retry: 1 },
+    queries: { staleTime: 60_000, gcTime: 15 * 60_000, retry: 1, refetchOnWindowFocus: false },
   },
 });
 

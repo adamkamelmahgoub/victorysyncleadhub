@@ -20,6 +20,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { BulkEnrichmentPanel } from "@/components/bulk-enrichment-panel";
 import { ContactGrid } from "@/components/contact-grid";
 import { ContactBulkActions } from "@/components/contact-bulk-actions";
+import { clearApiCache } from "@/lib/api-cache";
 
 type Lead = {
   id: string;
@@ -140,7 +141,7 @@ export default function Leads() {
       return apiFetch(`/api/leads?${params}`) as Promise<LeadsResponse>;
     },
     placeholderData: keepPreviousData,
-    staleTime: 60_000,
+    staleTime: 2 * 60_000,
     refetchOnWindowFocus: false,
   });
   const activityIds = data?.leads.map((lead) => lead.id).join(",") ?? "";
@@ -198,6 +199,7 @@ export default function Leads() {
   }, [leads]);
 
   async function refresh() {
+    clearApiCache();
     await queryClient.invalidateQueries({ queryKey: ["contacts"] });
   }
 

@@ -11,7 +11,7 @@
     "db:seed": "pnpm --filter @workspace/scripts run db:seed",
     "db:verify": "pnpm --filter @workspace/scripts run db:verify",
     "test:crm": "tsx --test tests/company-crm.test.ts tests/company-migration.test.ts",
-    "test:contacts": "tsx --tsconfig artifacts/leadgen/tsconfig.test.json --test tests/contact-display.test.ts tests/segment-filters.test.ts artifacts/leadgen/tests/contact-grid.test.tsx",
+    "test:contacts": "tsx --tsconfig artifacts/leadgen/tsconfig.test.json --test tests/contact-display.test.ts tests/segment-filters.test.ts tests/api-cache.test.ts artifacts/leadgen/tests/contact-grid.test.tsx",
     "typecheck:api": "tsc -p api/tsconfig.json --noEmit",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
