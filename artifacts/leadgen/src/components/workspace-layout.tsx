@@ -148,7 +148,7 @@ export function Layout({ children }: { children: ReactNode }) {
         onFocus={() => prefetchPage(item.href)}
         aria-current={active(item.href) ? "page" : undefined}
         title={collapsed ? item.label : undefined}
-        className={`flex h-10 items-center gap-3 rounded-lg px-3 text-[13px] font-medium transition-colors ${active(item.href) ? "bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"}`}
+        className={`flex h-10 items-center gap-3 rounded-lg px-3 text-[13px] font-medium transition-colors ${active(item.href) ? "bg-blue-600 text-white shadow-sm" : "text-slate-300 hover:bg-slate-800 hover:text-white"}`}
       >
         <item.icon className="h-4 w-4 shrink-0" />
         {(!collapsed || mobile) && (
@@ -168,7 +168,7 @@ export function Layout({ children }: { children: ReactNode }) {
       )}
       <aside
         id="main-navigation"
-        className={`${mobile ? "fixed inset-y-0 left-0 z-50 flex w-72" : "hidden"} ${collapsed ? "md:w-[68px]" : "md:w-[248px]"} shrink-0 flex-col border-r border-slate-200 bg-white md:relative md:flex`}
+        className={`${mobile ? "fixed inset-y-0 left-0 z-50 flex w-72" : "hidden"} ${collapsed ? "md:w-[68px]" : "md:w-[248px]"} shrink-0 flex-col border-r border-slate-800 bg-slate-950 md:relative md:flex`}
       >
         <Link
           href="/"
@@ -177,10 +177,10 @@ export function Layout({ children }: { children: ReactNode }) {
           <img
             src={`${import.meta.env.BASE_URL}victorysync-logo.png`}
             alt="VictorySync"
-            className="h-9 w-9 shrink-0 rounded-xl border border-blue-100 bg-blue-50 object-contain p-1.5"
+            className="h-9 w-9 shrink-0 rounded-lg bg-white object-contain p-1.5"
           />
           {(!collapsed || mobile) && (
-            <span className="text-[17px] font-semibold tracking-tight text-slate-900">
+            <span className="text-[17px] font-semibold tracking-tight text-white">
               VictorySync
             </span>
           )}
@@ -189,11 +189,11 @@ export function Layout({ children }: { children: ReactNode }) {
           aria-label="Workspace navigation"
           className="flex-1 space-y-1 overflow-y-auto px-3 pb-5 pt-2"
         >
-          {(!collapsed || mobile) && <p className="px-3 pb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Workspace</p>}
+          {(!collapsed || mobile) && <p className="px-3 pb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Workspace</p>}
           {core.map(navLink)}
-          {(!collapsed || mobile) && canSeeSegments && <div className="ml-7 border-l border-slate-200 pl-2">
-            <Link href="/segments" onMouseEnter={() => prefetchPage("/segments")} onFocus={() => prefetchPage("/segments")} className="block rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">Segments</Link>
-            {segments.map((segment) => <Link key={segment.id} href={`/contacts/segments/${segment.id}`} onMouseEnter={() => void pageModules["../pages/segment-detail.tsx"]?.()} onFocus={() => void pageModules["../pages/segment-detail.tsx"]?.()} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-50"><span className="truncate">{segment.name}</span><span>{segment.contactCount.toLocaleString()}</span></Link>)}
+          {(!collapsed || mobile) && canSeeSegments && <div className="ml-7 border-l border-slate-700 pl-2">
+            <Link href="/segments" onMouseEnter={() => prefetchPage("/segments")} onFocus={() => prefetchPage("/segments")} className="block rounded px-2 py-1 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white">Segments</Link>
+            {segments.map((segment) => <Link key={segment.id} href={`/contacts/segments/${segment.id}`} onMouseEnter={() => void pageModules["../pages/segment-detail.tsx"]?.()} onFocus={() => void pageModules["../pages/segment-detail.tsx"]?.()} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-white"><span className="truncate">{segment.name}</span><span>{segment.contactCount.toLocaleString()}</span></Link>)}
           </div>}
           {!collapsed || mobile
             ? groups.map((group) => {
@@ -204,10 +204,10 @@ export function Layout({ children }: { children: ReactNode }) {
                 return (
                   <details
                     key={group.label}
-                    className="group mt-4 border-t border-slate-100 pt-3"
+                    className="group mt-4 border-t border-slate-800 pt-3"
                     open={links.some((item) => active(item.href)) || undefined}
                   >
-                    <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+                    <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
                       {group.label}
                       <ChevronRight className="h-3 w-3 transition-transform group-open:rotate-90" />
                     </summary>
@@ -217,19 +217,19 @@ export function Layout({ children }: { children: ReactNode }) {
               })
             : groups.flatMap((group) => group.links).map(navLink)}
         </nav>
-        <div className="space-y-3 border-t border-slate-100 px-3 py-4">
+        <div className="space-y-3 border-t border-slate-800 px-3 py-4">
           {navLink({ href: "/settings", label: "Settings", icon: Settings })}
           <div className="flex items-center gap-2 px-2">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
               {user?.email?.[0]?.toUpperCase() ?? "V"}
             </span>
             {(!collapsed || mobile) && (
               <>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-medium text-slate-700">
+                  <p className="truncate text-xs font-medium text-slate-200">
                     {user?.email}
                   </p>
-                  <p className="text-[10px] capitalize text-slate-400">
+                  <p className="text-[10px] capitalize text-slate-500">
                     {role}
                   </p>
                 </div>

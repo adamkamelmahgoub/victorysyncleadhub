@@ -28,7 +28,7 @@ export function PageTitle({
   return (
     <h1
       className={cn(
-        "text-2xl font-semibold tracking-tight text-foreground sm:text-3xl",
+        "text-2xl font-semibold tracking-tight text-foreground",
         className,
       )}
       {...props}

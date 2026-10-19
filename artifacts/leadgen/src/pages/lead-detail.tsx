@@ -24,7 +24,8 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { asArray, type ArrayElement } from "@/lib/data-shape";
 import { EnrichmentCard } from "@/components/enrichment-card";
-import { getDisplayName, getInitials } from "@/lib/contact-display";
+import { getDisplayName } from "@/lib/contact-display";
+import { ContactAvatar } from "@/components/contact-avatar";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const STATUS_OPTIONS = ["new", "contacted", "qualified", "meeting_booked", "proposal", "converted", "lost"] as const;
@@ -87,16 +88,6 @@ type ContactContext = {
 };
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
-const AVATAR_COLORS = [
-  "bg-violet-500", "bg-blue-500", "bg-emerald-500", "bg-amber-500",
-  "bg-rose-500", "bg-indigo-500", "bg-cyan-500", "bg-fuchsia-500",
-];
-function getAvatarColor(name: string) {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length] ?? "bg-slate-500";
-}
-
 // ── Score Ring ────────────────────────────────────────────────────────────────
 function ScoreRing({ score }: { score: number }) {
   const r = 28, c = 2 * Math.PI * r;
@@ -423,12 +414,11 @@ export default function LeadDetail() {
   );
 
   const fullName = getDisplayName(lead);
-  const avatarColor = getAvatarColor(fullName);
-  const initials = getInitials(lead);
   const cf = customFields;
   const importedCustomFields = Object.entries(cf).filter(([key]) => ![
     "industry", "annualRevenue", "employeeCount", "city", "state", "country", "timezone",
     "website", "linkedinUrl", "twitterUrl", "assignedTo", "doNotEmail", "doNotSms",
+    "profilePhotoUrl", "profile_photo_url", "avatarUrl", "avatar_url", "photoUrl", "photo_url", "imageUrl", "image_url",
   ].includes(key));
 
   return (
@@ -446,15 +436,11 @@ export default function LeadDetail() {
         </div>
 
         {/* ── Hero header ──────────────────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
-          {/* Color accent bar */}
-          <div className="h-1.5 w-full bg-gradient-to-r from-primary via-primary/60 to-primary/20" />
+        <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
           <div className="p-6">
             <div className="flex items-start gap-5">
               {/* Avatar */}
-              <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-white font-bold text-xl flex-shrink-0 ${avatarColor} shadow-sm`}>
-                {initials}
-              </div>
+              <ContactAvatar contact={lead} className="size-16 text-xl" />
 
               {/* Identity */}
               <div className="flex-1 min-w-0">
@@ -564,6 +550,7 @@ export default function LeadDetail() {
               <EditableField label="Email" value={lead.email ?? ""} icon={Mail} type="email" onSave={(v) => saveField("email", v)} />
               <EditableField label="Phone" value={lead.phone ?? ""} icon={Phone} placeholder="Add phone" type="tel" onSave={(v) => saveField("phone", v)} />
               <EditableField label="Title" value={lead.title ?? ""} icon={Briefcase} placeholder="Job title" onSave={(v) => saveField("title", v)} />
+              <EditableField label="Profile photo URL" value={String(cf.profilePhotoUrl ?? "")} placeholder="https://..." onSave={(v) => saveField("profilePhotoUrl", v)} />
               <div className="px-2 py-1">
                 <div className="text-[10px] text-muted-foreground mb-1">Disposition</div>
                 <p className="text-sm">{lead.disposition?.replaceAll('_',' ') || 'Never attempted'}</p>
