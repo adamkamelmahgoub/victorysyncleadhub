@@ -1,4 +1,5 @@
 import { PageTitle } from "@/components/page-layout";
+import { SocialsSection } from "@/components/socials-section";
 import { useState, useEffect, useRef } from "react";
 import { useRoute, Link } from "wouter";
 import {
@@ -504,6 +505,7 @@ export default function LeadDetail() {
         </div>
 
         {/* ── Body: sidebar + content ──────────────────────────────────────── */}
+        {id && <SocialsSection entityType="lead" entityId={String(id)} readOnly={!['owner','admin'].includes(role)} />}
         <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4 items-start">
           {/* ── Left sidebar ─────────────────────────────────────────────────── */}
           <div className="bg-white rounded-2xl border border-border shadow-sm p-5 space-y-4">
