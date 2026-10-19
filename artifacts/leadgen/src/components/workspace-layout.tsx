@@ -33,6 +33,7 @@ const core: Item[] = [
   { href: "/crm-tasks", label: "Tasks & follow-ups", icon: CheckSquare },
   { href: "/trial-queue", label: "Trial schedule", icon: CalendarClock },
   { href: "/conversations", label: "Inbox", icon: Mail },
+  { href: "/dm-queue", label: "DM queue", icon: Megaphone },
   { href: "/pipeline", label: "Deal pipelines", icon: GitBranch },
 ];
 const groups: { label: string; links: Item[] }[] = [

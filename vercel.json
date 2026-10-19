@@ -21,6 +21,22 @@
       "dest": "/api/social-webhook.ts"
     },
     {
+      "src": "^/api/social-reply$",
+      "dest": "/api/social-reply.ts"
+    },
+    {
+      "src": "^/api/social-accounts$",
+      "dest": "/api/social-accounts.ts"
+    },
+    {
+      "src": "^/api/social-daily$",
+      "dest": "/api/social-daily.ts"
+    },
+    {
+      "src": "^/api/dm-queue$",
+      "dest": "/api/dm-queue.ts"
+    },
+    {
       "src": "^/api/mcp$",
       "dest": "/api/mcp.ts"
     },
@@ -52,6 +68,10 @@
     {
       "path": "/api/social-worker",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/social-daily",
+      "schedule": "0 5 * * *"
     }
   ]
 }
