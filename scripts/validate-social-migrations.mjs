@@ -21,7 +21,7 @@ try {
     where table_schema='public' and table_name=any($1)`, [[
       'social_profiles','connected_accounts','connected_account_secrets','conversations','messages',
       'dm_templates','dm_campaigns','dm_campaign_steps','dm_enrollments','dm_tasks',
-      'social_webhook_events',
+      'social_webhook_events','social_sync_cursors',
     ]]);
   console.log(JSON.stringify(check.rows[0]));
 } finally {

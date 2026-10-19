@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Clipboard, ExternalLink, Plus, Search, Star, Trash2 } from 'lucide-react';
+import { Check, Clipboard, ExternalLink, Pencil, Plus, Search, Star, Trash2 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 
 type Profile = { id:string; platform:string; handle:string; profile_url:string|null; is_primary:boolean; verified:boolean; confidence:number; source:string };
@@ -11,6 +11,8 @@ export function SocialsSection({ entityType, entityId, readOnly = false }: { ent
   const [handle,setHandle] = useState('');
   const [error,setError] = useState('');
   const [copied,setCopied] = useState<string|null>(null);
+  const [editing,setEditing] = useState<string|null>(null);
+  const [editHandle,setEditHandle] = useState('');
   const path = `/api/social?entity_type=${entityType}&entity_id=${encodeURIComponent(entityId)}`;
   const key = ['social-profiles',entityType,entityId];
   const profiles = useQuery<{profiles:Profile[]}>({queryKey:key,queryFn:()=>apiFetch(path)});
@@ -34,10 +36,16 @@ export function SocialsSection({ entityType, entityId, readOnly = false }: { ent
       {profile.confidence < 70 && <span className="text-amber-700">Review ({profile.confidence}%)</span>}
       <div className="ml-auto flex items-center gap-1">
         <button aria-label={`Copy ${profile.platform} handle`} title="Copy handle" className="rounded p-2 hover:bg-muted" onClick={()=>void copy(profile.handle)}>{copied===profile.handle?<Check className="h-4 w-4"/>:<Clipboard className="h-4 w-4"/>}</button>
+        {!readOnly && <button aria-label="Edit handle" title="Edit handle" className="rounded p-2 hover:bg-muted" onClick={()=>{setEditing(profile.id);setEditHandle(profile.handle);}}><Pencil className="h-4 w-4"/></button>}
         {!readOnly && !profile.is_primary && profile.confidence>=70 && <button aria-label="Set primary" title="Set primary" className="rounded p-2 hover:bg-muted" onClick={()=>change.mutate({method:'PATCH',payload:{profile_id:profile.id,is_primary:true}})}><Star className="h-4 w-4"/></button>}
         {!readOnly && !profile.verified && <button aria-label="Mark verified" title="Mark verified" className="rounded p-2 hover:bg-muted" onClick={()=>change.mutate({method:'PATCH',payload:{profile_id:profile.id,verified:true}})}><Check className="h-4 w-4"/></button>}
         {!readOnly && <button aria-label="Remove profile" title="Remove profile" className="rounded p-2 text-destructive hover:bg-muted" onClick={()=>change.mutate({method:'DELETE',payload:{profile_id:profile.id}})}><Trash2 className="h-4 w-4"/></button>}
       </div>
+      {editing===profile.id && <form className="flex w-full gap-2" onSubmit={(event)=>{event.preventDefault();change.mutate({method:'PATCH',payload:{profile_id:profile.id,handle:editHandle}});setEditing(null);}}>
+        <input aria-label="Edit social handle" className="min-w-0 flex-1 rounded border px-2 py-1" value={editHandle} onChange={(event)=>setEditHandle(event.target.value)}/>
+        <button className="rounded bg-primary px-2 py-1 text-primary-foreground" disabled={!editHandle.trim()}>Save</button>
+        <button type="button" className="rounded border px-2 py-1" onClick={()=>setEditing(null)}>Cancel</button>
+      </form>}
     </div>)}</div>
     {!profiles.isLoading && !profiles.data?.profiles.length && <p className="mt-2 text-sm text-muted-foreground">No social profiles saved.</p>}
     {!readOnly && <form className="mt-4 flex flex-wrap gap-2" onSubmit={(event)=>{event.preventDefault();change.mutate({method:'POST',payload:{platform,handle}});}}>

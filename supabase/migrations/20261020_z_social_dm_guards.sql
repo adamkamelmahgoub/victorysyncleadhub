@@ -58,6 +58,17 @@ begin
 end $$;
 create trigger social_conversation_guard before insert or update on public.conversations
 for each row execute function public.social_conversation_guard();
+create unique index social_conversation_no_account_idx on public.conversations(organization_id,channel,external_thread_id)
+  where connected_account_id is null and external_thread_id is not null;
+
+create table public.social_sync_cursors (
+  source text primary key check(source in ('outreach_inbound_messages','mightycall_sms_messages')),
+  cursor_at timestamptz not null default '1970-01-01'::timestamptz,
+  cursor_id uuid, updated_at timestamptz not null default now()
+);
+alter table public.social_sync_cursors enable row level security;
+revoke all on public.social_sync_cursors from public,anon,authenticated;
+insert into public.social_sync_cursors(source) values('outreach_inbound_messages'),('mightycall_sms_messages');
 
 create or replace function public.social_message_guard() returns trigger
 language plpgsql security definer set search_path = '' as $$
@@ -82,14 +93,14 @@ begin
   return exists(select 1 from public.leads where id=v_lead and (dnc or disposition::text in ('dnc','not_interested')))
     or exists(select 1 from public.outreach_suppressions where
       (identity_type='email' and identity_value=v_email) or
-      (identity_type='phone' and identity_value=regexp_replace(coalesce(v_phone,''),'[^0-9]','','g')))
+      (identity_type='phone' and identity_value in (public.outreach_phone(v_phone),regexp_replace(coalesce(v_phone,''),'[^0-9]','','g'))))
     or exists(select 1 from public.conversations c where c.organization_id=p_org and c.intent in ('unsubscribe','not_interested')
       and (c.lead_id=v_lead or c.contact_id=p_id and p_type='contact' or c.company_id=v_company))
     or exists(select 1 from public.crm_contacts c join public.leads l on l.id=c.source_lead_id
       where c.company_id=v_company and l.dnc)
     or exists(select 1 from public.crm_contacts c join public.outreach_suppressions s on
       (s.identity_type='email' and s.identity_value=lower(c.email)) or
-      (s.identity_type='phone' and s.identity_value=regexp_replace(coalesce(c.phone,''),'[^0-9]','','g'))
+      (s.identity_type='phone' and s.identity_value in (public.outreach_phone(c.phone),regexp_replace(coalesce(c.phone,''),'[^0-9]','','g')))
       where c.company_id=v_company);
 end $$;
 revoke all on function public.social_is_suppressed_internal(uuid,text,uuid) from public,anon,authenticated;
@@ -147,5 +158,105 @@ begin
 end $$;
 revoke all on function public.social_set_primary(uuid) from public,anon,authenticated;
 grant execute on function public.social_set_primary(uuid) to service_role;
+
+create or replace function public.social_slack_notify(p_event_type text,p_conversation_id uuid,p_text text) returns void
+language plpgsql security definer set search_path = '' as $$
+declare v_webhook text; v_origin text; v_request bigint; v_text text;
+begin
+  select decrypted_secret into v_webhook from vault.decrypted_secrets where name='victorysync_slack_meeting_webhook' limit 1;
+  select decrypted_secret into v_origin from vault.decrypted_secrets where name='victorysync_leadgen_origin' limit 1;
+  if v_webhook is null or v_webhook !~ '^https://hooks.slack.com/services/' then
+    insert into public.slack_notification_log(lead_table,lead_id,event_type,status,error_message)
+    values('conversations',p_conversation_id::text,p_event_type,'skipped','Slack webhook missing from Vault');
+    return;
+  end if;
+  v_text:=left(p_text,500);
+  if v_origin ~ '^https://[^/]+$' then v_text:=v_text||E'\n'||v_origin||'/conversations?id='||p_conversation_id::text; end if;
+  select net.http_post(url:=v_webhook,body:=jsonb_build_object('text',v_text),
+    headers:='{"Content-Type":"application/json"}'::jsonb) into v_request;
+  insert into public.slack_notification_log(lead_table,lead_id,event_type,request_id,status)
+  values('conversations',p_conversation_id::text,p_event_type,v_request,'queued');
+exception when others then
+  insert into public.slack_notification_log(lead_table,lead_id,event_type,status,error_message)
+  values('conversations',p_conversation_id::text,p_event_type,'failed',left(sqlerrm,1000));
+end $$;
+revoke all on function public.social_slack_notify(text,uuid,text) from public,anon,authenticated;
+grant execute on function public.social_slack_notify(text,uuid,text) to service_role;
+
+create or replace function public.social_message_inbound_notify() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare v_channel text;
+begin
+  if new.direction='inbound' then
+    select channel into v_channel from public.conversations where id=new.conversation_id;
+    if v_channel in ('instagram','facebook','whatsapp') then
+      perform public.social_slack_notify('new_dm_reply',new.conversation_id,'New '||v_channel||' reply in Victory Sync');
+    end if;
+  end if;
+  return new;
+end $$;
+create trigger social_message_inbound_notify after insert on public.messages
+for each row execute function public.social_message_inbound_notify();
+
+create or replace function public.social_conversation_changed() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare v_email text; v_phone text; v_lead uuid; v_reason public.outreach_suppression_reason;
+declare v_pipeline uuid; v_stage uuid;
+begin
+  if new.status is distinct from old.status or new.intent is distinct from old.intent then
+    if new.company_id is not null then
+      insert into public.crm_activities(organization_id,company_id,contact_id,type,body,occurred_at,metadata)
+      values(new.organization_id,new.company_id,new.contact_id,'dm_status',
+        'Conversation status: '||new.status||'; intent: '||new.intent,now(),jsonb_build_object('conversation_id',new.id));
+    end if;
+  end if;
+  if new.intent in ('unsubscribe','not_interested') and new.intent is distinct from old.intent then
+    v_reason:=case when new.intent='unsubscribe' then 'unsubscribed'::public.outreach_suppression_reason
+                   else 'manual_exclude'::public.outreach_suppression_reason end;
+    if new.lead_id is not null then v_lead:=new.lead_id;
+    elsif new.contact_id is not null then
+      select source_lead_id into v_lead from public.crm_contacts where id=new.contact_id;
+    end if;
+    if v_lead is not null then
+      update public.leads set dnc=true,suppressed_reason=v_reason where id=v_lead;
+      select public.outreach_email(email),public.outreach_phone(phone) into v_email,v_phone from public.leads where id=v_lead;
+    elsif new.contact_id is not null then
+      select public.outreach_email(email),public.outreach_phone(phone) into v_email,v_phone from public.crm_contacts where id=new.contact_id;
+    end if;
+    if v_email is not null then
+      insert into public.outreach_suppressions(identity_type,identity_value,reason) values('email',v_email,v_reason)
+      on conflict do nothing; end if;
+    if v_phone is not null then
+      insert into public.outreach_suppressions(identity_type,identity_value,reason) values('phone',v_phone,v_reason)
+      on conflict do nothing; end if;
+    update public.dm_enrollments set state='suppressed',stopped_at=now(),stop_reason='conversation_'||new.intent
+    where organization_id=new.organization_id and state in ('queued','step_due','sent') and
+      ((new.lead_id is not null and entity_type='lead' and entity_id=new.lead_id)
+       or (new.contact_id is not null and entity_type='contact' and entity_id=new.contact_id)
+       or (new.company_id is not null and entity_type='company' and entity_id=new.company_id));
+  end if;
+  if new.intent='interested' and new.intent is distinct from old.intent then
+    perform public.social_slack_notify('positive_reply',new.id,'Interested reply in Victory Sync ('||new.channel||')');
+    v_lead:=new.lead_id;
+    if v_lead is null and new.contact_id is not null then
+      select source_lead_id into v_lead from public.crm_contacts where id=new.contact_id;
+    end if;
+    if v_lead is not null then
+      select s.pipeline_id into v_pipeline from public.leads l join public.pipeline_stages s on s.id=l.pipeline_stage_id where l.id=v_lead;
+      if v_pipeline is null then select id into v_pipeline from public.pipelines where is_default order by created_at limit 1; end if;
+      select id into v_stage from public.pipeline_stages where pipeline_id=v_pipeline and
+        (key='qualified' or lower(name)='qualified') order by position limit 1;
+      if v_stage is not null then
+        update public.leads set pipeline_stage_id=v_stage,status='qualified'
+        where id=v_lead and coalesce(status,'') not in ('meeting_booked','converted');
+      end if;
+      insert into public.contact_tasks(lead_id,title,description,due_date,priority)
+      values(v_lead,'Reply to interested social prospect','Conversation '||new.id::text,now()+interval '1 day','high');
+    end if;
+  end if;
+  return new;
+end $$;
+create trigger social_conversation_changed after update of status,intent on public.conversations
+for each row execute function public.social_conversation_changed();
 
 commit;

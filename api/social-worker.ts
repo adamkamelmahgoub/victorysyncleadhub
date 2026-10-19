@@ -1,6 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { socialRest } from '../lib/social-service.js';
 import type { InboundEvent } from '../lib/social-providers.js';
+import { syncLegacyInbound } from '../lib/social-legacy-sync.js';
+import { classifyIntent } from '../lib/social-intent.js';
 
 export const config = { maxDuration: 60 };
 type Job = { id: string; provider: string; payload: InboundEvent; attempts: number };
@@ -58,10 +60,14 @@ async function processEvent(job: Job) {
     update.last_inbound_at = timestamp.toISOString();
     update.reply_window_expires_at = new Date(timestamp.getTime() + 24*3600000).toISOString();
     update.unread_count = 1;
-    await socialRest(`dm_enrollments?organization_id=eq.${account.organization_id}&state=in.(queued,step_due,sent)&${matched?.entity_type === 'lead' ? `entity_type=eq.lead&entity_id=eq.${matched.entity_id}` : `id=eq.00000000-0000-0000-0000-000000000000`}`,
+    if(matched)await socialRest(`dm_enrollments?organization_id=eq.${account.organization_id}&state=in.(queued,step_due,sent)&entity_type=eq.${matched.entity_type}&entity_id=eq.${matched.entity_id}`,
       { method: 'PATCH', body: JSON.stringify({ state: 'replied', stopped_at: new Date().toISOString(), stop_reason: 'inbound_reply' }) });
   }
   await socialRest(`conversations?id=eq.${conversation.id}`, { method: 'PATCH', body: JSON.stringify(update) });
+  if(!event.isEcho) {
+    const intent=await classifyIntent(event.body).catch(()=> 'unknown' as const);
+    await socialRest(`conversations?id=eq.${conversation.id}`,{method:'PATCH',body:JSON.stringify({intent})});
+  }
   if (conversation.company_id) await socialRest('crm_activities', { method: 'POST',
     body: JSON.stringify({ organization_id: account.organization_id, company_id: conversation.company_id,
       contact_id: conversation.contact_id, type: event.isEcho ? 'dm_sent' : 'dm_reply', body: event.body,
@@ -96,6 +102,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         }) });
       }
     }
-    res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ processed, inspected: jobs.length }));
+    const legacy = await syncLegacyInbound();
+    res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ processed, inspected: jobs.length, legacy }));
   } catch (error) { res.statusCode = 500; res.end(JSON.stringify({ error: String(error) })); }
 }
