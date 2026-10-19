@@ -134,4 +134,18 @@ end $$;
 create trigger dm_task_guard before insert or update on public.dm_tasks
 for each row execute function public.dm_task_guard();
 
+create or replace function public.social_set_primary(p_profile_id uuid) returns void
+language plpgsql security definer set search_path = '' as $$
+declare v_profile public.social_profiles%rowtype;
+begin
+  select * into v_profile from public.social_profiles where id=p_profile_id for update;
+  if v_profile.id is null then raise exception 'Social profile not found'; end if;
+  if v_profile.confidence < 70 then raise exception 'Profile needs review before it can be primary'; end if;
+  update public.social_profiles set is_primary=false where organization_id=v_profile.organization_id
+    and entity_type=v_profile.entity_type and entity_id=v_profile.entity_id and platform=v_profile.platform and is_primary;
+  update public.social_profiles set is_primary=true where id=p_profile_id;
+end $$;
+revoke all on function public.social_set_primary(uuid) from public,anon,authenticated;
+grant execute on function public.social_set_primary(uuid) to service_role;
+
 commit;
