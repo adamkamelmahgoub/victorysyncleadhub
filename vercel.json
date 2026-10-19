@@ -5,6 +5,10 @@
   "outputDirectory": "artifacts/leadgen/dist/public",
   "routes": [
     {
+      "src": "^/api/social-inbox$",
+      "dest": "/api/social-inbox.ts"
+    },
+    {
       "src": "^/api/social$",
       "dest": "/api/social.ts"
     },
