@@ -32,6 +32,9 @@ try{
     values($1,'facebook',$2,'manual:rollback',$3) returning id`,[org,account.rows[0].id,leadId]);
   await db.query(`insert into public.messages(organization_id,conversation_id,direction,body,sent_via,status)
     values($1,$2,'outbound','Unique rollback message','manual_assisted','sent')`,[org,manual.rows[0].id]);
+  const unknownEcho=await db.query(`select public.social_match_manual_echo($1,'rollback-recipient','Unique rollback message','echo-unknown') id`,[account.rows[0].id]);
+  assert.equal(unknownEcho.rows[0].id,null);
+  await db.query(`update public.social_profiles set platform_user_id='rollback-recipient' where id=$1`,[profile.rows[0].id]);
   const echo=await db.query(`select public.social_match_manual_echo($1,'rollback-recipient','Unique rollback message','echo-1') id`,[account.rows[0].id]);
   assert.equal(echo.rows[0].id,manual.rows[0].id);
   const updated=await db.query(`select platform_user_id from public.social_profiles where id=$1`,[profile.rows[0].id]);

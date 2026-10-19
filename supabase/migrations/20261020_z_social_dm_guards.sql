@@ -171,7 +171,13 @@ begin
   select count(*),min(m.id::text)::uuid into v_count,v_message_id from public.messages m join public.conversations c on c.id=m.conversation_id
   where c.connected_account_id=p_account_id and c.channel=v_account.platform and m.direction='outbound'
     and m.sent_via='manual_assisted' and m.external_message_id is null and m.body=p_body
-    and m.created_at>now()-interval '10 minutes';
+    and m.created_at>now()-interval '10 minutes'
+    and (c.participant_platform_id=p_participant_id or exists(
+      select 1 from public.social_profiles p where p.organization_id=c.organization_id
+        and p.platform=v_account.platform and p.platform_user_id=p_participant_id
+        and ((p.entity_type='lead' and p.entity_id=c.lead_id)
+          or (p.entity_type='contact' and p.entity_id=c.contact_id)
+          or (p.entity_type='company' and p.entity_id=coalesce(c.company_id,c.legacy_company_id)))));
   if v_count<>1 then return null; end if;
   select m.id message_id,c.id conversation_id,c.lead_id,c.contact_id,c.company_id,c.legacy_company_id
     into v_match from public.messages m join public.conversations c on c.id=m.conversation_id
