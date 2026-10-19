@@ -1,6 +1,7 @@
 import { Link } from "wouter";
 import { useCompanies, COMPANY_STAGES } from "@/lib/company-crm";
 import { CrmError, StageBadge } from "./company-crm";
+import { ReportMetric, ReportMetrics, ReportPanel } from "./report-layout";
 
 export function CompanyReport() {
   const query = useCompanies();
@@ -16,7 +17,7 @@ export function CompanyReport() {
   }
   return (
     <section className="space-y-5" aria-label="Company pipeline report">
-      <div className="flex flex-wrap gap-x-10 gap-y-4 border-y py-4">
+      <ReportMetrics>
         {[
           ["Total companies", rows.length],
           ["Clients", clients],
@@ -29,12 +30,9 @@ export function CompanyReport() {
             rows.filter((row) => row.needs_verification).length,
           ],
         ].map(([name, value]) => (
-          <div key={name}>
-            <p className="text-xs text-muted-foreground">{name}</p>
-            <p className="text-2xl font-semibold">{value}</p>
-          </div>
+          <ReportMetric key={name} label={String(name)} value={value} />
         ))}
-      </div>
+      </ReportMetrics>
       {!rows.length && (
         <p>
           No companies yet.{" "}
@@ -44,10 +42,9 @@ export function CompanyReport() {
           to populate this report.
         </p>
       )}
-      <div className="grid gap-6 md:grid-cols-2">
-        <div className="rounded-lg border p-4">
-          <h2 className="mb-3 font-semibold">Current pipeline</h2>
-          <table className="w-full text-sm">
+      <div className="grid gap-4 xl:grid-cols-2">
+        <ReportPanel title="Current pipeline" description="Companies by their current stage.">
+          <table className="workspace-table w-full text-sm">
             <thead>
               <tr className="text-left text-muted-foreground">
                 <th className="pb-2">Stage</th>
@@ -67,9 +64,8 @@ export function CompanyReport() {
               ))}
             </tbody>
           </table>
-        </div>
-        <div className="rounded-lg border p-4">
-          <h2 className="mb-3 font-semibold">Company sources</h2>
+        </ReportPanel>
+        <ReportPanel title="Company sources" description="Where your saved company records originated.">
           {[...sources]
             .sort((a, b) => b[1] - a[1])
             .map(([source, count]) => (
@@ -81,7 +77,7 @@ export function CompanyReport() {
                 <span>{count}</span>
               </div>
             ))}
-        </div>
+        </ReportPanel>
       </div>
       <p className="text-xs text-muted-foreground">
         All-time company records, including imports. Stages reflect the current

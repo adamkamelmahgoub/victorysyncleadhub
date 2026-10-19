@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { CrmHeader, CrmError } from "@/components/company-crm";
+import { CrmError } from "@/components/company-crm";
 import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api";
 import { displayDate, localDate, type CompanyKpis } from "@/lib/company-crm";
+import { ReportHeader, ReportMetric } from "@/components/report-layout";
 
 export default function CompanyKpiPage() {
   const [from, setFrom] = useState(() => {
@@ -43,12 +44,9 @@ export default function CompanyKpiPage() {
   );
   return (
     <div className="page-stack">
-      <CrmHeader
-        title="Daily performance"
-        description="Daily calls and leads, response speed, appointments, and the trials that need your attention."
-      />
+      <ReportHeader title="Daily performance" description="Calls, response speed, appointments, and trials that need attention." />
       <p className="text-sm text-muted-foreground">This report counts logged calls and inbound leads handled, not imported records. <Link href="/analytics" className="text-primary underline">Open CRM Analytics</Link> for contact and company totals.</p>
-      <div className="flex flex-wrap items-end gap-4 rounded-xl border bg-white p-4">
+      <div className="flex flex-wrap items-end gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <label className="text-sm font-medium">
           From
           <Input
@@ -82,7 +80,7 @@ export default function CompanyKpiPage() {
         <CrmError error={query.error} retry={() => void query.refetch()} />
       ) : (
         <>
-          <div className="flex flex-wrap gap-x-8 gap-y-4 border-y bg-white px-4 py-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {[
               {
                 title: "Outbound dials",
@@ -117,20 +115,10 @@ export default function CompanyKpiPage() {
                 detail: "Companies in Trial Completed",
               },
             ].map((metric) => (
-              <article key={metric.title} className="min-w-36 flex-1">
-                <h2 className="text-sm text-muted-foreground">
-                  {metric.title}
-                </h2>
-                <p className="mt-2 text-2xl font-semibold tracking-tight">
-                  {metric.value}
-                </p>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {metric.detail}
-                </p>
-              </article>
+              <ReportMetric key={metric.title} label={metric.title} value={metric.value} detail={metric.detail} />
             ))}
           </div>
-          <div className="overflow-x-auto rounded-xl border bg-white">
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
             <table className="workspace-table w-full min-w-[650px] text-left text-sm">
               <caption className="p-5 text-left font-semibold">
                 Daily activity

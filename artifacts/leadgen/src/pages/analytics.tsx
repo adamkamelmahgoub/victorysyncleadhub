@@ -1,4 +1,3 @@
-import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState } from "react";
 import { CompanyReport } from "@/components/company-report";
 import { CrmError } from "@/components/company-crm";
@@ -18,6 +17,7 @@ import {
 import { format, parseISO } from "date-fns";
 import { TrendingUp, Users, CheckCircle2, Zap, Target } from "lucide-react";
 import { asArray, type ArrayElement } from "@/lib/data-shape";
+import { ReportHeader, ReportMetric, ReportMetrics } from "@/components/report-layout";
 
 const STATUS_COLORS: Record<string, string> = {
   new: "#2563eb",
@@ -40,7 +40,7 @@ const tooltipStyle = {
 
 export default function Analytics() {
   const [dataset, setDataset] = useState("contacts");
-  return <div className="page-stack"><div><PageTitle>CRM Analytics</PageTitle><PageDescription>Reports from your saved contacts and prospect companies.</PageDescription></div><div className="flex gap-2" role="tablist" aria-label="Report data"><button role="tab" aria-selected={dataset === "contacts"} className={"rounded-md px-4 py-2 text-sm " + (dataset === "contacts" ? "bg-blue-50 text-primary" : "text-muted-foreground")} onClick={() => setDataset("contacts")}>Contacts</button><button role="tab" aria-selected={dataset === "companies"} className={"rounded-md px-4 py-2 text-sm " + (dataset === "companies" ? "bg-blue-50 text-primary" : "text-muted-foreground")} onClick={() => setDataset("companies")}>Companies</button></div>{dataset === "contacts" ? <ContactAnalytics /> : <CompanyReport />}</div>;
+  return <div className="page-stack"><ReportHeader title="CRM analytics" description="Reports from saved contacts and prospect companies." /><div className="inline-flex w-fit rounded-lg border border-slate-200 bg-white p-1" role="tablist" aria-label="Report data"><button role="tab" aria-selected={dataset === "contacts"} className={"rounded-md px-4 py-2 text-sm font-medium " + (dataset === "contacts" ? "bg-blue-50 text-blue-700" : "text-slate-500 hover:text-slate-900")} onClick={() => setDataset("contacts")}>Contacts</button><button role="tab" aria-selected={dataset === "companies"} className={"rounded-md px-4 py-2 text-sm font-medium " + (dataset === "companies" ? "bg-blue-50 text-blue-700" : "text-slate-500 hover:text-slate-900")} onClick={() => setDataset("companies")}>Companies</button></div>{dataset === "contacts" ? <ContactAnalytics /> : <CompanyReport />}</div>;
 }
 
 function ContactAnalytics() {
@@ -97,28 +97,16 @@ function ContactAnalytics() {
         </div>
 
         {/* KPI row */}
-        <div className="flex flex-wrap gap-x-10 gap-y-4 border-y py-4">
+        <ReportMetrics>
           {[
             { label: "Total Leads", value: oLoading ? null : overview?.totalLeads, icon: Users },
             { label: "Converted", value: oLoading ? null : overview?.convertedLeads, icon: CheckCircle2 },
             { label: "Conv. Rate", value: oLoading ? null : `${overview?.conversionRate ?? 0}%`, icon: TrendingUp },
             { label: "Avg Score", value: oLoading ? null : overview?.averageScore?.toFixed(1), icon: Target },
           ].map(({ label, value, icon: Icon }) => (
-            <div key={label}>
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">{label}</p>
-                  {value === null ? <Skeleton className="h-8 w-20" /> : (
-                    <p className="text-3xl font-bold text-foreground">{value}</p>
-                  )}
-                </div>
-                <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <Icon className="w-5 h-5 text-primary" />
-                </div>
-              </div>
-            </div>
+            <ReportMetric key={label} label={label} value={value === null ? <Skeleton className="h-8 w-20" /> : value} icon={<Icon className="size-4" />} />
           ))}
-        </div>
+        </ReportMetrics>
 
         {/* Timeline */}
         <Card className="p-5 border border-border bg-card">
@@ -147,7 +135,7 @@ function ContactAnalytics() {
           </div>
         </Card>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
           {/* Status breakdown */}
           <Card className="p-5 border border-border bg-card">
             <p className="text-sm font-semibold text-foreground mb-4">By Status</p>

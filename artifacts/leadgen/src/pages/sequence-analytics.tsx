@@ -1,4 +1,3 @@
-import { PageTitle, PageDescription } from "@/components/page-layout";
 import { CrmError } from "@/components/company-crm";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
@@ -6,6 +5,7 @@ import { Mail, Eye, MessageSquare, Users, ChevronDown, ChevronUp } from "lucide-
 import { useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { asArray } from "@/lib/data-shape";
+import { ReportHeader, ReportMetric, ReportMetrics } from "@/components/report-layout";
 
 interface Sequence { id: number; name: string; status: string; totalEnrolled: number; totalSent: number; totalOpened: number; totalReplied: number; }
 
@@ -44,7 +44,7 @@ function SequenceCard({ seq }: { seq: Sequence }) {
 
   return (
     <div className="bg-card border rounded-xl overflow-hidden">
-      <div className="p-4 flex items-center gap-4 cursor-pointer hover:bg-muted/20 transition-colors" onClick={() => setExpanded(e => !e)}>
+      <button type="button" className="w-full p-4 flex flex-wrap items-center gap-4 text-left hover:bg-muted/20 transition-colors" aria-expanded={expanded} onClick={() => setExpanded(e => !e)}>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-semibold truncate">{seq.name}</span>
@@ -52,13 +52,13 @@ function SequenceCard({ seq }: { seq: Sequence }) {
           </div>
           <div className="text-xs text-muted-foreground mt-0.5">{totalEnrolled.toLocaleString()} enrolled</div>
         </div>
-        <div className="flex items-center gap-6 shrink-0">
+        <div className="flex flex-wrap items-center gap-4 sm:gap-6 shrink-0">
           <div className="text-center"><div className="text-lg font-bold">{totalSent.toLocaleString()}</div><div className="text-xs text-muted-foreground">Sent</div></div>
           <div className="text-center"><div className={`text-lg font-bold ${openRate >= 40 ? "text-green-600" : openRate >= 20 ? "text-amber-600" : "text-red-500"}`}>{openRate}%</div><div className="text-xs text-muted-foreground">Open Rate</div></div>
           <div className="text-center"><div className="text-lg font-bold text-primary">{replyRate}%</div><div className="text-xs text-muted-foreground">Reply Rate</div></div>
           {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
         </div>
-      </div>
+      </button>
       {expanded && (
         <div className="px-4 pb-4 border-t pt-4 space-y-3">
           <FunnelStep label="Enrolled" value={totalEnrolled} total={totalEnrolled} iconColor="bg-gray-100 text-gray-600" barColor="#6b7280" icon={Users} />
@@ -99,30 +99,24 @@ export default function SequenceAnalytics() {
   if (query.isPending) return <p role="status">Loading sequence reports?</p>;
   return (
     <div className="page-stack">
-      <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
-        <div><PageTitle>Sequence Analytics</PageTitle><PageDescription>Recorded sequence activity. Importing contacts does not send email or generate opens and replies.</PageDescription></div>
-        <Select value={sortBy} onValueChange={setSortBy}>
+      <ReportHeader title="Sequence analytics" description="Track enrollment, sends, opens, and replies across your sequences." actions={<Select value={sortBy} onValueChange={setSortBy}>
           <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="openRate">By Open Rate</SelectItem>
             <SelectItem value="replyRate">By Reply Rate</SelectItem>
             <SelectItem value="enrolled">By Enrolled</SelectItem>
           </SelectContent>
-        </Select>
-      </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        </Select>} />
+      <ReportMetrics>
         {[
           { label: "Total Enrolled", value: totalEnrolled.toLocaleString(), icon: Users, iconColor: "text-blue-600 bg-blue-100" },
           { label: "Emails Sent", value: totalSent.toLocaleString(), icon: Mail, iconColor: "text-purple-600 bg-purple-100" },
           { label: "Avg Open Rate", value: `${pct(totalOpened, totalSent)}%`, icon: Eye, iconColor: "text-amber-600 bg-amber-100" },
           { label: "Avg Reply Rate", value: `${pct(totalReplied, totalSent)}%`, icon: MessageSquare, iconColor: "text-green-600 bg-green-100" },
         ].map(s => (
-          <div key={s.label} className="bg-card border rounded-xl p-4 flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${s.iconColor}`}><s.icon className="w-4 h-4" /></div>
-            <div><div className="text-xl font-bold">{s.value}</div><div className="text-xs text-muted-foreground">{s.label}</div></div>
-          </div>
+          <ReportMetric key={s.label} label={s.label} value={s.value} icon={<s.icon className="size-4" />} />
         ))}
-      </div>
+      </ReportMetrics>
       {sequences.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground"><Mail className="w-10 h-10 mx-auto mb-3 opacity-40" /><p>No sequences yet — create one in the Sequences section to see analytics here.</p></div>
       ) : (
