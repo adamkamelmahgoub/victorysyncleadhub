@@ -9,6 +9,7 @@ import { EmailInputError, emailOperationError } from '../lib/email-security.js';
 import { mailboxTransport } from '../artifacts/api-server/src/lib/email-transports.js';
 import { inboxAdapter } from '../artifacts/api-server/src/lib/inbox-adapters.js';
 import { WorkflowService,isWorkflowEndpoint,isPublicWorkflowEndpoint } from '../lib/workflow-service.js';
+import { normalizeSegmentFilters, segmentFilterSummary, validateSegmentFilters } from '../lib/segment-filters.js';
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 
 type VercelRequest = {
@@ -58,13 +59,14 @@ type FetchInit = {
 type LeadRow = {
   id: number | string;
   client_account_id?: string | null;
-  first_name: string;
-  last_name: string;
-  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
   phone: string | null;
   company: string | null;
   title: string | null;
   source: string | null;
+  state?: string | null;
   status: string;
   disposition: string | null;
   contact_attempts: number;
@@ -195,9 +197,6 @@ function normalizeLead(lead: LeadInput) {
 }
 
 function validateLead(lead: ReturnType<typeof normalizeLead>) {
-  if (!lead.first_name) return "First name is required";
-  if (!lead.last_name) return "Last name is required";
-  if (!lead.email) return "Email is required";
   if (lead.status === "meeting_booked" && !validMeetingAt(lead.meeting_at)) return "Meeting date and time are required";
   return null;
 }
@@ -273,6 +272,7 @@ function leadFromRow(row: LeadRow) {
     company: row.company,
     title: row.title,
     source: source && !badLeadSources.has(source.toLowerCase()) ? source : null,
+    state: row.state ?? null,
     status: row.status,
     disposition: row.disposition,
     contactAttempts: row.contact_attempts ?? 0,
@@ -1368,6 +1368,305 @@ async function handleGenericResource(path: string, method: string, req: VercelRe
   return false;
 }
 
+const contactOrganization = 'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+async function resolveContactOrganization(user: AuthenticatedUser, req: VercelRequest) {
+  const preferred = await supabaseRest(`team_members?org_id=eq.${contactOrganization}&or=(auth_user_id.eq.${user.id},user_id.eq.${user.id})&select=org_id&limit=1`, { method: 'GET' }, req) as Array<{org_id?:string}>;
+  if (preferred[0]?.org_id) return contactOrganization;
+  if (await isPlatformAdmin(user, req)) return contactOrganization;
+  return resolveUserOrgId(user, req);
+}
+type SegmentRow = { id: string; organization_id: string; name: string; description: string | null; filters: unknown; segment_type: 'smart' | 'static'; contact_count: number; created_at: string; updated_at: string };
+function segmentSummary(row: SegmentRow) { return row.segment_type === 'static' ? 'Fixed list' : segmentFilterSummary(normalizeSegmentFilters(row.filters)); }
+
+async function segmentPage(segment: SegmentRow, req: VercelRequest, options: { page?: number; limit?: number; search?: string; sort?: string; desc?: boolean } = {}) {
+  const result = await supabaseRest('rpc/crm_segment_contacts_page', {
+    method: 'POST', body: JSON.stringify({
+      p_organization_id: segment.organization_id,
+      p_filters: normalizeSegmentFilters(segment.filters),
+      p_segment_id: segment.id,
+      p_segment_type: segment.segment_type,
+      p_page: options.page ?? 1,
+      p_limit: options.limit ?? 50,
+      p_search: options.search ?? null,
+      p_sort: options.sort ?? 'created_at',
+      p_desc: options.desc ?? true,
+    }),
+  }, req) as { total: number; page: number; limit: number; leads: LeadRow[] };
+  return { ...result, leads: await contactsWithActivity(result.leads ?? [], req) };
+}
+
+async function contactsWithActivity(rows: LeadRow[], req: VercelRequest) {
+  if (!rows.length) return [];
+  const events = await supabaseRest('rpc/crm_contacts_last_activity', { method: 'POST', body: JSON.stringify({ p_ids: rows.map((row) => row.id) }) }, req) as Array<{ lead_id: string; last_activity_at: string }>;
+  const byId = new Map(events.map((event) => [event.lead_id, event.last_activity_at]));
+  return rows.map((row) => ({ ...leadFromRow(row), lastActivityAt: byId.get(String(row.id)) ?? null }));
+}
+
+async function handleContactSegments(path: string, method: string, user: AuthenticatedUser, req: VercelRequest, res: VercelResponse): Promise<boolean> {
+  const match = path.match(/^\/api\/segments(?:\/([^/]+))?(?:\/(contacts|members))?$/);
+  if (!match) return false;
+  const role = normalizeDashboardRole(user.user_metadata?.role ?? user.app_metadata?.role);
+  if (role === 'client' || role === 'agent') { sendJson(res, 403, { error: 'Segments are not available for this role' }); return true; }
+  const organizationId = await resolveContactOrganization(user, req);
+  if (!organizationId || !uuidPattern.test(organizationId)) { sendJson(res, 403, { error: 'No organization is assigned to this session' }); return true; }
+  const id = match[1];
+  if (id && !uuidPattern.test(id)) { sendJson(res, 400, { error: 'Invalid segment id' }); return true; }
+  const write = method !== 'GET';
+  if (write && role === 'viewer') { sendJson(res, 403, { error: 'Read-only role' }); return true; }
+  const segmentPath = `segments?organization_id=eq.${encodeURIComponent(organizationId)}${id ? `&id=eq.${encodeURIComponent(id)}` : ''}&select=*&order=created_at.desc`;
+  const rows = await supabaseRest(segmentPath, { method: 'GET' }, req) as SegmentRow[];
+  const segment = id ? rows[0] : null;
+  if (id && !segment) { sendJson(res, 404, { error: 'Segment not found' }); return true; }
+  if (method === 'GET' && !id) {
+    const results = await Promise.all(rows.map(async (row) => {
+      const count = (await segmentPage(row, req, { limit: 1 })).total;
+      return { ...toCamelValue(row) as Record<string, unknown>, filters: normalizeSegmentFilters(row.filters), filterSummary: segmentSummary(row), contactCount: count };
+    }));
+    sendJson(res, 200, results);
+    return true;
+  }
+  if (method === 'GET' && id && match[2] === 'contacts' && segment) {
+    const url = new URL(req.url ?? '', 'https://local.invalid');
+    const page = Math.max(1, Number(url.searchParams.get('page') ?? 1) || 1);
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') ?? 50) || 50));
+    const data = await segmentPage(segment, req, { page, limit, search: url.searchParams.get('search') ?? '', sort: url.searchParams.get('sort') ?? 'created_at', desc: url.searchParams.get('desc') !== 'false' });
+    if (data.total !== segment.contact_count) await supabaseRest(`segments?id=eq.${encodeURIComponent(id)}&organization_id=eq.${encodeURIComponent(organizationId)}`, { method: 'PATCH', body: JSON.stringify({ contact_count: data.total }) }, req);
+    sendJson(res, 200, { ...data, segment: { ...toCamelValue(segment) as Record<string, unknown>, filters: normalizeSegmentFilters(segment.filters), filterSummary: segmentSummary(segment), contactCount: data.total } });
+    return true;
+  }
+  if (method === 'GET' && id && segment) {
+    const count = (await segmentPage(segment, req, { limit: 1 })).total;
+    sendJson(res, 200, { ...toCamelValue(segment) as Record<string, unknown>, filters: normalizeSegmentFilters(segment.filters), filterSummary: segmentSummary(segment), contactCount: count });
+    return true;
+  }
+  if (method === 'POST' && !id) {
+    const body = await readJson(req) as Record<string, unknown>;
+    const name = String(body.name ?? '').trim();
+    if (!name || name.length > 120) { sendJson(res, 400, { error: 'Enter a segment name under 120 characters' }); return true; }
+    if (!validateSegmentFilters(body.filters)) { sendJson(res, 400, { error: 'Invalid segment conditions' }); return true; }
+    const segmentType = body.segmentType === 'static' ? 'static' : 'smart';
+    const created = await supabaseRest('segments', { method: 'POST', body: JSON.stringify({ organization_id: organizationId, name, description: String(body.description ?? ''), filters: normalizeSegmentFilters(body.filters), segment_type: segmentType, contact_count: 0 }) }, req) as SegmentRow[];
+    const row = created[0];
+    if (!row) throw new Error('Segment creation returned no row');
+    const count = (await segmentPage(row, req, { limit: 1 })).total;
+    await supabaseRest(`segments?id=eq.${encodeURIComponent(row.id)}`, { method: 'PATCH', body: JSON.stringify({ contact_count: count }) }, req);
+    sendJson(res, 201, { ...toCamelValue(row) as Record<string, unknown>, filters: normalizeSegmentFilters(row.filters), contactCount: count });
+    return true;
+  }
+  if (method === 'PATCH' && id && segment && !match[2]) {
+    const body = await readJson(req) as Record<string, unknown>;
+    const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (body.name !== undefined) { const name = String(body.name).trim(); if (!name || name.length > 120) { sendJson(res, 400, { error: 'Invalid name' }); return true; } update.name = name; }
+    if (body.description !== undefined) update.description = String(body.description);
+    if (body.filters !== undefined) { if (!validateSegmentFilters(body.filters)) { sendJson(res, 400, { error: 'Invalid segment conditions' }); return true; } update.filters = normalizeSegmentFilters(body.filters); }
+    if (body.segmentType !== undefined) update.segment_type = body.segmentType === 'static' ? 'static' : 'smart';
+    const changed = await supabaseRest(`segments?id=eq.${encodeURIComponent(id)}&organization_id=eq.${encodeURIComponent(organizationId)}`, { method: 'PATCH', body: JSON.stringify(update) }, req) as SegmentRow[];
+    const row = changed[0];
+    if (!row) { sendJson(res, 404, { error: 'Segment not found' }); return true; }
+    const count = (await segmentPage(row, req, { limit: 1 })).total;
+    await supabaseRest(`segments?id=eq.${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ contact_count: count }) }, req);
+    sendJson(res, 200, { ...toCamelValue(row) as Record<string, unknown>, filters: normalizeSegmentFilters(row.filters), contactCount: count });
+    return true;
+  }
+  if (method === 'DELETE' && id && !match[2]) {
+    await supabaseRest(`segments?id=eq.${encodeURIComponent(id)}&organization_id=eq.${encodeURIComponent(organizationId)}`, { method: 'DELETE' }, req);
+    res.statusCode = 204; res.end(); return true;
+  }
+  if (id && match[2] === 'members' && segment?.segment_type === 'static' && (method === 'POST' || method === 'DELETE')) {
+    const body = await readJson(req) as { ids?: unknown };
+    const ids = Array.isArray(body.ids) ? body.ids.filter((value): value is string => typeof value === 'string' && uuidPattern.test(value)).slice(0, 500) : [];
+    if (!ids.length) { sendJson(res, 400, { error: 'Contact ids are required' }); return true; }
+    if (!ids.length) { sendJson(res, 400, { error: 'No contacts selected' }); return true; }
+    const allowed: Array<{ id: string; organization_id: string | null }> = [];
+    for (let start = 0; start < ids.length; start += 500) {
+      const page = await supabaseRest(`leads?id=in.(${ids.slice(start,start+500).join(',')})&select=id,organization_id`, { method: 'GET' }, req) as Array<{ id: string; organization_id: string | null }>;
+      allowed.push(...page);
+    }
+    const valid = allowed.filter((lead) => lead.organization_id === organizationId || (organizationId === contactOrganization && !lead.organization_id)).map((lead) => lead.id);
+    if (valid.length !== ids.length) { sendJson(res, 403, { error: 'One or more contacts are outside this organization' }); return true; }
+    if (method === 'POST') await supabaseRest('segment_contacts?on_conflict=segment_id,lead_id', { method: 'POST', headers: { prefer: 'resolution=ignore-duplicates,return=representation' }, body: JSON.stringify(valid.map((leadId) => ({ segment_id: id, lead_id: leadId }))) }, req);
+    else await supabaseRest(`segment_contacts?segment_id=eq.${encodeURIComponent(id)}&lead_id=in.(${valid.join(',')})`, { method: 'DELETE' }, req);
+    const count = (await segmentPage(segment, req, { limit: 1 })).total;
+    await supabaseRest(`segments?id=eq.${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ contact_count: count }) }, req);
+    sendJson(res, 200, { contactCount: count }); return true;
+  }
+  sendJson(res, 405, { error: 'Unsupported segment operation' });
+  return true;
+}
+
+async function handleContactBulk(path: string, method: string, user: AuthenticatedUser, req: VercelRequest, res: VercelResponse): Promise<boolean> {
+  if (path !== '/api/contacts/bulk' || method !== 'POST') return false;
+  const role = normalizeDashboardRole(user.user_metadata?.role ?? user.app_metadata?.role);
+  if (role === 'viewer' || role === 'client' || role === 'agent') { sendJson(res, 403, { error: 'Bulk contact actions are not available for this role' }); return true; }
+  const organizationId = await resolveContactOrganization(user, req);
+  if (!organizationId || !uuidPattern.test(organizationId)) { sendJson(res, 403, { error: 'No organization is assigned to this session' }); return true; }
+  const body = await readJson(req) as { action?: string; ids?: unknown; segmentId?: string; value?: string; sequenceId?: string; targetSegmentId?: string; confirm?: boolean };
+  const action = body.action ?? '';
+  const validActions = ['add_tag','remove_tag','change_status','enroll_sequence','add_to_segment','export_csv','delete'];
+  if (!validActions.includes(action)) { sendJson(res, 400, { error: 'Invalid bulk action' }); return true; }
+  if (action === 'delete' && body.confirm !== true) { sendJson(res, 400, { error: 'Confirm deletion first' }); return true; }
+  let ids: string[] = [];
+  if (body.segmentId) {
+    if (!uuidPattern.test(body.segmentId)) { sendJson(res, 400, { error: 'Invalid segment id' }); return true; }
+    const rows = await supabaseRest(`segments?id=eq.${body.segmentId}&organization_id=eq.${organizationId}&select=*&limit=1`, { method: 'GET' }, req) as SegmentRow[];
+    const segment = rows[0];
+    if (!segment) { sendJson(res, 404, { error: 'Segment not found' }); return true; }
+    const result = await supabaseRest('rpc/crm_segment_lead_ids', { method: 'POST', body: JSON.stringify({ p_organization_id: organizationId, p_filters: normalizeSegmentFilters(segment.filters), p_segment_id: segment.id, p_segment_type: segment.segment_type }) }, req) as string[];
+    ids = Array.isArray(result) ? result : [];
+  } else if (Array.isArray(body.ids)) {
+    ids = [...new Set(body.ids.filter((value): value is string => typeof value === 'string' && uuidPattern.test(value)))].slice(0, 10000);
+    if (ids.length !== body.ids.length) { sendJson(res, 400, { error: 'Invalid contact selection' }); return true; }
+    if (!ids.length) { sendJson(res, 400, { error: 'No contacts selected' }); return true; }
+    const allowed: Array<{ id: string; organization_id: string | null }> = [];
+    for (let start = 0; start < ids.length; start += 500) {
+      const page = await supabaseRest(`leads?id=in.(${ids.slice(start,start+500).join(',')})&select=id,organization_id`, { method: 'GET' }, req) as Array<{ id: string; organization_id: string | null }>;
+      allowed.push(...page);
+    }
+    if (allowed.length !== ids.length || allowed.some((lead) => lead.organization_id !== organizationId && !(organizationId === contactOrganization && !lead.organization_id))) {
+      sendJson(res, 403, { error: 'One or more contacts are outside this organization' }); return true;
+    }
+  }
+  if (!ids.length) { sendJson(res, 400, { error: 'No matching contacts' }); return true; }
+  if (action === 'enroll_sequence') {
+    if (!body.sequenceId || !uuidPattern.test(body.sequenceId)) { sendJson(res, 400, { error: 'Choose a sequence' }); return true; }
+    let enrolled = 0;
+    for (let start = 0; start < ids.length; start += 500) {
+      const result = await supabaseRest('rpc/outreach_sequence_bulk_enroll', { method: 'POST', body: JSON.stringify({ p_sequence: body.sequenceId, p_leads: ids.slice(start,start+500), p_actor: user.id, p_scope: null }) }, req) as { enrolled?: number };
+      enrolled += Number(result.enrolled ?? 0);
+    }
+    sendJson(res, 200, { processed: ids.length, enrolled }); return true;
+  }
+  if (action === 'add_to_segment') {
+    if (!body.targetSegmentId || !uuidPattern.test(body.targetSegmentId)) { sendJson(res, 400, { error: 'Choose a static segment' }); return true; }
+    const rows = await supabaseRest(`segments?id=eq.${body.targetSegmentId}&organization_id=eq.${organizationId}&segment_type=eq.static&select=id&limit=1`, { method: 'GET' }, req) as Array<{ id: string }>;
+    if (!rows.length) { sendJson(res, 400, { error: 'Choose a static segment' }); return true; }
+    for (let start = 0; start < ids.length; start += 500) await supabaseRest('segment_contacts?on_conflict=segment_id,lead_id', { method: 'POST', headers: { prefer: 'resolution=ignore-duplicates,return=representation' }, body: JSON.stringify(ids.slice(start,start+500).map((leadId) => ({ segment_id: body.targetSegmentId, lead_id: leadId }))) }, req);
+    const target = { id: body.targetSegmentId, organization_id: organizationId, filters: {}, segment_type: 'static' } as SegmentRow;
+    const count = (await segmentPage(target, req, { limit: 1 })).total;
+    await supabaseRest(`segments?id=eq.${body.targetSegmentId}`, { method: 'PATCH', body: JSON.stringify({ contact_count: count }) }, req);
+    sendJson(res, 200, { processed: ids.length }); return true;
+  }
+  if (action === 'export_csv') {
+    const lines = ['Name,Company,Phone,Email,Tags,Status,Source,State,Created Date'];
+    const csvCell = (value: unknown) => { const raw = String(value ?? ''); const safe = /^[=+@-]/.test(raw) ? `\t${raw}` : raw; return `"${safe.replace(/"/g,'""')}"`; };
+    for (let start = 0; start < ids.length; start += 500) {
+      const rows = await supabaseRest(`leads?id=in.(${ids.slice(start,start+500).join(',')})&select=first_name,last_name,company,phone,email,tags,status,source,state,created_at`, { method: 'GET' }, req) as LeadRow[];
+      for (const row of rows) lines.push([`${row.first_name ?? ''} ${row.last_name ?? ''}`.trim() || row.company || 'Unnamed contact', row.company, row.phone, row.email, (row.tags ?? []).join('; '), row.status, row.source, row.state, row.created_at].map(csvCell).join(','));
+    }
+    res.setHeader('content-type','text/csv; charset=utf-8');
+    res.setHeader('content-disposition','attachment; filename="contacts.csv"');
+    res.statusCode = 200; res.end('\uFEFF'+lines.join('\r\n')); return true;
+  }
+  const value = String(body.value ?? '');
+  const changed = await supabaseRest('rpc/crm_contact_bulk_action', { method: 'POST', body: JSON.stringify({ p_organization_id: organizationId, p_ids: ids, p_action: action, p_value: value }) }, req) as number;
+  sendJson(res, 200, { processed: ids.length, changed });
+  return true;
+}
+
+async function handleContactViews(path: string, method: string, user: AuthenticatedUser, req: VercelRequest, res: VercelResponse): Promise<boolean> {
+  const match = path.match(/^\/api\/contact-views(?:\/([^/]+))?$/);
+  if (!match) return false;
+  const organizationId = await resolveContactOrganization(user, req);
+  if (!organizationId || !uuidPattern.test(organizationId)) { sendJson(res, 403, { error: 'No organization is assigned to this session' }); return true; }
+  const id = match[1];
+  if (id && !uuidPattern.test(id)) { sendJson(res, 400, { error: 'Invalid view id' }); return true; }
+  const pathQuery = `crm_saved_views?organization_id=eq.${organizationId}&user_id=eq.${user.id}&object_type=eq.contacts${id ? `&id=eq.${id}` : ''}&select=*&order=created_at.desc`;
+  if (method === 'GET') { sendJson(res, 200, toCamelValue(await supabaseRest(pathQuery, { method: 'GET' }, req))); return true; }
+  if (method === 'POST' && !id) {
+    const body = await readJson(req) as { name?: string; filters?: unknown; isDefault?: boolean };
+    const name = String(body.name ?? '').trim();
+    if (!name || name.length > 120 || !body.filters || typeof body.filters !== 'object') { sendJson(res, 400, { error: 'Name and filters are required' }); return true; }
+    const result = await supabaseRest('crm_saved_views', { method: 'POST', body: JSON.stringify({ organization_id: organizationId, user_id: user.id, object_type: 'contacts', name, filters: body.filters, is_default: body.isDefault === true }) }, req);
+    sendJson(res, 201, toCamelValue(Array.isArray(result) ? result[0] : result)); return true;
+  }
+  if (id && (method === 'PATCH' || method === 'DELETE')) {
+    const existing = await supabaseRest(pathQuery, { method: 'GET' }, req) as unknown[];
+    if (!existing.length) { sendJson(res, 404, { error: 'View not found' }); return true; }
+    if (method === 'DELETE') { await supabaseRest(pathQuery.replace('&select=*&order=created_at.desc',''), { method: 'DELETE' }, req); res.statusCode = 204; res.end(); return true; }
+    const body = await readJson(req) as { name?: string; filters?: unknown; isDefault?: boolean };
+    const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (body.name !== undefined) { const name = String(body.name).trim(); if (!name || name.length > 120) { sendJson(res, 400, { error: 'Invalid name' }); return true; } update.name = name; }
+    if (body.filters !== undefined) update.filters = body.filters;
+    if (body.isDefault !== undefined) update.is_default = body.isDefault === true;
+    const result = await supabaseRest(pathQuery.replace('&select=*&order=created_at.desc',''), { method: 'PATCH', body: JSON.stringify(update) }, req);
+    sendJson(res, 200, toCamelValue(Array.isArray(result) ? result[0] : result)); return true;
+  }
+  sendJson(res, 405, { error: 'Unsupported view operation' }); return true;
+}
+
+async function handleContactContext(path: string, method: string, user: AuthenticatedUser, req: VercelRequest, res: VercelResponse): Promise<boolean> {
+  const match = path.match(/^\/api\/contacts\/([^/]+)\/context$/);
+  if (!match) return false;
+  if (method !== 'GET') { sendJson(res, 405, { error: 'Unsupported contact operation' }); return true; }
+  const id = match[1];
+  if (!uuidPattern.test(id)) { sendJson(res, 400, { error: 'Invalid contact id' }); return true; }
+  const organizationId = await resolveContactOrganization(user, req);
+  if (!organizationId || !uuidPattern.test(organizationId)) { sendJson(res, 403, { error: 'No organization is assigned to this session' }); return true; }
+  const leads = await supabaseRest(`leads?id=eq.${id}&select=id,organization_id,phone&limit=1`, { method: 'GET' }, req) as Array<{ id: string; organization_id: string | null; phone: string | null }>;
+  const lead = leads[0];
+  if (!lead || (lead.organization_id !== organizationId && !(organizationId === contactOrganization && !lead.organization_id))) { sendJson(res, 404, { error: 'Contact not found' }); return true; }
+  const [contactTasks, jobs, enrollments, deals, crmContacts, calls] = await Promise.all([
+    supabaseRest(`contact_tasks?lead_id=eq.${id}&select=id,title,is_completed,created_at,due_date&order=created_at.desc&limit=200`, { method: 'GET' }, req) as Promise<Array<{id:string;title:string;is_completed:boolean;created_at:string;due_date:string|null}>>,
+    supabaseRest(`outreach_email_jobs?lead_id=eq.${id}&sent_at=not.is.null&select=id,subject,state,sent_at&order=sent_at.desc&limit=200`, { method: 'GET' }, req) as Promise<Array<{id:string;subject:string|null;state:string;sent_at:string}>>,
+    supabaseRest(`sequence_enrollments?lead_id=eq.${id}&select=id,sequence_id,current_step,status,created_at,updated_at&order=created_at.desc&limit=200`, { method: 'GET' }, req) as Promise<Array<{id:string;sequence_id:string;current_step:number;status:string;created_at:string;updated_at:string}>>,
+    supabaseRest(`crm_deals?organization_id=eq.${organizationId}&source_lead_id=eq.${id}&select=id,title,stage_id,next_action,stage_changed_at&order=created_at.desc&limit=100`, { method: 'GET' }, req) as Promise<Array<{id:string;title:string;stage_id:string|null;next_action:string|null;stage_changed_at:string|null}>>,
+    supabaseRest(`crm_contacts?organization_id=eq.${organizationId}&source_lead_id=eq.${id}&select=id&limit=100`, { method: 'GET' }, req) as Promise<Array<{id:string}>>,
+    supabaseRest('rpc/crm_contact_call_history', { method: 'POST', body: JSON.stringify({ p_organization_id: organizationId, p_phone: lead.phone ?? '' }) }, req) as Promise<Array<{id:string;call_date:string;direction:string|null;status:string|null;duration_seconds:number|null}>>,
+  ]);
+  const dealIds = deals.map((deal) => deal.id);
+  const contactIds = crmContacts.map((contact) => contact.id);
+  const linkFilter = [...(dealIds.length ? [`deal_id.in.(${dealIds.join(',')})`] : []), ...(contactIds.length ? [`contact_id.in.(${contactIds.join(',')})`] : [])].join(',');
+  const [crmTasks, crmActivities, stages] = await Promise.all([
+    linkFilter ? supabaseRest(`crm_tasks?organization_id=eq.${organizationId}&or=(${linkFilter})&select=id,title,completed,due_date,created_at&order=created_at.desc&limit=200`, { method: 'GET' }, req) as Promise<Array<{id:string;title:string;completed:boolean;due_date:string|null;created_at:string}>> : Promise.resolve([]),
+    linkFilter ? supabaseRest(`crm_activities?organization_id=eq.${organizationId}&or=(${linkFilter})&select=id,type,body,occurred_at&order=occurred_at.desc&limit=200`, { method: 'GET' }, req) as Promise<Array<{id:string;type:string;body:string;occurred_at:string}>> : Promise.resolve([]),
+    supabaseRest(`crm_pipeline_stages?organization_id=eq.${organizationId}&select=id,name`, { method: 'GET' }, req) as Promise<Array<{id:string;name:string}>>,
+  ]);
+  const stageNames = new Map(stages.map((stage) => [stage.id,stage.name]));
+  const timeline = [
+    ...contactTasks.map((task) => ({ id: task.id, type: 'task', description: task.title, createdAt: task.created_at, _type: 'contact_task' })),
+    ...crmTasks.map((task) => ({ id: task.id, type: 'task', description: task.title, createdAt: task.created_at, _type: 'crm_task' })),
+    ...jobs.map((job) => ({ id: job.id, type: 'email', description: `Sent: ${job.subject || '(no subject)'}`, createdAt: job.sent_at, _type: 'outreach_email' })),
+    ...enrollments.flatMap((enrollment) => [{ id: enrollment.id, type: 'sequence', description: `Enrolled in sequence ${enrollment.sequence_id}`, createdAt: enrollment.created_at, _type: 'sequence_enrollment' },
+      ...(enrollment.updated_at !== enrollment.created_at ? [{ id: `${enrollment.id}-step`, type: 'sequence', description: `Sequence step ${enrollment.current_step} · ${enrollment.status}`, createdAt: enrollment.updated_at, _type: 'sequence_step' }] : [])]),
+    ...crmActivities.map((activity) => ({ id: activity.id, type: activity.type, description: activity.body, createdAt: activity.occurred_at, _type: 'crm_activity' })),
+    ...calls.map((call) => ({ id: call.id, type: 'call', description: `${call.direction || 'Call'} · ${call.status || 'completed'}${call.duration_seconds ? ` · ${call.duration_seconds}s` : ''}`, createdAt: call.call_date, _type: 'call_history' })),
+  ].filter((event) => event.createdAt).sort((a,b) => b.createdAt.localeCompare(a.createdAt)).slice(0,300);
+  sendJson(res, 200, { timeline, opportunities: deals.map((deal) => ({ ...toCamelValue(deal) as Record<string, unknown>, stageName: deal.stage_id ? stageNames.get(deal.stage_id) ?? 'Unknown stage' : 'No stage' })),
+    openTasks: [...contactTasks.filter((task) => !task.is_completed).map((task) => ({ id: task.id, title: task.title, dueDate: task.due_date })), ...crmTasks.filter((task) => !task.completed).map((task) => ({ id: task.id, title: task.title, dueDate: task.due_date }))] });
+  return true;
+}
+
+async function handleContactOpportunity(path: string, method: string, user: AuthenticatedUser, req: VercelRequest, res: VercelResponse): Promise<boolean> {
+  const match = path.match(/^\/api\/contacts\/([^/]+)\/opportunities$/);
+  if (!match) return false;
+  if (method !== 'POST') { sendJson(res, 405, { error: 'Unsupported opportunity operation' }); return true; }
+  const role = normalizeDashboardRole(user.user_metadata?.role ?? user.app_metadata?.role);
+  if (role === 'viewer' || role === 'client' || role === 'agent') { sendJson(res, 403, { error: 'Opportunity creation is not available for this role' }); return true; }
+  const id = match[1];
+  const org = await resolveContactOrganization(user, req);
+  if (!uuidPattern.test(id) || !org || !uuidPattern.test(org)) { sendJson(res, 400, { error: 'Invalid contact or organization' }); return true; }
+  const leads = await supabaseRest(`leads?id=eq.${id}&select=id,first_name,last_name,company,phone,state,organization_id&limit=1`, { method: 'GET' }, req) as Array<{id:string;first_name:string|null;last_name:string|null;company:string|null;phone:string|null;state:string|null;organization_id:string|null}>;
+  const lead = leads[0];
+  if (!lead || (lead.organization_id !== org && !(org === contactOrganization && !lead.organization_id))) { sendJson(res, 404, { error: 'Contact not found' }); return true; }
+  const body = await readJson(req) as { title?: string; stageId?: string };
+  const title = String(body.title ?? '').trim();
+  if (!title || title.length > 200) { sendJson(res, 400, { error: 'Enter an opportunity title' }); return true; }
+  const stages = await supabaseRest(`crm_pipeline_stages?organization_id=eq.${org}&select=id,name&order=position.asc&limit=100`, { method: 'GET' }, req) as Array<{id:string;name:string}>;
+  const stage = body.stageId ? stages.find((item) => item.id === body.stageId) : stages[0];
+  if (!stage) { sendJson(res, 400, { error: 'Create a pipeline stage first' }); return true; }
+  const companyName = lead.company?.trim() || `${lead.first_name ?? ''} ${lead.last_name ?? ''}`.trim() || 'Unnamed company';
+  const existing = await supabaseRest(`crm_companies?organization_id=eq.${org}&name=ilike.${encodeURIComponent(companyName)}&select=id&limit=1`, { method: 'GET' }, req) as Array<{id:string}>;
+  let companyId = existing[0]?.id;
+  if (!companyId) {
+    const created = await supabaseRest('crm_companies', { method: 'POST', body: JSON.stringify({ organization_id: org, name: companyName, phone: lead.phone, state: lead.state, created_by: user.id }) }, req) as Array<{id:string}>;
+    companyId = created[0]?.id;
+  }
+  if (!companyId) throw new Error('Could not create company for opportunity');
+  const deals = await supabaseRest('crm_deals', { method: 'POST', body: JSON.stringify({ organization_id: org, company_id: companyId, stage_id: stage.id, title, source_lead_id: id, created_by: user.id }) }, req);
+  sendJson(res, 201, toCamelValue(Array.isArray(deals) ? deals[0] : deals)); return true;
+}
+
 async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
   const url = new URL(req.url ?? "/api/leads", "https://local.invalid");
   const page = Math.max(Number(url.searchParams.get("page") ?? "1"), 1);
@@ -1376,12 +1675,24 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   const search = url.searchParams.get("search")?.trim();
   const status = url.searchParams.get("status")?.trim();
   const tag = url.searchParams.get("tag")?.trim();
+  const source = url.searchParams.get("source")?.trim();
+  const state = url.searchParams.get("state")?.trim();
+  const sort = url.searchParams.get("sort")?.trim() ?? "created_at";
+  const direction = url.searchParams.get("direction") === "asc" ? "asc" : "desc";
+  const orders: Record<string, string> = {
+    created_at: `created_at.${direction},id.desc`,
+    name: `first_name.${direction},last_name.${direction},id.desc`,
+    company: `company.${direction},id.desc`,
+    status: `status.${direction},id.desc`,
+    source: `source.${direction},id.desc`,
+  };
+  if (!Object.hasOwn(orders, sort)) { sendJson(res, 400, { error: "Invalid sort field" }); return; }
   const disposition = url.searchParams.get("disposition")?.trim();
   const sequenceEligible = url.searchParams.get("sequenceEligible") === "true";
 
   const query = new URLSearchParams({
     select: "*",
-    order: "created_at.desc,id.desc",
+    order: orders[sort],
     limit: String(limit),
     offset: String(offset),
   });
@@ -1407,6 +1718,8 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   }
   if (status) query.set("status", `eq.${status}`);
   if (status) countQuery.set("status", `eq.${status}`);
+  if (source) { query.set("source", `eq.${source}`); countQuery.set("source", `eq.${source}`); }
+  if (state) { query.set("state", `eq.${state}`); countQuery.set("state", `eq.${state}`); }
   if (tag) {
     if (!/^[a-z0-9][a-z0-9_-]{0,99}$/i.test(tag)) { sendJson(res, 400, { error: "Invalid tag" }); return; }
     query.set("tags", `cs.{${tag}}`);
@@ -1415,9 +1728,14 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   if (disposition) query.set("disposition", `eq.${disposition}`);
   if (disposition) countQuery.set("disposition", `eq.${disposition}`);
   if (search) {
-    const searchFilter = `(first_name.ilike.*${search}*,last_name.ilike.*${search}*,email.ilike.*${search}*,company.ilike.*${search}*)`;
+    const safeSearch = search.replace(/[^\p{L}\p{N}@._+ -]/gu, ' ').trim().slice(0, 100);
+    if (safeSearch) {
+    const words = safeSearch.split(/\s+/).filter(Boolean);
+    const fullName = words.length > 1 ? `,and(first_name.ilike.*${words[0]}*,last_name.ilike.*${words.slice(1).join(' ')}*)` : '';
+    const searchFilter = `(first_name.ilike.*${safeSearch}*,last_name.ilike.*${safeSearch}*,email.ilike.*${safeSearch}*,company.ilike.*${safeSearch}*,phone.ilike.*${safeSearch}*${fullName})`;
     query.set("or", searchFilter);
     countQuery.set("or", searchFilter);
+    }
   }
 
   const [rows, count] = await Promise.all([
@@ -1426,7 +1744,7 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   ]);
 
   sendJson(res, 200, {
-    leads: rows.map(leadFromRow),
+    leads: await contactsWithActivity(rows, req),
     total: sequenceEligible
       ? (rows.length === limit ? offset + rows.length + 1 : offset + rows.length)
       : count,
@@ -3292,6 +3610,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (sequenceId && method === "DELETE") {
       await deleteSequence(sequenceId, req, res);
+      return;
+    }
+
+    if (await handleContactOpportunity(path, method, currentUser, req, res)) {
+      return;
+    }
+
+    if (await handleContactContext(path, method, currentUser, req, res)) {
+      return;
+    }
+
+    if (await handleContactViews(path, method, currentUser, req, res)) {
+      return;
+    }
+
+    if (await handleContactBulk(path, method, currentUser, req, res)) {
+      return;
+    }
+
+    if (await handleContactSegments(path, method, currentUser, req, res)) {
       return;
     }
 

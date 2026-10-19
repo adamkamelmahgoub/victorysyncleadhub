@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode, type ElementType } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import {
   Phone,
@@ -26,6 +27,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
+import { apiFetch } from "@/lib/api";
+import { asArray } from "@/lib/data-shape";
 type Item = { href: string; label: string; icon: ElementType };
 const core: Item[] = [
   { href: "/ai-assistant", label: "AI assistant", icon: Sparkles },
@@ -50,7 +53,6 @@ const groups: { label: string; links: Item[] }[] = [
         icon: CalendarClock,
       },
       { href: "/lead-import", label: "Import contacts", icon: Users },
-      { href: "/segments", label: "Segments", icon: Users },
     ],
   },
   {
@@ -105,11 +107,14 @@ export function Layout({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [search, setSearch] = useState("");
   const { user, role, pagePermissions, signOut } = useAuth();
+  const canSeeSegments = role !== "client" && role !== "agent" && canAccessPath("/segments", pagePermissions, role);
+  const { data: segmentResponse } = useQuery<Array<{id:string;name:string;contactCount:number}>>({ queryKey: ["segments"], queryFn: () => apiFetch("/api/segments"), enabled: canSeeSegments });
+  const segments = asArray<{id:string;name:string;contactCount:number}>(segmentResponse);
   const path = location.replace(/^\/leadgen/, "") || "/";
   const active = (href: string) =>
     href === "/companies"
       ? path === "/" || path === "/dashboard" || path.startsWith("/companies")
-      : path.startsWith(href);
+      : href === "/leads" ? path.startsWith("/leads") || path.startsWith("/contacts/segments") : path.startsWith(href);
   useEffect(() => setMobile(false), [location]);
   useEffect(() => {
     if (!mobile) return;
@@ -171,6 +176,10 @@ export function Layout({ children }: { children: ReactNode }) {
         >
           {(!collapsed || mobile) && <p className="px-3 pb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Workspace</p>}
           {core.map(navLink)}
+          {(!collapsed || mobile) && canSeeSegments && <div className="ml-7 border-l border-slate-200 pl-2">
+            <Link href="/segments" className="block rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">Segments</Link>
+            {segments.map((segment) => <Link key={segment.id} href={`/contacts/segments/${segment.id}`} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-50"><span className="truncate">{segment.name}</span><span>{segment.contactCount.toLocaleString()}</span></Link>)}
+          </div>}
           {!collapsed || mobile
             ? groups.map((group) => {
                 const links = group.links.filter((item) =>

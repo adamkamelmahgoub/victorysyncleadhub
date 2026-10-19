@@ -1,3 +1,4 @@
+import { ContactErrorBoundary } from "@/components/contact-error-boundary";
  import { Component, type ErrorInfo, type ReactNode } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { MutationCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -36,7 +37,8 @@ import Team from "@/pages/team";
 import Integrations from "@/pages/integrations";
 import LeadImport from "@/pages/lead-import";
 import SocialPlanner from "@/pages/social-planner";
-import Segments from "@/pages/segments";
+import Segments from "@/pages/segments-v2";
+import SegmentDetail from "@/pages/segment-detail";
 import Webhooks from "@/pages/webhooks";
 import EmailTemplatesPage from "@/pages/email-templates";
 import SubAccounts from "@/pages/sub-accounts";
@@ -92,7 +94,7 @@ function Router() {
       <Route path="/leadgen" component={Dashboard} />
       <Route path="/leadgen/leads" component={Leads} />
       <Route path="/leadgen/call-queue" component={CallQueue} />
-      <Route path="/leadgen/leads/:id" component={LeadDetail} />
+      <Route path="/leadgen/leads/:id" component={() => <ContactErrorBoundary fallback={<div role="alert" className="p-6">Could not display this contact.</div>}><LeadDetail /></ContactErrorBoundary>} />
       <Route path="/leadgen/conversations" component={Conversations} />
       <Route path="/leadgen/calendars" component={MeetingScheduler} />
       <Route path="/leadgen/automation" component={Automation} />
@@ -127,7 +129,7 @@ function Router() {
       <Route path="/dashboard" component={Companies} />
       <Route path="/leads" component={Leads} />
       <Route path="/call-queue" component={CallQueue} />
-      <Route path="/leads/:id" component={LeadDetail} />
+      <Route path="/leads/:id" component={() => <ContactErrorBoundary fallback={<div role="alert" className="p-6">Could not display this contact.</div>}><LeadDetail /></ContactErrorBoundary>} />
       <Route path="/conversations" component={Conversations} />
       <Route path="/calendars" component={MeetingScheduler} />
       <Route path="/automation" component={Automation} />
@@ -154,6 +156,7 @@ function Router() {
       <Route path="/lead-import" component={() => <LeadImport />} />
       <Route path="/social-planner" component={SocialPlanner} />
       <Route path="/segments" component={Segments} />
+      <Route path="/contacts/segments/:id" component={SegmentDetail} />
       <Route path="/webhooks" component={Webhooks} />
       <Route path="/email-templates" component={EmailTemplatesPage} />
       <Route path="/sub-accounts" component={SubAccounts} />
