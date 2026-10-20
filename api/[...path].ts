@@ -1573,11 +1573,17 @@ async function handleContactBulk(path: string, method: string, user: Authenticat
     sendJson(res, 200, { processed: ids.length }); return true;
   }
   if (action === 'export_csv') {
-    const lines = ['Name,Company,Phone,Email,Tags,Status,Source,State,Created Date'];
+    const socialColumns = ['instagram','facebook','linkedin','x','tiktok','youtube','threads'] as const;
+    const lines = [`Name,Company,Phone,Email,Tags,Status,Source,State,Created Date,${socialColumns.join(',')}`];
     const csvCell = (value: unknown) => { const raw = String(value ?? ''); const safe = /^[=+@-]/.test(raw) ? `\t${raw}` : raw; return `"${safe.replace(/"/g,'""')}"`; };
     for (let start = 0; start < ids.length; start += 500) {
-      const rows = await supabaseRest(`leads?id=in.(${ids.slice(start,start+500).join(',')})&select=first_name,last_name,company,phone,email,tags,status,source,state,created_at`, { method: 'GET' }, req) as LeadRow[];
-      for (const row of rows) lines.push([`${row.first_name ?? ''} ${row.last_name ?? ''}`.trim() || row.company || 'Unnamed contact', row.company, row.phone, row.email, (row.tags ?? []).join('; '), row.status, row.source, row.state, row.created_at].map(csvCell).join(','));
+      const pageIds = ids.slice(start,start+500);
+      const [rows,handles] = await Promise.all([
+        supabaseRest(`leads?id=in.(${pageIds.join(',')})&select=id,first_name,last_name,company,phone,email,tags,status,source,state,created_at`, { method: 'GET' }, req) as Promise<LeadRow[]>,
+        supabaseRest(`social_primary_handles?organization_id=eq.${organizationId}&entity_type=eq.lead&entity_id=in.(${pageIds.join(',')})&select=entity_id,${socialColumns.join(',')}`, { method: 'GET' }, req) as Promise<Array<Record<string,string|null>>>,
+      ]);
+      const byId = new Map(handles.map((item) => [item.entity_id,item]));
+      for (const row of rows) lines.push([`${row.first_name ?? ''} ${row.last_name ?? ''}`.trim() || row.company || 'Unnamed contact', row.company, row.phone, row.email, (row.tags ?? []).join('; '), row.status, row.source, row.state, row.created_at,...socialColumns.map((platform) => byId.get(String(row.id))?.[platform] ?? '')].map(csvCell).join(','));
     }
     res.setHeader('content-type','text/csv; charset=utf-8');
     res.setHeader('content-disposition','attachment; filename="contacts.csv"');

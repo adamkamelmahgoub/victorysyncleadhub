@@ -11,6 +11,7 @@
     { "src": "^/api/social-webhook$", "dest": "/api/social-webhook.ts" },
     { "src": "^/api/social-worker$", "dest": "/api/social-worker.ts" },
     { "src": "^/api/social$", "dest": "/api/social.ts" },
+    { "src": "^/api/social-bulk$", "dest": "/api/social-bulk.ts" },
     { "src": "^/api/social-inbox$", "dest": "/api/social-inbox.ts" },
     { "src": "^/api/social-reply$", "dest": "/api/social-reply.ts" },
     { "src": "^/api/social-accounts$", "dest": "/api/social-accounts.ts" },

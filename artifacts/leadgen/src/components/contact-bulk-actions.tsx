@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { apiDownloadCsv, apiFetch } from "@/lib/api";
 import { asArray } from "@/lib/data-shape";
 
-type Action = "add_tag" | "remove_tag" | "change_status" | "enroll_sequence" | "add_to_segment" | "export_csv" | "delete";
+type Action = "add_tag" | "remove_tag" | "change_status" | "enroll_sequence" | "enroll_dm_campaign" | "find_socials" | "add_to_segment" | "export_csv" | "delete";
 type Option = { id: string; name: string; segmentType?: string };
 
 export function ContactBulkActions({ selected, segmentId, total, onDone }: {
@@ -21,17 +21,38 @@ export function ContactBulkActions({ selected, segmentId, total, onDone }: {
   const [result, setResult] = useState("");
   const { data: sequencesResponse } = useQuery<Option[]>({ queryKey: ["sequences-bulk-options"], queryFn: () => apiFetch("/api/sequences"), enabled: action === "enroll_sequence" });
   const { data: segmentsResponse } = useQuery<Option[]>({ queryKey: ["segments"], queryFn: () => apiFetch("/api/segments"), enabled: action === "add_to_segment" });
+  const { data: dmResponse } = useQuery<{campaigns:Array<{id:string;name:string;organization_id:string;status:string}>}>({ queryKey: ["dm-campaigns"], queryFn: () => apiFetch("/api/dm-campaigns"), enabled: action === "enroll_dm_campaign" });
   const sequences = asArray<Option>(sequencesResponse);
   const segments = asArray<Option>(segmentsResponse).filter((item) => item.segmentType === "static");
   const count = scope === "all" && segmentId ? (total ?? 0) : selected.size;
   const payload = { action, ...(scope === "all" && segmentId ? { segmentId } : { ids: [...selected] }),
     ...(action === "enroll_sequence" ? { sequenceId: value } : action === "add_to_segment" ? { targetSegmentId: value } : { value }) };
   async function run() {
-    if (!count || (action !== "export_csv" && action !== "delete" && !value.trim())) return;
+    if (!count || (!["export_csv","delete","find_socials"].includes(action) && !value.trim())) return;
     if (action === "delete" && !window.confirm(`Permanently delete ${count} contacts? This also removes their linked outreach enrollments.`)) return;
     setWorking(true); setError(""); setResult("");
     try {
       if (action === "export_csv") await apiDownloadCsv("/api/contacts/bulk", payload);
+      else if (action === "find_socials") {
+        if (scope === "all" && segmentId) throw new Error("Select up to 25 contacts for social discovery");
+        if (selected.size > 25) throw new Error("Select up to 25 contacts at a time");
+        const response = await apiFetch("/api/social-bulk", { method: "POST", body: JSON.stringify({ entity_type: "lead", ids: [...selected] }) }) as {saved:number;review:number;missingWebsite:number;failures:unknown[]};
+        setResult(`${response.saved} profiles found; ${response.review} need review; ${response.missingWebsite} lack a website; ${response.failures.length} failed`);
+        onDone();
+      }
+      else if (action === "enroll_dm_campaign") {
+        if (scope === "all" && segmentId) throw new Error("Select contacts for DM enrollment");
+        const campaign = dmResponse?.campaigns.find((item) => item.id === value && item.status === "active");
+        if (!campaign) throw new Error("Choose an active DM campaign");
+        let enrolled = 0, suppressed = 0;
+        const ids = [...selected];
+        for (let start = 0; start < ids.length; start += 200) {
+          const response = await apiFetch("/api/dm-campaigns", { method: "POST", body: JSON.stringify({ action: "enroll", organization_id: campaign.organization_id, campaign_id: campaign.id, entity_type: "lead", entity_ids: ids.slice(start,start+200) }) }) as {enrolled:number;suppressed:number};
+          enrolled += response.enrolled; suppressed += response.suppressed;
+        }
+        setResult(`${enrolled} enrolled; ${suppressed} suppressed`);
+        onDone();
+      }
       else {
         const response = await apiFetch("/api/contacts/bulk", { method: "POST", body: JSON.stringify({ ...payload, confirm: action === "delete" }) }) as { processed?: number; enrolled?: number };
         setResult(action === "enroll_sequence" ? `${response.enrolled ?? 0} enrolled` : `${response.processed ?? count} contacts processed`);
@@ -48,13 +69,15 @@ export function ContactBulkActions({ selected, segmentId, total, onDone }: {
     <select className="workspace-control rounded border px-2 py-1" value={action} onChange={(event) => { setAction(event.target.value as Action); setValue(""); }} aria-label="Bulk action">
       <option value="add_tag">Add tag</option><option value="remove_tag">Remove tag</option><option value="change_status">Change status</option>
       <option value="enroll_sequence">Enroll in sequence</option><option value="add_to_segment">Add to static segment</option>
+      <option value="enroll_dm_campaign">Enroll in DM campaign</option><option value="find_socials">Find socials</option>
       <option value="export_csv">Export CSV</option><option value="delete">Delete</option>
     </select>
     {(action === "add_tag" || action === "remove_tag") && <input className="workspace-control rounded border px-2 py-1" value={value} onChange={(event) => setValue(event.target.value)} placeholder="Tag name" aria-label="Tag name" />}
     {action === "change_status" && <select className="workspace-control rounded border px-2 py-1" value={value} onChange={(event) => setValue(event.target.value)} aria-label="New status"><option value="">Choose status</option>{["new","contacted","qualified","meeting_booked","proposal","converted","lost"].map((status) => <option key={status} value={status}>{status.replace(/_/g," ")}</option>)}</select>}
     {action === "enroll_sequence" && <select className="workspace-control rounded border px-2 py-1" value={value} onChange={(event) => setValue(event.target.value)} aria-label="Sequence"><option value="">Choose sequence</option>{sequences.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
+    {action === "enroll_dm_campaign" && <select className="workspace-control rounded border px-2 py-1" value={value} onChange={(event) => setValue(event.target.value)} aria-label="DM campaign"><option value="">Choose active campaign</option>{dmResponse?.campaigns.filter((item) => item.status === "active").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
     {action === "add_to_segment" && <select className="workspace-control rounded border px-2 py-1" value={value} onChange={(event) => setValue(event.target.value)} aria-label="Static segment"><option value="">Choose static segment</option>{segments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
-    <Button size="sm" disabled={!count || working || (action !== "export_csv" && action !== "delete" && !value.trim())} onClick={() => void run()}>{working ? "Working…" : "Apply"}</Button>
+    <Button size="sm" disabled={!count || working || (!["export_csv","delete","find_socials"].includes(action) && !value.trim())} onClick={() => void run()}>{working ? "Working…" : "Apply"}</Button>
     {error && <span role="alert" className="text-destructive">{error}</span>}{result && <span role="status">{result}</span>}
   </div>;
 }
