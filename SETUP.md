@@ -29,8 +29,8 @@ For Slack alerts, keep the existing Vault secrets `victorysync_slack_meeting_web
 ## Database
 
 1. Back up the Supabase database and review the current staged migrations in this working tree.
-2. Run `node scripts/validate-social-migrations.mjs` and `node scripts/test-social-sql.mjs`. Both use a transaction that rolls back. If all 13 tables already exist, they inspect and exercise the installed schema instead of replaying the migrations.
-3. If the schema is absent in another environment, apply `supabase/migrations/20261020_social_dm_foundation.sql`, then `supabase/migrations/20261020_z_social_dm_guards.sql`, `20261021_social_review_status.sql`, and `20261021_z_social_lead_list.sql` through the normal migration deployment process. The two October 21 migrations were applied to the inspected live database and verified on 2026-10-20. Do not push unrelated pending migrations without review.
+2. Run `node scripts/validate-social-migrations.mjs`, `node scripts/test-social-sql.mjs`, `node scripts/test-dm-campaign-sql.mjs`, and `node scripts/test-social-cascade-sql.mjs`. The SQL tests roll back. If all 13 tables already exist, they inspect and exercise the installed schema instead of replaying the foundation migrations.
+3. If the schema is absent in another environment, apply `supabase/migrations/20261020_social_dm_foundation.sql`, then `supabase/migrations/20261020_z_social_dm_guards.sql`, `20261021_social_review_status.sql`, `20261021_z_social_lead_list.sql`, and `20261021_zz_social_suppression_cascade.sql` through the normal migration deployment process. The three October 21 migrations were applied to the inspected live database and verified on 2026-10-20. Do not push unrelated pending migrations without review.
 4. Run `node --experimental-strip-types scripts/backfill-social-profiles.mjs` to preview old handle data. Add `--apply` only after the two migrations are deployed. On 2026-10-20, the preview found zero stored handle strings.
 5. Set `SOCIAL_ACCOUNT_ORG_ID` to the intended organization UUID, then preview and apply the optional sample campaign with `node scripts/seed-dm-campaign.mjs` and `node scripts/seed-dm-campaign.mjs --apply`.
 
