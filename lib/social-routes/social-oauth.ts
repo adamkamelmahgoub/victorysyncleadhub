@@ -2,7 +2,7 @@ import type {IncomingMessage,ServerResponse} from 'node:http';
 import {createHash,randomBytes} from 'node:crypto';
 import {mcpPool} from '../mcp-auth.js';
 import {socialActor,isSocialOwner,SOCIAL_WORKSPACE_ORG_ID} from '../social-workspace-auth.js';
-import {socialVaultRead,socialVaultWrite} from '../social-vault.js';
+import {socialAccountToken,socialVaultRead,socialVaultWrite} from '../social-vault.js';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const scopes=['pages_show_list','pages_manage_metadata','pages_read_engagement','pages_messaging',
@@ -25,6 +25,15 @@ async function graph<T>(url:string,token:string,init:RequestInit={}):Promise<T>{
   const response=await fetch(url,{...init,headers:{authorization:`Bearer ${token}`,...init.headers},signal:AbortSignal.timeout(15000)});
   if(!response.ok)throw new Error(`Meta API request failed (${response.status})`);
   return response.json() as Promise<T>;
+}
+const pageWebhookFields='messages,message_echoes,message_deliveries,message_reads,messaging_postbacks';
+async function subscribePage(pageId:string,token:string,version:string){
+  const response=await fetch(`https://graph.facebook.com/${version}/${pageId}/subscribed_apps`,{
+    method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/x-www-form-urlencoded'},
+    body:new URLSearchParams({subscribed_fields:pageWebhookFields}),signal:AbortSignal.timeout(15000)});
+  if(!response.ok)throw new Error(`Page webhook subscription failed (${response.status})`);
+  const result=await response.json() as{success?:boolean|string};
+  if(result.success!==true&&result.success!=='true')throw new Error('Meta did not confirm the Page webhook subscription');
 }
 async function storeAccount(orgId:string,userId:string,platform:'facebook'|'instagram'|'whatsapp',externalId:string,label:string,token:string){
   const account=await mcpPool.query<{id:string}>(`insert into public.connected_accounts
@@ -63,18 +72,28 @@ async function callback(req:IncomingMessage,res:ServerResponse,url:URL){
   if(!tokenResponse.ok)throw new Error(`Meta authorization failed (${tokenResponse.status})`);
   const granted=await tokenResponse.json() as{access_token?:string};
   if(!granted.access_token)throw new Error('Meta did not return an access token');
+  const exchangeUrl=new URL(`https://graph.facebook.com/${app.graph_version}/oauth/access_token`);
+  exchangeUrl.search=new URLSearchParams({grant_type:'fb_exchange_token',client_id:app.app_id,
+    client_secret:secret,fb_exchange_token:granted.access_token}).toString();
+  const longResponse=await fetch(exchangeUrl,{signal:AbortSignal.timeout(15000)});
+  if(!longResponse.ok)throw new Error(`Meta long-lived token exchange failed (${longResponse.status})`);
+  const longToken=await longResponse.json() as{access_token?:string};
+  if(!longToken.access_token)throw new Error('Meta did not return a long-lived token');
   const pages=await graph<{data?:Array<{id:string;name:string;access_token:string;instagram_business_account?:{id:string}}>}>(
-    `https://graph.facebook.com/${app.graph_version}/me/accounts?fields=name,access_token,tasks,instagram_business_account&limit=100`,granted.access_token);
-  let count=0;
+    `https://graph.facebook.com/${app.graph_version}/me/accounts?fields=name,access_token,tasks,instagram_business_account&limit=100`,longToken.access_token);
+  let count=0,warnings=0;
   for(const page of pages.data||[]){
     if(!page.id||!page.access_token)continue;
-    await storeAccount(flow.organization_id,flow.user_id,'facebook',String(page.id),String(page.name||'Facebook Page'),page.access_token);count++;
+    const pageAccount=await storeAccount(flow.organization_id,flow.user_id,'facebook',String(page.id),String(page.name||'Facebook Page'),page.access_token);count++;
+    try{await subscribePage(String(page.id),page.access_token,app.graph_version);}
+    catch(error){warnings++;await mcpPool.query(`update public.connected_accounts set last_error=$2,updated_at=now() where id=$1`,
+      [pageAccount,String(error instanceof Error?error.message:error).slice(0,300)]);}
     if(page.instagram_business_account?.id){
       await storeAccount(flow.organization_id,flow.user_id,'instagram',String(page.instagram_business_account.id),
         `${page.name||'Page'} Instagram`,page.access_token);count++;
     }
   }
-  res.statusCode=302;res.setHeader('location',`${base}/settings?social_connect=${count?'connected':'no_pages'}`);res.end();
+  res.statusCode=302;res.setHeader('location',`${base}/settings?social_connect=${count?(warnings?'connected_with_warnings':'connected'):'no_pages'}`);res.end();
 }
 export default async function handler(req:IncomingMessage,res:ServerResponse){
   try{
@@ -142,6 +161,21 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
         throw new Error('Account saved, but WABA webhook subscription failed. Reconnect after checking permissions');
       }
       return json(res,200,{connected:true,account_id:id});
+    }
+    if(input.action==='repair_page_webhook'){
+      const accountId=String(input.account_id||'');
+      if(!uuid.test(accountId))throw new Error('Invalid Page account');
+      const account=await mcpPool.query<{external_account_id:string;status:string}>(`select external_account_id,status from public.connected_accounts
+        where id=$1 and organization_id=$2 and platform='facebook' and connection_mode='api'`,[accountId,orgId]);
+      if(!account.rows[0]||account.rows[0].status==='disconnected')throw new Error('Connected Facebook Page not found');
+      const token=await socialAccountToken(accountId);
+      try{await subscribePage(account.rows[0].external_account_id,token,app.graph_version);}
+      catch(error){await mcpPool.query(`update public.connected_accounts set last_error=$2,updated_at=now() where id=$1`,
+        [accountId,String(error instanceof Error?error.message:error).slice(0,300)]);throw error;}
+      await mcpPool.query(`update public.connected_accounts set last_error=null,updated_at=now() where id=$1`,[accountId]);
+      await mcpPool.query(`insert into public.social_workspace_audit(organization_id,actor_id,action,target_type,target_id)
+        values($1,$2,'page_webhook_subscribed','connected_account',$3)`,[orgId,actor.id,accountId]);
+      return json(res,200,{subscribed:true});
     }
     throw new Error('Invalid connection action');
   }catch(error){return json(res,400,{error:error instanceof Error?error.message:'Connection failed'});}
