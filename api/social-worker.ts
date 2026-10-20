@@ -1,16 +1,32 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { socialRest } from '../lib/social-service.js';
-import type { InboundEvent } from '../lib/social-providers.js';
+import type { InboundEvent, MessageStatusEvent } from '../lib/social-providers.js';
 import { syncLegacyInbound } from '../lib/social-legacy-sync.js';
 import { classifyIntent } from '../lib/social-intent.js';
 
 export const config = { maxDuration: 60 };
-type Job = { id: string; provider: string; payload: InboundEvent; attempts: number };
+type Job = { id: string; provider: string; payload: InboundEvent | MessageStatusEvent; attempts: number };
 type Account = { id: string; organization_id: string };
 type Profile = { entity_type: string; entity_id: string };
 
 async function processEvent(job: Job) {
   const event = job.payload;
+  if('kind' in event){
+    const accounts=await socialRest<Account[]>(`connected_accounts?platform=eq.${event.channel}&external_account_id=eq.${encodeURIComponent(event.accountId)}&select=id,organization_id&limit=2`);
+    if(accounts.length!==1)throw new Error('No unique connected account for message status');
+    const account=accounts[0];
+    const messages=await socialRest<Array<{id:string;conversation_id:string;status:string}>>(
+      `messages?organization_id=eq.${account.organization_id}&external_message_id=eq.${encodeURIComponent(event.externalMessageId)}&select=id,conversation_id,status&limit=10`);
+    for(const message of messages){
+      const threads=await socialRest<Array<{id:string}>>(`conversations?id=eq.${message.conversation_id}&connected_account_id=eq.${account.id}&select=id&limit=1`);
+      if(!threads.length)continue;
+      const rank:Record<string,number>={queued:0,sent:1,delivered:2,read:3,failed:4};
+      if((rank[event.status]||0)<(rank[message.status]||0))continue;
+      await socialRest(`messages?id=eq.${message.id}`,{method:'PATCH',body:JSON.stringify({status:event.status,error:event.error})});
+    }
+    await socialRest(`connected_accounts?id=eq.${account.id}`,{method:'PATCH',body:JSON.stringify({last_webhook_at:new Date().toISOString()})});
+    return;
+  }
   const accounts = await socialRest<Account[]>(`connected_accounts?platform=eq.${encodeURIComponent(event.channel)}&external_account_id=eq.${encodeURIComponent(event.accountId)}&status=eq.active&select=id,organization_id&limit=2`);
   if (accounts.length !== 1) throw new Error('No unique active connected account for webhook recipient');
   const account = accounts[0];

@@ -6,6 +6,8 @@ export type InboundEvent = {
   externalMessageId: string; body: string; timestamp: Date; isEcho: boolean;
   attachments: unknown[];
 };
+export type MessageStatusEvent = { kind:'message_status'; channel:'whatsapp'; accountId:string; externalMessageId:string;
+  status:'sent'|'delivered'|'read'|'failed'; timestamp:Date; error:string|null };
 export type ProviderAdapter = {
   channel: Channel;
   capabilities: { canInitiateDM: boolean; canReply: boolean; replyWindowHours: number | null; supportsEcho: boolean };
@@ -59,6 +61,22 @@ export function parseWhatsAppWebhook(payload: any): InboundEvent[] {
         recipientId: String(value.metadata.phone_number_id), externalMessageId: String(message.id),
         body: String(message.text?.body || ''), timestamp: new Date(Number(message.timestamp) * 1000),
         isEcho: false, attachments: message.type === 'text' ? [] : [message] });
+    }
+  }
+  return events;
+}
+
+export function parseWhatsAppStatuses(payload:any):MessageStatusEvent[] {
+  if(payload?.object!=='whatsapp_business_account')return [];
+  const events:MessageStatusEvent[]=[];
+  for(const entry of payload.entry||[])for(const change of entry.changes||[]){
+    const value=change.value||{},accountId=value.metadata?.phone_number_id;
+    if(!accountId)continue;
+    for(const item of value.statuses||[]){
+      if(!item.id||!['sent','delivered','read','failed'].includes(item.status))continue;
+      events.push({kind:'message_status',channel:'whatsapp',accountId:String(accountId),externalMessageId:String(item.id),
+        status:item.status,timestamp:new Date(Number(item.timestamp||Date.now()/1000)*1000),
+        error:item.status==='failed'?String(item.errors?.[0]?.title||'Provider delivery failed').slice(0,500):null});
     }
   }
   return events;

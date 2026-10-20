@@ -1,4 +1,5 @@
 import { socialRest } from './social-service.js';
+import { classifyIntent } from './social-intent.js';
 
 const LEGACY_ORG = 'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
 type Cursor = { source:string; cursor_at:string; cursor_id:string|null };
@@ -38,7 +39,7 @@ async function syncEmail(row:any) {
       status:'sent',created_at:row.received_at }),
   });
   if (inserted.length) await socialRest(`conversations?id=eq.${conversationId}`, {method:'PATCH',body:JSON.stringify({
-    last_inbound_at:row.received_at,last_message_at:row.received_at,unread_count:1,
+    last_inbound_at:row.received_at,last_message_at:row.received_at,unread_count:1,intent:await classifyIntent([row.subject,row.body].filter(Boolean).join('\n\n')).catch(()=> 'unknown'),
     reply_window_expires_at:null,
   })});
   if(inserted.length&&lead)await socialRest(`dm_enrollments?organization_id=eq.${org}&entity_type=eq.lead&entity_id=eq.${lead.id}&state=in.(queued,step_due,sent)`,{
@@ -63,6 +64,7 @@ async function syncSms(row:any) {
   if (inserted.length) await socialRest(`conversations?id=eq.${conversationId}`, {method:'PATCH',body:JSON.stringify({
     [direction==='inbound'?'last_inbound_at':'last_outbound_at']:at,last_message_at:at,
     unread_count:direction==='inbound'?1:0,
+    ...(direction==='inbound'?{intent:await classifyIntent(String(row.body||row.message||row.message_text||'')).catch(()=> 'unknown')}:{}),
   })});
   if(inserted.length&&direction==='inbound'&&lead)await socialRest(`dm_enrollments?organization_id=eq.${org}&entity_type=eq.lead&entity_id=eq.${lead.id}&state=in.(queued,step_due,sent)`,{
     method:'PATCH',body:JSON.stringify({state:'replied',stopped_at:new Date().toISOString(),stop_reason:'sms_reply'}),

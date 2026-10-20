@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { parseMetaWebhook, parseWhatsAppWebhook, verifyMetaSignature } from '../lib/social-providers.js';
+import { parseMetaWebhook, parseWhatsAppWebhook, parseWhatsAppStatuses, verifyMetaSignature } from '../lib/social-providers.js';
 import { socialRest } from '../lib/social-service.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 30 };
@@ -28,7 +28,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   try {
     const parsed = JSON.parse(raw.toString('utf8'));
     const provider = parsed.object === 'whatsapp_business_account' ? 'whatsapp' : parsed.object === 'instagram' ? 'instagram' : 'facebook';
-    const events = provider === 'whatsapp' ? parseWhatsAppWebhook(parsed) : parseMetaWebhook(parsed);
+    const events = provider === 'whatsapp' ? [...parseWhatsAppWebhook(parsed),...parseWhatsAppStatuses(parsed)] : parseMetaWebhook(parsed);
     const inbox = await socialRest<Array<{ id: number }>>('webhook_inbox', { method: 'POST', body: JSON.stringify({
       provider, method: 'POST', content_type: req.headers['content-type'] || null, raw_text: raw.toString('utf8'), parsed,
       headers: { 'x-hub-signature-256': '[verified]' }, query: {},
@@ -36,7 +36,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     if (events.length) await socialRest('social_webhook_events?on_conflict=provider,event_key', {
       method: 'POST', headers: { prefer: 'resolution=ignore-duplicates,return=minimal' },
       body: JSON.stringify(events.map((event) => ({ provider, inbox_id: inbox[0].id,
-        event_key: `${event.accountId}:${event.externalMessageId}`,
+        event_key: `${event.accountId}:${event.externalMessageId}:${'kind' in event ? `status:${event.status}` : 'message'}`,
         payload: { ...event, timestamp: event.timestamp.toISOString() } }))),
     });
     return answer(res, 200, 'EVENT_RECEIVED');
