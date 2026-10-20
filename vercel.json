@@ -37,6 +37,10 @@
       "dest": "/api/dm-queue.ts"
     },
     {
+      "src": "^/api/dm-campaigns$",
+      "dest": "/api/dm-campaigns.ts"
+    },
+    {
       "src": "^/api/mcp$",
       "dest": "/api/mcp.ts"
     },

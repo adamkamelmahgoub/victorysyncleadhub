@@ -30,6 +30,7 @@ import Analytics from "@/pages/analytics";
 import Settings from "@/pages/settings";
 import SocialInbox from "@/pages/social-inbox";
 import DmQueue from "@/pages/dm-queue";
+import DmCampaigns from "@/pages/dm-campaigns";
 import Automation from "@/pages/automation";
 import Reputation from "@/pages/reputation";
 import Team from "@/pages/team";
@@ -92,6 +93,7 @@ function Router() {
       <Route path="/leadgen/leads/:id" component={LeadDetail} />
       <Route path="/leadgen/conversations" component={SocialInbox} />
       <Route path="/leadgen/dm-queue" component={DmQueue} />
+      <Route path="/leadgen/dm-campaigns" component={DmCampaigns} />
       <Route path="/leadgen/calendars" component={MeetingScheduler} />
       <Route path="/leadgen/automation" component={Automation} />
       <Route path="/leadgen/reputation" component={Reputation} />
@@ -128,6 +130,7 @@ function Router() {
       <Route path="/leads/:id" component={LeadDetail} />
       <Route path="/conversations" component={SocialInbox} />
       <Route path="/dm-queue" component={DmQueue} />
+      <Route path="/dm-campaigns" component={DmCampaigns} />
       <Route path="/calendars" component={MeetingScheduler} />
       <Route path="/automation" component={Automation} />
       <Route path="/reputation" component={Reputation} />

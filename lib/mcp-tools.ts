@@ -3,6 +3,7 @@ import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { mcpPool, type McpIdentity } from "./mcp-auth.js";
+import { registerSocialMcpTools } from "./social-mcp.js";
 
 const ident = (s: string) => {
   if (!/^[a-z_][a-z0-9_]*$/i.test(s)) throw new Error("Invalid identifier");
@@ -1033,5 +1034,6 @@ export function createCrmMcpServer(who: McpIdentity) {
       ).rows;
     },
   );
+  registerSocialMcpTools(server, who);
   return server;
 }
