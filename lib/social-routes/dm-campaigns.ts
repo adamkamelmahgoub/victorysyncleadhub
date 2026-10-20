@@ -1,6 +1,6 @@
 import type {IncomingMessage,ServerResponse} from 'node:http';
-import {allowedEmail,mcpPool} from '../lib/mcp-auth.js';
-import {socialOrganizationIds} from '../lib/social-auth.js';
+import {allowedEmail,mcpPool} from '../mcp-auth.js';
+import {socialOrganizationIds} from '../social-auth.js';
 
 export const config={api:{bodyParser:false},maxDuration:30};
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

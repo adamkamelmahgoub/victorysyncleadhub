@@ -1,8 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { socialRest } from '../lib/social-service.js';
-import type { InboundEvent, MessageStatusEvent } from '../lib/social-providers.js';
-import { syncLegacyInbound } from '../lib/social-legacy-sync.js';
-import { classifyIntent } from '../lib/social-intent.js';
+import { socialRest } from '../social-service.js';
+import type { InboundEvent, MessageStatusEvent } from '../social-providers.js';
+import { syncLegacyInbound } from '../social-legacy-sync.js';
+import { classifyIntent } from '../social-intent.js';
 
 export const config = { maxDuration: 60 };
 type Job = { id: string; provider: string; payload: InboundEvent | MessageStatusEvent; attempts: number };
@@ -107,8 +107,10 @@ async function processEvent(job: Job) {
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  const secret = process.env.CRON_SECRET || process.env.OUTREACH_WORKER_TOKEN;
-  if (!secret || req.headers.authorization !== `Bearer ${secret}`) { res.statusCode = 401; res.end('Unauthorized'); return; }
+  const secrets = [process.env.OUTREACH_WORKER_TOKEN, process.env.CRON_SECRET].filter(Boolean);
+  if (!secrets.length || !secrets.some((secret) => req.headers.authorization === `Bearer ${secret}`)) {
+    res.statusCode = 401; res.end('Unauthorized'); return;
+  }
   try {
     const now = new Date();
     await socialRest(`social_webhook_events?status=eq.processing&next_attempt_at=lte.${encodeURIComponent(now.toISOString())}`, {

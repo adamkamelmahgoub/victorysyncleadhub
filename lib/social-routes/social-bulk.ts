@@ -1,8 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { allowedEmail } from '../lib/mcp-auth.js';
-import { socialOrganizationIds } from '../lib/social-auth.js';
-import { socialRest } from '../lib/social-service.js';
-import { discoverWebsiteSocials, resolveAmbiguousSocials } from '../lib/social-discovery.js';
+import { allowedEmail } from '../mcp-auth.js';
+import { socialOrganizationIds } from '../social-auth.js';
+import { socialRest } from '../social-service.js';
+import { discoverWebsiteSocials, resolveAmbiguousSocials } from '../social-discovery.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

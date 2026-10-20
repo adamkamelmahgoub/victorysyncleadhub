@@ -8,32 +8,7 @@
     { "src": "^/leadgen/api/assistant$", "dest": "/api/assistant.ts" },
     { "src": "^/api/enrichment$", "dest": "/api/enrichment.ts" },
     { "src": "^/api/enrichment-worker$", "dest": "/api/enrichment-worker.ts" },
-    { "src": "^/api/social-webhook$", "dest": "/api/social-webhook.ts" },
-    { "src": "^/api/social-worker$", "dest": "/api/social-worker.ts" },
-    { "src": "^/api/social$", "dest": "/api/social.ts" },
-    { "src": "^/api/social-bulk$", "dest": "/api/social-bulk.ts" },
-    { "src": "^/api/social-inbox$", "dest": "/api/social-inbox.ts" },
-    { "src": "^/api/social-draft$", "dest": "/api/social-draft.ts" },
-    { "src": "^/api/social-review$", "dest": "/api/social-review.ts" },
-    { "src": "^/api/social-primary$", "dest": "/api/social-primary.ts" },
-    { "src": "^/api/social-reply$", "dest": "/api/social-reply.ts" },
-    { "src": "^/api/social-accounts$", "dest": "/api/social-accounts.ts" },
-    { "src": "^/api/social-daily$", "dest": "/api/social-daily.ts" },
-    { "src": "^/api/dm-queue$", "dest": "/api/dm-queue.ts" },
-    { "src": "^/api/dm-campaigns$", "dest": "/api/dm-campaigns.ts" },
-    { "src": "^/leadgen/api/social-webhook$", "dest": "/api/social-webhook.ts" },
-    { "src": "^/leadgen/api/social-worker$", "dest": "/api/social-worker.ts" },
-    { "src": "^/leadgen/api/social$", "dest": "/api/social.ts" },
-    { "src": "^/leadgen/api/social-bulk$", "dest": "/api/social-bulk.ts" },
-    { "src": "^/leadgen/api/social-inbox$", "dest": "/api/social-inbox.ts" },
-    { "src": "^/leadgen/api/social-draft$", "dest": "/api/social-draft.ts" },
-    { "src": "^/leadgen/api/social-review$", "dest": "/api/social-review.ts" },
-    { "src": "^/leadgen/api/social-primary$", "dest": "/api/social-primary.ts" },
-    { "src": "^/leadgen/api/social-reply$", "dest": "/api/social-reply.ts" },
-    { "src": "^/leadgen/api/social-accounts$", "dest": "/api/social-accounts.ts" },
-    { "src": "^/leadgen/api/social-daily$", "dest": "/api/social-daily.ts" },
-    { "src": "^/leadgen/api/dm-queue$", "dest": "/api/dm-queue.ts" },
-    { "src": "^/leadgen/api/dm-campaigns$", "dest": "/api/dm-campaigns.ts" },
+    { "src": "^/(?:leadgen/)?api/(?:social(?:-[a-z]+)?|dm-(?:queue|campaigns))$", "dest": "/api/social-router.ts" },
     { "src": "^/api/mcp$", "dest": "/api/mcp.ts" },
     { "src": "^/\\.well-known/oauth-(protected-resource|authorization-server)$", "dest": "/api/mcp.ts" },
     { "src": "^/(authorize|token|register|revoke)$", "dest": "/api/mcp.ts" },
@@ -52,9 +27,5 @@
       "src": "/(.*)",
       "dest": "/index.html"
     }
-  ],
-  "crons": [
-    { "path": "/api/social-worker", "schedule": "*/5 * * * *" },
-    { "path": "/api/social-daily", "schedule": "0 5 * * *" }
   ]
 }

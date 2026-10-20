@@ -1,12 +1,14 @@
 import type { IncomingMessage,ServerResponse } from 'node:http';
-import { mcpPool } from '../lib/mcp-auth.js';
+import { mcpPool } from '../mcp-auth.js';
 
 export const config={maxDuration:60};
 type Due={id:string;organization_id:string;connected_account_id:string|null;step_id:string;step_type:string;due_at:Date;
   daily_new_dm_cap:number|null;daily_followup_cap:number|null;warmup_enabled:boolean|null;warmup_start_at:Date|null;warmup_daily_increment:number|null};
 export default async function handler(req:IncomingMessage,res:ServerResponse){
-  const token=process.env.CRON_SECRET||process.env.OUTREACH_WORKER_TOKEN;
-  if(!token||req.headers.authorization!==`Bearer ${token}`){res.statusCode=401;res.end('Unauthorized');return;}
+  const tokens=[process.env.OUTREACH_WORKER_TOKEN,process.env.CRON_SECRET].filter(Boolean);
+  if(!tokens.length||!tokens.some((token)=>req.headers.authorization===`Bearer ${token}`)){
+    res.statusCode=401;res.end('Unauthorized');return;
+  }
   const db=await mcpPool.connect();
   try{
     await db.query('begin');

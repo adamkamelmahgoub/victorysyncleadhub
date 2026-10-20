@@ -18,7 +18,7 @@ Set these on the Vercel project as server variables unless noted:
 | `META_WEBHOOK_VERIFY_TOKEN` | Random webhook challenge secret that you enter in the Meta dashboard. |
 | `META_GRAPH_VERSION` | Explicit current Graph API version, such as `v25.0`, after checking the version offered by your Meta app. |
 | `SOCIAL_X_DM_ENABLED` | Optional feature flag for a future paid X DM integration; defaults to disabled. Enabling the flag does not enable sending until an approved adapter is configured. |
-| `CRON_SECRET` | Vercel cron bearer secret for `/api/social-worker` and `/api/social-daily`. |
+| `OUTREACH_WORKER_TOKEN` | Existing native worker bearer secret. The Supabase Vault secret `victorysync_native_worker_token` must contain the same value for social jobs. `CRON_SECRET` is also accepted by the routes, but the native worker token is preferred for the Supabase scheduler. |
 | `OPENROUTER_API_KEY` | Existing free-model intent classification and enrichment. |
 | `OPENROUTER_MODEL` | Optional; defaults to `nvidia/nemotron-3.5-lightning:free`. |
 | `SLACK_WEBHOOK_URL` | Existing enrichment alert setting. DM alerts use the current Supabase Vault webhook instead. |
@@ -31,7 +31,7 @@ For Slack alerts, keep the existing Vault secrets `victorysync_slack_meeting_web
 
 1. Back up the Supabase database and review the current staged migrations in this working tree.
 2. Run `node scripts/validate-social-migrations.mjs`, `node scripts/test-social-sql.mjs`, `node scripts/test-dm-campaign-sql.mjs`, and `node scripts/test-social-cascade-sql.mjs`. The SQL tests roll back. If all 13 tables already exist, they inspect and exercise the installed schema instead of replaying the foundation migrations.
-3. If the schema is absent in another environment, apply `supabase/migrations/20261020_social_dm_foundation.sql`, then `supabase/migrations/20261020_z_social_dm_guards.sql`, `20261021_social_review_status.sql`, `20261021_z_social_lead_list.sql`, and `20261021_zz_social_suppression_cascade.sql` through the normal migration deployment process. The three October 21 migrations were applied to the inspected live database and verified on 2026-10-20. Do not push unrelated pending migrations without review.
+3. If the schema is absent in another environment, apply `supabase/migrations/20261020_social_dm_foundation.sql`, then `supabase/migrations/20261020_z_social_dm_guards.sql`, `20261021_social_review_status.sql`, `20261021_z_social_lead_list.sql`, `20261021_zz_social_suppression_cascade.sql`, and `20261021_zzz_social_scheduler.sql` through the normal migration deployment process. The October 21 migrations were applied to the inspected live database and verified on 2026-10-20. Do not push unrelated pending migrations without review.
 4. Run `node --experimental-strip-types scripts/backfill-social-profiles.mjs` to preview old handle data. Add `--apply` only after the two migrations are deployed. On 2026-10-20, the preview found zero stored handle strings.
 5. Set `SOCIAL_ACCOUNT_ORG_ID` to the intended organization UUID, then preview and apply the optional sample campaign with `node scripts/seed-dm-campaign.mjs` and `node scripts/seed-dm-campaign.mjs --apply`.
 
@@ -56,7 +56,7 @@ The [official Meta Messenger Send API collection](https://www.postman.com/meta/m
 
 ## Operations
 
-- Vercel cron calls `/api/social-worker` every five minutes for verified webhook events plus email/SMS backfill, and `/api/social-daily` at 05:00 UTC for DM tasks, stale-task expiry, and token-expiry alerts. Confirm your Vercel plan supports the configured cron frequency.
+- Supabase `pg_cron` calls `/api/social-worker` every five minutes for verified webhook events plus email/SMS backfill, and `/api/social-daily` at 05:00 UTC for DM tasks, stale-task expiry, and token-expiry alerts. The scheduler uses the existing Vault origin and native worker token; it works on Vercel Hobby without Vercel cron.
 - The Inbox includes an **Unmatched** filter. Link a thread to an existing CRM record or create a lead; the platform user ID is copied to an existing social profile when one is available. Do not guess a social handle from a platform ID. Related channel history, assignee and account filters, DNC, stage, meeting, and task actions are available. AI reply suggestions fill the composer for human review and never send automatically.
 - The DM Queue never sends on its own. A user marks a manual action complete; `Sent` records an outbound message. Facebook and WhatsApp API reply buttons appear only while the 24-hour window is open and a connected account is present.
 - The **DM campaigns** page creates draft templates and multi-step campaigns, activates them, and enrolls record UUIDs. The daily cron turns eligible steps into manual queue tasks. The existing Victory Sync CRM MCP server exposes social profile, discovery, inbox, draft, enrollment, queue, account, manual log, and permitted reply tools. Writes are audited in `mcp_audit_log`.

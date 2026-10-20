@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { parseMetaWebhook, parseWhatsAppWebhook, parseWhatsAppStatuses, verifyMetaSignature } from '../lib/social-providers.js';
-import { socialRest } from '../lib/social-service.js';
+import { parseMetaWebhook, parseWhatsAppWebhook, parseWhatsAppStatuses, verifyMetaSignature } from '../social-providers.js';
+import { socialRest } from '../social-service.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 30 };
 function answer(res: ServerResponse, status: number, body: string) { res.statusCode = status; res.end(body); }

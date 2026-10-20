@@ -1,6 +1,6 @@
 import type {IncomingMessage,ServerResponse} from 'node:http';
-import {allowedEmail} from '../lib/mcp-auth.js';
-import {sendSocialReply} from '../lib/social-reply-service.js';
+import {allowedEmail} from '../mcp-auth.js';
+import {sendSocialReply} from '../social-reply-service.js';
 
 export const config={api:{bodyParser:false},maxDuration:30};
 function reply(res:ServerResponse,status:number,data:unknown){res.statusCode=status;res.setHeader('content-type','application/json');res.end(JSON.stringify(data));}

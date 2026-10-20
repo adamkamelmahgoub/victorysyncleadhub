@@ -1,9 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { allowedEmail } from '../lib/mcp-auth.js';
-import { normalizeSocial, SOCIAL_PLATFORMS, type SocialPlatform } from '../lib/social-handles.js';
-import { discoverWebsiteSocials,resolveAmbiguousSocials } from '../lib/social-discovery.js';
-import { socialRest } from '../lib/social-service.js';
-import { assertSocialOrganization } from '../lib/social-auth.js';
+import { allowedEmail } from '../mcp-auth.js';
+import { normalizeSocial, SOCIAL_PLATFORMS, type SocialPlatform } from '../social-handles.js';
+import { discoverWebsiteSocials,resolveAmbiguousSocials } from '../social-discovery.js';
+import { socialRest } from '../social-service.js';
+import { assertSocialOrganization } from '../social-auth.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 30 };
 const LEGACY_ORG = 'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';

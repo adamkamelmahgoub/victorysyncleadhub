@@ -1,7 +1,7 @@
 import type { IncomingMessage,ServerResponse } from 'node:http';
-import { allowedEmail } from '../lib/mcp-auth.js';
-import { socialRest } from '../lib/social-service.js';
-import { socialOrganizationIds } from '../lib/social-auth.js';
+import { allowedEmail } from '../mcp-auth.js';
+import { socialRest } from '../social-service.js';
+import { socialOrganizationIds } from '../social-auth.js';
 export const config={api:{bodyParser:false},maxDuration:30};
 function reply(res:ServerResponse,status:number,data:unknown){res.statusCode=status;res.setHeader('content-type','application/json');res.end(JSON.stringify(data));}
 async function admin(req:IncomingMessage){const auth=req.headers.authorization,key=process.env.SUPABASE_ANON_KEY||process.env.VITE_SUPABASE_ANON_KEY;
