@@ -16,7 +16,7 @@ try {
     url := (select decrypted_secret from vault.decrypted_secrets where name='victorysync_leadgen_origin') || '/api/social-worker',
     headers := jsonb_build_object('Authorization','Bearer ' ||
       (select decrypted_secret from vault.decrypted_secrets where name='victorysync_native_worker_token'),
-      'Content-Type','application/json'), body := '{}'::jsonb) as id`);
+      'Content-Type','application/json'), body := '{}'::jsonb, timeout_milliseconds := 120000) as id`);
   const id = request.rows[0]?.id;
   if (!id) throw new Error('Could not invoke social worker');
   let status;
