@@ -7,6 +7,14 @@ import { Link } from "wouter";
 import { PERSON_FIELDS, detectDecisionMakers, mapDecisionMakers, type PersonMapping } from "@/lib/decision-maker-import";
 import { parseCSV } from "@/lib/csv";
 import { parseXlsx } from "@/lib/xlsx";
+const SOCIAL_CSV_FIELDS = [
+  { key: "instagram", label: "Instagram", aliases: ["instagram", "ig"] },
+  { key: "facebook", label: "Facebook", aliases: ["facebook", "fb"] },
+  { key: "linkedin", label: "LinkedIn", aliases: ["linkedin"] },
+  { key: "x", label: "X / Twitter", aliases: ["x", "twitter"] },
+  { key: "tiktok", label: "TikTok", aliases: ["tiktok", "tik_tok"] },
+  { key: "website", label: "Website", aliases: ["website", "site"] },
+];
 
 const LEAD_FIELDS = [
   { key: "firstName", label: "First Name" },
@@ -19,6 +27,7 @@ const LEAD_FIELDS = [
   { key: "timezone", label: "IANA Timezone" },
   { key: "title", label: "Job Title" },
   { key: "source", label: "Source" },
+  ...SOCIAL_CSV_FIELDS.map(({key,label})=>({key,label})),
   { key: "status", label: "Status" },
   { key: "disposition", label: "Disposition" },
   { key: "contactAttempts", label: "Times Contacted" },
@@ -34,6 +43,7 @@ const COMPANY_FIELDS = [
   ["expected_daily_leads", "Expected Daily Leads"], ["trial_success_criteria", "Trial Success Criteria"], ["trial_results", "Trial Results"],
   ["proposed_monthly_price", "Proposed Monthly Price"], ["currency", "Currency"], ["next_action", "Next Action"],
   ["next_follow_up_at", "Next Follow Up At"], ["close_call_at", "Close Call At"], ["close_notes", "Close Notes"],
+  ...SOCIAL_CSV_FIELDS.filter(field=>field.key!=="website").map(field=>[field.key,field.label]),
 ].map(([key, label]) => ({ key, label }));
 
 export default function LeadImport({ companyMode = false }: { companyMode?: boolean }) {
@@ -121,7 +131,8 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
       const autoMap: Record<string, string> = {};
       fields.forEach((f) => {
         const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
-        const aliases = [f.key, f.label, ...(companyMode && f.key === "name" ? ["company", "business name", "business"] : [])].map(normalize);
+        const socialAliases=SOCIAL_CSV_FIELDS.find(field=>field.key===f.key)?.aliases||[];
+        const aliases = [f.key, f.label, ...socialAliases, ...(companyMode && f.key === "name" ? ["company", "business name", "business"] : [])].map(normalize);
         const match = p.headers.find(h => h.trim() && aliases.includes(normalize(h)));
         if (match) autoMap[f.key] = match;
       });
@@ -155,6 +166,10 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
         .filter((field) => field.name.trim() && field.column)
         .map((field) => [field.name.trim(), row[parsed.headers.indexOf(field.column)] ?? ""]),
     );
+    for(const field of SOCIAL_CSV_FIELDS){
+      if(lead[field.key]&&!(companyMode&&field.key==='website'))(lead.customFields as Record<string,unknown>)[field.key]=lead[field.key];
+      if(!(companyMode&&field.key==='website'))delete lead[field.key];
+    }
     if (!companyMode) {
       for (const key of ['state', 'city', 'timezone']) {
         if (lead[key]) (lead.customFields as Record<string, unknown>)[key] = lead[key];

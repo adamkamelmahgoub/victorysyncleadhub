@@ -5,6 +5,8 @@ import {
   validateTask,
 } from "./company-model.js";
 import { companyImportRow } from "./company-import.js";
+import { importedSocials } from "../../../../lib/social-import.js";
+import { socialRest } from "../../../../lib/social-service.js";
 
 type User = { id: string; user_metadata?: Record<string, unknown> };
 type Result = { status: number; data: unknown };
@@ -115,10 +117,21 @@ export async function companyCrmRequest(
       for (let start = 0; start < body.companies.length; start += 5) {
         const results = await Promise.allSettled(body.companies.slice(start, start + 5).map(async input => {
           const data = companyImportRow(input);
-          await rest("companies", { method: "POST", body: JSON.stringify(data) });
+          const inserted=await rest<Array<{id:string;custom_fields?:Record<string,unknown>}>>("companies", { method: "POST", body: JSON.stringify(data) });
+          const row=inserted[0];
+          if(!row?.id)return;
+          try{
+            for(const profile of importedSocials(row.custom_fields||data.custom_fields||{}))
+              await socialRest('social_profiles?on_conflict=organization_id,platform,normalized_handle,entity_type,entity_id',{
+                method:'POST',headers:{prefer:'resolution=ignore-duplicates,return=representation'},
+                body:JSON.stringify({organization_id:'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1',entity_type:'company',entity_id:row.id,
+                  platform:profile.platform,handle:profile.handle,normalized_handle:profile.normalizedHandle,
+                  profile_url:profile.profileUrl,source:'import',confidence:90}),
+              });
+          }catch(error){return `Company ${row.id}: social profile needs review (${error instanceof Error?error.message:String(error)})`;}
         }));
         results.forEach((result, index) => {
-          if (result.status === "fulfilled") imported++;
+          if (result.status === "fulfilled") { imported++;if(result.value)errors.push(result.value); }
           else errors.push(`Record ${start + index + 1}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
         });
       }
