@@ -39,7 +39,14 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
           ? socialRest<any[]>(`social_profiles?organization_id=eq.${thread.organization_id}&entity_type=eq.${thread.lead_id?'lead':thread.contact_id?'contact':'company'}&entity_id=eq.${thread.lead_id||thread.contact_id||thread.company_id||thread.legacy_company_id}&select=*&order=platform.asc`)
           : Promise.resolve([]),
       ]);
-      return reply(res,200,{conversation:thread,messages,profiles,
+      const entityFilter=thread.lead_id?`lead_id=eq.${thread.lead_id}`:thread.contact_id?`contact_id=eq.${thread.contact_id}`:
+        thread.company_id?`company_id=eq.${thread.company_id}`:thread.legacy_company_id?`legacy_company_id=eq.${thread.legacy_company_id}`:null;
+      const related=entityFilter?await socialRest<Array<{id:string;channel:string}>>(
+        `conversations?organization_id=eq.${thread.organization_id}&${entityFilter}&id=neq.${id}&select=id,channel&limit=30`):[];
+      const relatedMessages=related.length?await socialRest<Array<{id:string;conversation_id:string;direction:string;body:string;created_at:string}>>(
+        `messages?conversation_id=in.(${related.map((item)=>item.id).join(',')})&select=id,conversation_id,direction,body,created_at&order=created_at.desc&limit=200`):[];
+      const channelById=new Map(related.map((item)=>[item.id,item.channel]));
+      return reply(res,200,{conversation:thread,messages,profiles,relatedMessages:relatedMessages.map((message)=>({...message,channel:channelById.get(message.conversation_id)})),
         canReply:['facebook','whatsapp'].includes(thread.channel)&&Boolean(thread.connected_account_id)&&
           replyAllowed(thread.channel as any,thread.last_inbound_at?new Date(thread.last_inbound_at):null)});
     }
@@ -79,10 +86,30 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
         await socialRest(`social_profiles?id=eq.${profiles[0].id}`,{method:'PATCH',body:JSON.stringify({platform_user_id:thread.participant_platform_id})});
     } else if(data.action==='status') {
       if(!['open','snoozed','closed'].includes(data.status))throw new Error('Invalid status');update.status=data.status;
-      if(data.status==='snoozed')update.snoozed_until=new Date(data.snoozed_until).toISOString();
+      if(data.status==='snoozed'){
+        const until=new Date(data.snoozed_until);
+        if(!Number.isFinite(until.getTime())||until.getTime()<=Date.now()||until.getTime()>Date.now()+90*86400000)throw new Error('Choose a snooze time within 90 days');
+        update.snoozed_until=until.toISOString();
+      } else update.snoozed_until=null;
     } else if(data.action==='intent') {
       if(!['interested','not_now','not_interested','wrong_person','ooo','unsubscribe','unknown'].includes(data.intent))throw new Error('Invalid intent');
       update.intent=data.intent;
+    } else if(data.action==='assign') {
+      const assignee=data.assigned_to;
+      if(assignee!==null&&(!uuid.test(String(assignee))))throw new Error('Invalid assignee');
+      if(assignee!==null){
+        const members=await socialRest<Array<{user_id:string}>>(`org_users?org_id=eq.${thread.organization_id}&user_id=eq.${assignee}&select=user_id&limit=1`);
+        if(!members.length)throw new Error('Assignee must belong to this organization');
+      }
+      update.assigned_to=assignee;
+    } else if(data.action==='create_task') {
+      if(!thread.lead_id)throw new Error('Link this conversation to a lead to create a task');
+      const title=String(data.title||'').trim();
+      const due=new Date(data.due_at);
+      if(!title||title.length>160||!Number.isFinite(due.getTime())||due.getTime()<Date.now()-60000)throw new Error('Enter a title and future due date');
+      await socialRest('contact_tasks',{method:'POST',body:JSON.stringify({lead_id:thread.lead_id,title,
+        description:`Conversation ${thread.id}`,due_date:due.toISOString(),priority:'medium'})});
+      return reply(res,200,{created:true});
     } else if(data.action==='read') update.unread_count=0;
     else throw new Error('Invalid action');
     await socialRest(`conversations?id=eq.${thread.id}`,{method:'PATCH',body:JSON.stringify(update)});

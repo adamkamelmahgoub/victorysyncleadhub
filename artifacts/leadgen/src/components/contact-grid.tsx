@@ -16,18 +16,21 @@ export type ContactRow = ContactDisplay & {
   createdAt?: string | null;
   lastActivityAt?: string | null;
   customFields?: Record<string, unknown> | null;
+  socials?: Record<string,string|null>;
 };
 
-type Column = "name" | "company" | "phone" | "email" | "tags" | "status" | "source" | "location" | "lastActivity" | "created";
+type Column = "name" | "company" | "phone" | "email" | "instagram" | "facebook" | "linkedin" | "x" | "tiktok" | "tags" | "status" | "source" | "location" | "lastActivity" | "created";
 const labels: Record<Column, string> = {
   name: "Name", company: "Company", phone: "Phone", email: "Email", tags: "Tags", status: "Status",
   source: "Source", location: "City / State", lastActivity: "Last activity", created: "Created date",
+  instagram: "Instagram", facebook: "Facebook", linkedin: "LinkedIn", x: "X", tiktok: "TikTok",
 };
 const defaultColumns = Object.keys(labels) as Column[];
 const widths: Record<Column, string> = {
   name: "w-[250px] min-w-[250px]", company: "w-[190px] min-w-[190px]", phone: "w-[150px] min-w-[150px]",
   email: "w-[210px] min-w-[210px]", tags: "w-[210px] min-w-[210px]", status: "w-[145px] min-w-[145px]",
   source: "w-[130px] min-w-[130px]", location: "w-[145px] min-w-[145px]",
+  instagram: "w-[145px] min-w-[145px]", facebook: "w-[145px] min-w-[145px]", linkedin: "w-[145px] min-w-[145px]", x: "w-[145px] min-w-[145px]", tiktok: "w-[145px] min-w-[145px]",
   lastActivity: "w-[140px] min-w-[140px]", created: "w-[140px] min-w-[140px]",
 };
 function statusStyle(status: string) {
@@ -70,6 +73,7 @@ export function ContactGrid({ contacts, selected, onSelect, onDelete, canEdit = 
       case "email": return lead.email ? <a href={`mailto:${lead.email}`} className="hover:underline">{lead.email}</a> : "—";
       case "tags": return (lead.tags ?? []).length ? <div className="flex min-w-0 items-center gap-1.5 overflow-hidden"><span className="max-w-[142px] truncate rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs text-blue-700" title={lead.tags![0]}>{lead.tags![0]}</span>{lead.tags!.length > 1 && <span className="shrink-0 text-xs text-slate-500" title={lead.tags!.slice(1).join(", ")}>+{lead.tags!.length - 1}</span>}</div> : "—";
       case "status": return lead.status ? <span className={`inline-flex max-w-full truncate rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize ${statusStyle(lead.status)}`}>{lead.status.replaceAll("_", " ")}</span> : "—";
+      case "instagram": case "facebook": case "linkedin": case "x": case "tiktok": return lead.socials?.[column] ? `@${lead.socials[column]}` : "—";
       case "source": return lead.source || "—";
       case "location": return [lead.customFields?.city, lead.state ?? lead.customFields?.state].filter(Boolean).join(", ") || "—";
       case "lastActivity": return date(lead.lastActivityAt);

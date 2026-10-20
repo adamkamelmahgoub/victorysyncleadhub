@@ -41,6 +41,7 @@ type Lead = {
   tags?: string[] | null;
   state?: string | null;
   lastActivityAt?: string | null;
+  socials?: Record<string,string|null>;
 };
 
 type LeadsResponse = {
@@ -130,7 +131,7 @@ export default function Leads() {
   const { data, isLoading, isFetching, error: contactsError } = useQuery({
     queryKey,
     queryFn: async () => {
-      const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE), includeActivity: "false" });
+      const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE), includeActivity: "false", includeSocials: "true" });
       if (debouncedSearch) params.set("search", debouncedSearch);
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (tagFilter !== "all") params.set("tag", tagFilter);

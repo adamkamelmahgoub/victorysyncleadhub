@@ -1777,8 +1777,18 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
     sequenceEligible ? Promise.resolve(0) : supabaseRestCount(`leads?${countQuery.toString()}`, req),
   ]);
 
+  const socialById = new Map<string,Record<string,unknown>>();
+  if (url.searchParams.get('includeSocials') === 'true') {
+    for (let start=0; start<rows.length; start+=100) {
+      const ids=rows.slice(start,start+100).map((row)=>String(row.id));
+      if (!ids.length) continue;
+      const handles=await supabaseRest(`social_primary_handles?entity_type=eq.lead&entity_id=in.(${ids.join(',')})&select=entity_id,instagram,facebook,linkedin,x,tiktok,youtube,threads`,{method:'GET'},req) as Array<Record<string,unknown>>;
+      for (const item of handles) socialById.set(String(item.entity_id),item);
+    }
+  }
+  const mappedLeads = url.searchParams.get('includeActivity') === 'false' ? rows.map(leadFromRow) : await contactsWithActivity(rows, req);
   sendJson(res, 200, {
-    leads: url.searchParams.get('includeActivity') === 'false' ? rows.map(leadFromRow) : await contactsWithActivity(rows, req),
+    leads: mappedLeads.map((lead)=>({...lead,socials:socialById.get(String(lead.id))||{}})),
     total: sequenceEligible
       ? (rows.length === limit ? offset + rows.length + 1 : offset + rows.length)
       : count,
