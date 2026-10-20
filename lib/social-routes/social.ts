@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { allowedEmail } from '../mcp-auth.js';
+import { socialActor, assertSocialPermission } from '../social-workspace-auth.js';
 import { normalizeSocial, SOCIAL_PLATFORMS, type SocialPlatform } from '../social-handles.js';
 import { discoverWebsiteSocials,resolveAmbiguousSocials } from '../social-discovery.js';
 import { socialRest } from '../social-service.js';
@@ -15,16 +15,6 @@ async function body(req: IncomingMessage): Promise<any> {
   let raw = '';
   for await (const part of req) { raw += part; if (raw.length > 100_000) throw new Error('Request too large'); }
   return JSON.parse(raw || '{}');
-}
-async function admin(req: IncomingMessage) {
-  const token = req.headers.authorization;
-  const key = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-  if (typeof token !== 'string' || !token.startsWith('Bearer ') || !key || !process.env.SUPABASE_URL) throw new Error('Sign in first');
-  const response = await fetch(`${process.env.SUPABASE_URL}/auth/v1/user`, { headers: { apikey:key, authorization:token }, signal:AbortSignal.timeout(10000) });
-  if (!response.ok) throw new Error('Session expired');
-  const user = await response.json() as { id: string; email: string; email_confirmed_at?: string };
-  if (!user.email_confirmed_at || !allowedEmail(user.email)) throw new Error('CRM administrator access required');
-  return user;
 }
 type Entity = { type: 'lead' | 'contact' | 'company'; id: string; org: string; website: string | null };
 async function resolveEntity(type: string, id: string): Promise<Entity> {
@@ -50,12 +40,12 @@ function platform(value: unknown): SocialPlatform {
 }
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   try {
-    const user=await admin(req);
+    const user=await socialActor(req);
     const url = new URL(req.url || '/', 'https://local.invalid');
     const type = url.searchParams.get('entity_type') || '';
     const id = url.searchParams.get('entity_id') || '';
     const entity = await resolveEntity(type,id);
-    await assertSocialOrganization(user.id,entity.org);
+    assertSocialPermission(user,entity.org,'socials_manage');
     if (req.method === 'GET') {
       const rows = await socialRest<any[]>(`social_profiles?organization_id=eq.${entity.org}&entity_type=eq.${entity.type}&entity_id=eq.${entity.id}&review_status=neq.rejected&select=*&order=platform.asc,confidence.desc`);
       return reply(res,200,{ profiles:rows });

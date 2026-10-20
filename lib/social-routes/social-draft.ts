@@ -1,6 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { allowedEmail } from '../mcp-auth.js';
-import { socialOrganizationIds } from '../social-auth.js';
+import { socialActor, socialActorOrganizations } from '../social-workspace-auth.js';
 import { socialRest } from '../social-service.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 30 };
@@ -11,13 +10,7 @@ function send(res: ServerResponse, status: number, data: unknown) {
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   try {
     if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
-    const key = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-    const token = req.headers.authorization;
-    if (!key || !process.env.SUPABASE_URL || typeof token !== 'string' || !token.startsWith('Bearer ')) throw new Error('Sign in first');
-    const auth = await fetch(`${process.env.SUPABASE_URL}/auth/v1/user`, { headers: { apikey: key, authorization: token }, signal: AbortSignal.timeout(10000) });
-    if (!auth.ok) throw new Error('Session expired');
-    const user = await auth.json() as { id: string; email: string; email_confirmed_at?: string };
-    if (!user.email_confirmed_at || !allowedEmail(user.email)) throw new Error('CRM administrator access required');
+    const user=await socialActor(req);
     let raw = '';
     for await (const part of req) { raw += part; if (raw.length > 2000) throw new Error('Request too large'); }
     const input = JSON.parse(raw || '{}') as { conversation_id?: string };
@@ -25,7 +18,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const rows = await socialRest<Array<{ id: string; organization_id: string; channel: string; intent: string }>>(
       `conversations?id=eq.${input.conversation_id}&select=id,organization_id,channel,intent&limit=1`);
     const conversation = rows[0];
-    if (!conversation || !(await socialOrganizationIds(user.id)).includes(conversation.organization_id)) throw new Error('Organization access denied');
+    if (!conversation || !(socialActorOrganizations(user,'inbox_view')).includes(conversation.organization_id)) throw new Error('Organization access denied');
     if (['unsubscribe','not_interested'].includes(conversation.intent)) throw new Error('Recipient is suppressed');
     const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) throw new Error('OpenRouter is not configured');

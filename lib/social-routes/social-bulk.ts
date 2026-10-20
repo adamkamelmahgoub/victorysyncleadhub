@@ -1,6 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { allowedEmail } from '../mcp-auth.js';
-import { socialOrganizationIds } from '../social-auth.js';
+import { socialActor, socialActorOrganizations } from '../social-workspace-auth.js';
 import { socialRest } from '../social-service.js';
 import { discoverWebsiteSocials, resolveAmbiguousSocials } from '../social-discovery.js';
 
@@ -13,20 +12,14 @@ function send(res: ServerResponse, status: number, data: unknown) {
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   try {
     if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
-    const bearer = req.headers.authorization;
-    const key = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-    if (typeof bearer !== 'string' || !bearer.startsWith('Bearer ') || !key || !process.env.SUPABASE_URL) throw new Error('Sign in first');
-    const auth = await fetch(`${process.env.SUPABASE_URL}/auth/v1/user`, { headers: { apikey: key, authorization: bearer }, signal: AbortSignal.timeout(10000) });
-    if (!auth.ok) throw new Error('Session expired');
-    const user = await auth.json() as { id: string; email: string; email_confirmed_at?: string };
-    if (!user.email_confirmed_at || !allowedEmail(user.email)) throw new Error('CRM administrator access required');
+    const user=await socialActor(req);
     let raw = '';
     for await (const part of req) { raw += part; if (raw.length > 10000) throw new Error('Request too large'); }
     const input = JSON.parse(raw || '{}') as { ids?: unknown; entity_type?: unknown };
     const ids = Array.isArray(input.ids) ? [...new Set(input.ids)] : [];
     if (!['lead','company'].includes(String(input.entity_type)) || !ids.length || ids.length > 25 || ids.some((id) => typeof id !== 'string' || !uuid.test(id)))
       throw new Error('Choose 1 to 25 records');
-    const orgs = await socialOrganizationIds(user.id);
+    const orgs = socialActorOrganizations(user,'socials_manage');
     type Row={id:string;organization_id:string|null;custom_fields:Record<string,any>|null;website?:string|null};
     let rows:Row[]=[];
     if(input.entity_type==='lead')rows=await socialRest<Row[]>(`leads?id=in.(${ids.join(',')})&select=id,organization_id,custom_fields`);

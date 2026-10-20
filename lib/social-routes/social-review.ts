@@ -1,6 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { allowedEmail } from '../mcp-auth.js';
-import { socialOrganizationIds } from '../social-auth.js';
+import { socialActor, socialActorOrganizations } from '../social-workspace-auth.js';
 import { socialRest } from '../social-service.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 30 };
@@ -10,14 +9,8 @@ function send(res: ServerResponse, status: number, data: unknown) {
 }
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   try {
-    const key=process.env.SUPABASE_ANON_KEY||process.env.VITE_SUPABASE_ANON_KEY;
-    const token=req.headers.authorization;
-    if(!key||!process.env.SUPABASE_URL||typeof token!=='string'||!token.startsWith('Bearer '))throw new Error('Sign in first');
-    const auth=await fetch(`${process.env.SUPABASE_URL}/auth/v1/user`,{headers:{apikey:key,authorization:token},signal:AbortSignal.timeout(10000)});
-    if(!auth.ok)throw new Error('Session expired');
-    const user=await auth.json() as{id:string;email:string;email_confirmed_at?:string};
-    if(!user.email_confirmed_at||!allowedEmail(user.email))throw new Error('CRM administrator access required');
-    const orgs=await socialOrganizationIds(user.id);
+    const user=await socialActor(req);
+    const orgs=socialActorOrganizations(user,'socials_manage');
     if(req.method==='GET'){
       if(!orgs.length)return send(res,200,{profiles:[]});
       const profiles=await socialRest(`social_profiles?organization_id=in.(${orgs.join(',')})&confidence=lt.70&review_status=eq.pending&select=id,organization_id,entity_type,entity_id,platform,handle,profile_url,confidence,source,created_at&order=created_at.desc&limit=200`);

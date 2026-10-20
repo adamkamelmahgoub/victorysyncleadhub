@@ -8,6 +8,7 @@ import {
 import { apiFetch } from "@/lib/api";
 import { asArray } from "@/lib/data-shape";
 import { ALL_PAGE_PERMISSION_KEYS, PAGE_PERMISSIONS } from "@/lib/permissions";
+import { SocialTeamAccess } from "@/components/social-team-access";
 
 interface TeamMember {
   id: string;
@@ -275,6 +276,8 @@ export default function Team() {
           </div>
         </div>
       </div>
+
+      <SocialTeamAccess />
 
       {/* Invite modal */}
       {showInvite && (

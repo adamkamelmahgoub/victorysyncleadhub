@@ -1,15 +1,10 @@
 import type {IncomingMessage,ServerResponse} from 'node:http';
-import {allowedEmail,mcpPool} from '../mcp-auth.js';
+import {mcpPool} from '../mcp-auth.js';
 import {renderDmTemplate} from '../dm-template.js';
-import {socialOrganizationIds} from '../social-auth.js';
+import {socialActor,socialActorOrganizations} from '../social-workspace-auth.js';
 export const config={api:{bodyParser:false},maxDuration:30};
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function reply(res:ServerResponse,status:number,data:unknown){res.statusCode=status;res.setHeader('content-type','application/json');res.end(JSON.stringify(data));}
-async function admin(req:IncomingMessage){const token=req.headers.authorization,key=process.env.SUPABASE_ANON_KEY||process.env.VITE_SUPABASE_ANON_KEY;
-  if(typeof token!=='string'||!token.startsWith('Bearer ')||!key||!process.env.SUPABASE_URL)throw new Error('Sign in first');
-  const response=await fetch(`${process.env.SUPABASE_URL}/auth/v1/user`,{headers:{apikey:key,authorization:token},signal:AbortSignal.timeout(10000)});
-  if(!response.ok)throw new Error('Session expired');const user=await response.json() as{id:string;email:string;email_confirmed_at?:string};
-  if(!user.email_confirmed_at||!allowedEmail(user.email))throw new Error('CRM administrator access required');return user;}
 type QueueRow={id:string;organization_id:string;enrollment_id:string;step_id:string;connected_account_id:string|null;due_at:Date;
   step_type:string;channel:string;body:string|null;allow_spintax:boolean|null;entity_type:string;entity_id:string;
   first_name:string|null;company:string|null;city:string|null;industry:string|null;google_rating:string|null;review_count:string|null;
@@ -37,7 +32,7 @@ const queueSql=`select t.id,t.organization_id,t.enrollment_id,t.step_id,t.connec
     order by p.is_primary desc,p.confidence desc limit 1) sp on true`;
 export default async function handler(req:IncomingMessage,res:ServerResponse){
   let db;
-  try{const user=await admin(req);const orgs=await socialOrganizationIds(user.id);db=await mcpPool.connect();
+  try{const user=await socialActor(req);const orgs=socialActorOrganizations(user,'queue_work');db=await mcpPool.connect();
     if(req.method==='GET'){
       const url=new URL(req.url||'/','https://local.invalid');const account=url.searchParams.get('account_id');
       if(account&&!uuid.test(account))throw new Error('Invalid account ID');

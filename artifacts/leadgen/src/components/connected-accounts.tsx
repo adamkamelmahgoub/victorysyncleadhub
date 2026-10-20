@@ -1,24 +1,69 @@
-import { useMutation,useQuery,useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Copy, ExternalLink, Facebook, Instagram, MessageCircle, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
-type Account={id:string;platform:string;label:string;external_account_id:string|null;status:string;token_expires_at:string|null;last_webhook_at:string|null;last_error:string|null;daily_new_dm_cap:number;daily_followup_cap:number;warmup_enabled:boolean};
-export function ConnectedAccounts(){const qc=useQueryClient();const key=['social-connected-accounts'];
-  const accounts=useQuery<{accounts:Account[]}>({queryKey:key,queryFn:()=>apiFetch('/api/social-accounts')});
-  const update=useMutation({mutationFn:(data:Record<string,unknown>)=>apiFetch('/api/social-accounts',{method:'PATCH',body:JSON.stringify(data)}),onSuccess:()=>void qc.invalidateQueries({queryKey:key})});
-  return <section className="rounded-xl border bg-card p-5"><h2 className="font-semibold">Connected Accounts</h2>
-    <p className="mt-1 text-sm text-muted-foreground">Business messaging accounts. Tokens stay on the server; setup is described in SETUP.md.</p>
-    {accounts.isLoading&&<p className="mt-3 text-sm">Loading accounts…</p>}
-    {accounts.isError&&<p role="alert" className="mt-3 text-sm text-destructive">Could not load accounts.</p>}
-    <div className="mt-4 space-y-3">{accounts.data?.accounts.map((account)=><div key={account.id} className="rounded border p-3 text-sm">
-      <div className="flex flex-wrap items-center gap-2"><strong>{account.label}</strong><span className="capitalize text-muted-foreground">{account.platform}</span><span className={account.status==='active'?'text-emerald-700':'text-amber-700'}>{account.status}</span></div>
-      <div className="mt-2 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2"><span>Last webhook: {account.last_webhook_at?new Date(account.last_webhook_at).toLocaleString():'Never'}</span><span>Token expiry: {account.token_expires_at?new Date(account.token_expires_at).toLocaleString():'Unknown'}</span></div>
-      {account.last_error&&<p role="alert" className="mt-2 text-xs text-destructive">{account.last_error}</p>}
-      <div className="mt-3 flex flex-wrap items-center gap-3"><label>New DM cap <input aria-label={`New DM cap for ${account.label}`} className="ml-1 w-16 rounded border px-1 py-1" type="number" min="0" max="1000" defaultValue={account.daily_new_dm_cap} onBlur={(e)=>update.mutate({id:account.id,action:'caps',daily_new_dm_cap:Number(e.target.value)})}/></label>
-        <label>Reply cap <input aria-label={`Reply cap for ${account.label}`} className="ml-1 w-16 rounded border px-1 py-1" type="number" min="0" max="1000" defaultValue={account.daily_followup_cap} onBlur={(e)=>update.mutate({id:account.id,action:'caps',daily_followup_cap:Number(e.target.value)})}/></label>
-        <label className="flex items-center gap-1"><input type="checkbox" checked={account.warmup_enabled} onChange={(e)=>update.mutate({id:account.id,action:'caps',warmup_enabled:e.target.checked})}/> Warmup</label>
-        {account.status!=='disconnected'&&<button className="rounded border px-2 py-1 text-destructive" onClick={()=>update.mutate({id:account.id,action:'disconnect'})}>Disconnect</button>}
-      </div>
-    </div>)}</div>
-    {!accounts.isLoading&&!accounts.data?.accounts.length&&<p className="mt-3 text-sm text-muted-foreground">No accounts connected.</p>}
-    {update.isError&&<p role="alert" className="mt-3 text-sm text-destructive">{String(update.error)}</p>}
+
+type Account={id:string;platform:string;label:string;status:string;token_expires_at:string|null;last_webhook_at:string|null;last_error:string|null;daily_new_dm_cap:number;daily_followup_cap:number;warmup_enabled:boolean};
+type Org={id:string;name:string};
+type Config={configured:boolean;app_id:string;graph_version:string;callback_url:string;webhook_url:string};
+const input='mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary';
+const panel='rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6';
+
+export function ConnectedAccounts(){
+  const qc=useQueryClient();
+  const [orgId,setOrgId]=useState('');
+  const [appId,setAppId]=useState('');
+  const [secret,setSecret]=useState('');
+  const [version,setVersion]=useState('v25.0');
+  const [verifyToken,setVerifyToken]=useState('');
+  const [wabaId,setWabaId]=useState('');
+  const [phoneId,setPhoneId]=useState('');
+  const [waToken,setWaToken]=useState('');
+  const [notice,setNotice]=useState('');
+  const orgs=useQuery<{organizations:Org[]}>({queryKey:['social-owner-organizations'],queryFn:()=>apiFetch('/api/social-oauth')});
+  useEffect(()=>{if(!orgId&&orgs.data?.organizations.length)setOrgId(orgs.data.organizations[0].id);},[orgId,orgs.data]);
+  const config=useQuery<Config>({queryKey:['social-oauth-config',orgId],queryFn:()=>apiFetch(`/api/social-oauth?organization_id=${orgId}`),enabled:!!orgId});
+  useEffect(()=>{if(config.data){setAppId(config.data.app_id);setVersion(config.data.graph_version);}},[config.data]);
+  const accounts=useQuery<{accounts:Account[]}>({queryKey:['social-connected-accounts'],queryFn:()=>apiFetch('/api/social-accounts')});
+  const refresh=()=>{void qc.invalidateQueries({queryKey:['social-connected-accounts']});void qc.invalidateQueries({queryKey:['social-oauth-config']});};
+  const update=useMutation({mutationFn:(data:Record<string,unknown>)=>apiFetch('/api/social-accounts',{method:'PATCH',body:JSON.stringify(data)}),onSuccess:refresh});
+  const action=useMutation({mutationFn:(data:Record<string,unknown>)=>apiFetch('/api/social-oauth',{method:'POST',body:JSON.stringify({organization_id:orgId,...data})}) as Promise<Record<string,string|boolean>>,
+    onSuccess:(result,variables)=>{refresh();if(variables.action==='configure'){setVerifyToken(String(result.verify_token||''));setSecret('');setNotice('Meta app saved. Copy the webhook verify token now; it is shown only once.');}
+      if(variables.action==='start'&&result.authorization_url)window.location.assign(String(result.authorization_url));
+      if(variables.action==='whatsapp'){setWaToken('');setNotice('WhatsApp Business connected.');}}});
+  const ownerOrgs=orgs.data?.organizations||[];
+  return <section className="space-y-5" aria-label="Connected social accounts">
+    <div className={panel}><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="flex items-center gap-2 text-lg font-semibold"><ShieldCheck className="h-5 w-5 text-primary"/>Connected accounts</h2>
+      <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Connect business accounts from here. App secrets and account tokens are encrypted in Supabase Vault and never shown to teammates.</p></div>
+      {ownerOrgs.length>1&&<select className={input+' max-w-56'} value={orgId} onChange={(e)=>setOrgId(e.target.value)} aria-label="Organization">{ownerOrgs.map((org)=><option key={org.id} value={org.id}>{org.name}</option>)}</select>}</div>
+      {new URLSearchParams(window.location.search).get('social_connect')&&<p className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">Meta returned to Victory Sync. Check the accounts below, then send a test message.</p>}
+      {notice&&<p role="status" className="mt-4 rounded-xl bg-primary/5 p-3 text-sm text-primary">{notice}</p>}
+      {action.isError&&<p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{String(action.error)}</p>}
+      {accounts.isError&&<p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">Accounts could not be loaded.</p>}
+      <div className="mt-5 grid gap-3 lg:grid-cols-2">{accounts.data?.accounts.map((account)=><div key={account.id} className="rounded-xl border border-border bg-background p-4">
+        <div className="flex items-start justify-between gap-2"><div className="flex items-center gap-2">{account.platform==='instagram'?<Instagram className="h-5 w-5 text-pink-600"/>:account.platform==='facebook'?<Facebook className="h-5 w-5 text-blue-600"/>:<MessageCircle className="h-5 w-5 text-emerald-600"/>}<div><strong>{account.label}</strong><div className="text-xs capitalize text-muted-foreground">{account.platform}</div></div></div>
+          <span className={`rounded-full px-2.5 py-1 text-xs ${account.status==='active'?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-700'}`}>{account.status}</span></div>
+        <div className="mt-3 space-y-1 text-xs text-muted-foreground"><div>Webhook: {account.last_webhook_at?new Date(account.last_webhook_at).toLocaleString():'Waiting for first event'}</div><div>Token expiry: {account.token_expires_at?new Date(account.token_expires_at).toLocaleString():'Not reported'}</div></div>
+        {account.last_error&&<p role="alert" className="mt-2 text-xs text-red-700">{account.last_error}</p>}
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t pt-3 text-xs"><label>New DMs <input className="ml-1 w-16 rounded-lg border px-2 py-1" type="number" min="0" max="1000" defaultValue={account.daily_new_dm_cap} onBlur={(e)=>update.mutate({id:account.id,action:'caps',daily_new_dm_cap:Number(e.target.value)})}/></label>
+          <label>Follow-ups <input className="ml-1 w-16 rounded-lg border px-2 py-1" type="number" min="0" max="1000" defaultValue={account.daily_followup_cap} onBlur={(e)=>update.mutate({id:account.id,action:'caps',daily_followup_cap:Number(e.target.value)})}/></label>
+          <label className="flex items-center gap-1"><input type="checkbox" checked={account.warmup_enabled} onChange={(e)=>update.mutate({id:account.id,action:'caps',warmup_enabled:e.target.checked})}/> Warmup</label>
+          {account.status!=='disconnected'&&<button className="text-red-700 hover:underline" onClick={()=>update.mutate({id:account.id,action:'disconnect'})}>Disconnect</button>}</div>
+      </div>)}</div>
+      {!accounts.isLoading&&!accounts.data?.accounts.length&&<div className="mt-5 rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">No accounts connected yet. Start with Meta below.</div>}
+    </div>
+    {ownerOrgs.length>0&&<div className="grid gap-5 xl:grid-cols-2"><div className={panel}><h3 className="flex items-center gap-2 font-semibold"><Facebook className="h-5 w-5 text-blue-600"/><Instagram className="h-5 w-5 text-pink-600"/>Facebook Pages and Instagram</h3>
+      <p className="mt-2 text-sm text-muted-foreground">Enter your Meta developer app once, then authorize your Pages through Facebook Login. Linked Professional Instagram accounts are discovered automatically.</p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-xs font-medium">Meta App ID<input className={input} value={appId} onChange={(e)=>setAppId(e.target.value)} inputMode="numeric"/></label><label className="text-xs font-medium">Graph API version<input className={input} value={version} onChange={(e)=>setVersion(e.target.value)}/></label></div>
+      <label className="mt-3 block text-xs font-medium">Meta App Secret<input className={input} type="password" autoComplete="new-password" value={secret} onChange={(e)=>setSecret(e.target.value)} placeholder={config.data?.configured?'Enter to rotate app secret':'Paste app secret'}/></label>
+      <div className="mt-4 space-y-2 rounded-xl bg-muted/50 p-3 text-xs">{[['OAuth callback',config.data?.callback_url],['Webhook callback',config.data?.webhook_url],...(verifyToken?[['Webhook verify token — copy now',verifyToken]]:[])].map(([label,value])=><div key={label}><strong>{label}</strong><div className="mt-1 flex items-center gap-2 break-all text-muted-foreground">{value||'Loading…'}<button title={`Copy ${label}`} onClick={()=>void navigator.clipboard.writeText(value||'')}><Copy className="h-4 w-4"/></button></div></div>)}</div>
+      <div className="mt-4 flex flex-wrap gap-2"><button className="rounded-xl border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50" disabled={action.isPending||!secret} onClick={()=>action.mutate({action:'configure',app_id:appId,app_secret:secret,graph_version:version})}>Save app setup</button>
+        <button className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50" disabled={!config.data?.configured||action.isPending} onClick={()=>action.mutate({action:'start'})}>Connect with Facebook <ExternalLink className="ml-1 inline h-4 w-4"/></button></div>
+      <p className="mt-3 text-xs text-muted-foreground">Add both callback URLs in the Meta developer dashboard before connecting. Use a Professional Instagram account linked to a Page.</p></div>
+      <div className={panel}><h3 className="flex items-center gap-2 font-semibold"><MessageCircle className="h-5 w-5 text-emerald-600"/>WhatsApp Business</h3><p className="mt-2 text-sm text-muted-foreground">Connect an approved Cloud API business number. This app sends only replies inside the customer support window.</p>
+        <div className="mt-4 space-y-3"><label className="block text-xs font-medium">WABA ID<input className={input} value={wabaId} onChange={(e)=>setWabaId(e.target.value)} inputMode="numeric"/></label><label className="block text-xs font-medium">Phone Number ID<input className={input} value={phoneId} onChange={(e)=>setPhoneId(e.target.value)} inputMode="numeric"/></label>
+          <label className="block text-xs font-medium">Cloud API access token<input className={input} type="password" autoComplete="new-password" value={waToken} onChange={(e)=>setWaToken(e.target.value)}/></label></div>
+        <button className="mt-4 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50" disabled={!config.data?.configured||!wabaId||!phoneId||!waToken||action.isPending} onClick={()=>action.mutate({action:'whatsapp',waba_id:wabaId,phone_number_id:phoneId,access_token:waToken})}>Connect WhatsApp Business</button>
+      </div></div>}
   </section>;
 }

@@ -1,30 +1,19 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { allowedEmail } from '../mcp-auth.js';
+import { socialActor, socialActorOrganizations } from '../social-workspace-auth.js';
 import { providerAdapters, replyAllowed, type Channel } from '../social-providers.js';
 import { socialRest } from '../social-service.js';
-import { socialOrganizationIds } from '../social-auth.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 30 };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LEGACY_ORG = 'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
 function reply(res:ServerResponse,status:number,data:unknown) { res.statusCode=status;res.setHeader('content-type','application/json');res.end(JSON.stringify(data)); }
-async function authenticate(req:IncomingMessage) {
-  const token=req.headers.authorization;
-  const key=process.env.SUPABASE_ANON_KEY||process.env.VITE_SUPABASE_ANON_KEY;
-  if(typeof token!=='string'||!token.startsWith('Bearer ')||!key||!process.env.SUPABASE_URL) throw new Error('Sign in first');
-  const response=await fetch(`${process.env.SUPABASE_URL}/auth/v1/user`,{headers:{apikey:key,authorization:token},signal:AbortSignal.timeout(10000)});
-  if(!response.ok) throw new Error('Session expired');
-  const user=await response.json() as {id:string;email:string;email_confirmed_at?:string};
-  if(!user.email_confirmed_at||!allowedEmail(user.email)) throw new Error('CRM administrator access required');
-  return user;
-}
 async function input(req:IncomingMessage) {let raw='';for await(const part of req){raw+=part;if(raw.length>100000)throw new Error('Request too large');}return JSON.parse(raw||'{}');}
 type Conversation={id:string;organization_id:string;channel:string;connected_account_id:string|null;participant_platform_id:string|null;
   contact_id:string|null;company_id:string|null;legacy_company_id:string|null;lead_id:string|null;last_inbound_at:string|null;reply_window_expires_at:string|null;[key:string]:unknown};
 export default async function handler(req:IncomingMessage,res:ServerResponse) {
   try {
-    const user=await authenticate(req);
-    const organizations=await socialOrganizationIds(user.id);
+    const user=await socialActor(req);
+    const organizations=socialActorOrganizations(user,req.method==='GET'?'inbox_view':'inbox_reply');
     const url=new URL(req.url||'/','https://local.invalid');
     const id=url.searchParams.get('id');
     if(req.method==='GET'&&id) {

@@ -1,20 +1,15 @@
 import type {IncomingMessage,ServerResponse} from 'node:http';
-import {allowedEmail,mcpPool} from '../mcp-auth.js';
-import {socialOrganizationIds} from '../social-auth.js';
+import {mcpPool} from '../mcp-auth.js';
+import {socialActor,socialActorOrganizations} from '../social-workspace-auth.js';
 
 export const config={api:{bodyParser:false},maxDuration:30};
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const channels=new Set(['instagram','facebook','linkedin','x','tiktok','threads','whatsapp','email','sms','other']);
 const stepTypes=new Set(['follow','engage_post','dm','followup_dm','email','call_task']);
 function send(res:ServerResponse,status:number,data:unknown){res.statusCode=status;res.setHeader('content-type','application/json');res.end(JSON.stringify(data));}
-async function admin(req:IncomingMessage){const token=req.headers.authorization,key=process.env.SUPABASE_ANON_KEY||process.env.VITE_SUPABASE_ANON_KEY;
-  if(typeof token!=='string'||!token.startsWith('Bearer ')||!key||!process.env.SUPABASE_URL)throw new Error('Sign in first');
-  const response=await fetch(`${process.env.SUPABASE_URL}/auth/v1/user`,{headers:{apikey:key,authorization:token},signal:AbortSignal.timeout(10000)});
-  if(!response.ok)throw new Error('Session expired');const user=await response.json() as{id:string;email:string;email_confirmed_at?:string};
-  if(!user.email_confirmed_at||!allowedEmail(user.email))throw new Error('CRM administrator access required');return user;}
 async function body(req:IncomingMessage){let raw='';for await(const part of req){raw+=part;if(raw.length>100000)throw new Error('Request too large');}return JSON.parse(raw||'{}');}
 export default async function handler(req:IncomingMessage,res:ServerResponse){let db;
-  try{const user=await admin(req);const orgs=await socialOrganizationIds(user.id);db=await mcpPool.connect();
+  try{const user=await socialActor(req);const orgs=socialActorOrganizations(user,'campaign_manage');db=await mcpPool.connect();
     if(req.method==='GET'){
       const campaigns=await db.query(`select c.*,coalesce(jsonb_agg(jsonb_build_object('id',s.id,'position',s.position,'day_offset',s.day_offset,
         'channel',s.channel,'step_type',s.step_type,'template_id',s.template_id,'template_body',t.body)
