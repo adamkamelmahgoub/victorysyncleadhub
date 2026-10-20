@@ -1,59 +1,61 @@
 import {useState} from 'react';
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
+import {ArrowRight,BookOpen,Check,Layers3,Plus,Send,Trash2,Users} from 'lucide-react';
 import {apiFetch} from '@/lib/api';
 import {PageHeader} from '@/components/page-layout';
+import {Button} from '@/components/ui/button';
+import {Badge} from '@/components/ui/badge';
 
 type Step={day_offset:number;channel:string;step_type:string;template_id:string|null};
-type Template={id:string;organization_id:string;name:string;body:string};
-type Campaign={id:string;organization_id:string;name:string;status:string;steps:Step[]};
-type Data={organizations:Array<{id:string;name:string}>;campaigns:Campaign[];templates:Template[]};
+type Template={id:string;name:string;body:string};
+type Campaign={id:string;name:string;status:string;steps:Step[]};
+type Data={campaigns:Campaign[];templates:Template[]};
+type Account={id:string;label:string;platform:string;display_platform:string|null;status:string};
 const channels=['instagram','facebook','linkedin','x','tiktok','threads','email','sms','other'];
 const types=['follow','engage_post','dm','followup_dm','email','call_task'];
 const blank=():Step=>({day_offset:0,channel:'instagram',step_type:'dm',template_id:null});
+const input='w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15';
+const panel='rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6';
+const label=(value:string)=>value.replaceAll('_',' ').replace(/\b\w/g,letter=>letter.toUpperCase());
+
 export default function DmCampaigns(){
-  const qc=useQueryClient(),[name,setName]=useState(''),[steps,setSteps]=useState<Step[]>([blank()]);
-  const [templateName,setTemplateName]=useState(''),[templateBody,setTemplateBody]=useState(''),[enrollText,setEnrollText]=useState('');
-  const [enrollType,setEnrollType]=useState<'lead'|'contact'|'company'>('lead'),[accountId,setAccountId]=useState('');
-  const [notice,setNotice]=useState('');
+  const qc=useQueryClient();
+  const [name,setName]=useState(''),[steps,setSteps]=useState<Step[]>([blank()]);
+  const [templateName,setTemplateName]=useState(''),[templateBody,setTemplateBody]=useState('');
+  const [enrollText,setEnrollText]=useState(''),[enrollType,setEnrollType]=useState<'lead'|'contact'|'company'>('lead'),[accountId,setAccountId]=useState('');
+  const [notice,setNotice]=useState(''),[tab,setTab]=useState<'campaigns'|'builder'|'templates'>('campaigns');
   const query=useQuery<Data>({queryKey:['dm-campaigns'],queryFn:()=>apiFetch('/api/dm-campaigns')});
+  const accounts=useQuery<{accounts:Account[]}>({queryKey:['social-connected-accounts'],queryFn:()=>apiFetch('/api/social-accounts')});
   const mutation=useMutation({mutationFn:(data:Record<string,unknown>)=>apiFetch('/api/dm-campaigns',{method:'POST',body:JSON.stringify(data)}),
-    onSuccess:(value)=>{setNotice(JSON.stringify(value));void qc.invalidateQueries({queryKey:['dm-campaigns']});},onError:(error)=>setNotice(String(error))});
-  const selectedOrg=query.data?.organizations[0]?.id||'';
-  const templates=query.data?.templates.filter(t=>t.organization_id===selectedOrg)||[];
-  const campaigns=query.data?.campaigns.filter(c=>c.organization_id===selectedOrg)||[];
+    onSuccess:(_value,variables)=>{
+      setNotice(variables.action==='create_template'?'Template saved.':variables.action==='create_campaign'?'Campaign draft created.':variables.action==='enroll'?'Records enrolled.':'Campaign updated.');
+      if(variables.action==='create_template'){setTemplateName('');setTemplateBody('');}
+      if(variables.action==='create_campaign'){setName('');setSteps([blank()]);setTab('campaigns');}
+      if(variables.action==='enroll')setEnrollText('');
+      void qc.invalidateQueries({queryKey:['dm-campaigns']});
+    },onError:error=>setNotice(error instanceof Error?error.message:String(error))});
+  const campaigns=query.data?.campaigns||[],templates=query.data?.templates||[];
+  const active=campaigns.filter(c=>c.status==='active').length;
+  const accountOptions=(accounts.data?.accounts||[]).filter(a=>a.status==='active');
   function changeStep(index:number,change:Partial<Step>){setSteps(current=>current.map((step,i)=>i===index?{...step,...change}:step));}
-  return <div className="page-stack"><PageHeader title="DM campaigns" description="Plan manual social actions and permitted email or call follow-ups."/>
-    <div className="space-y-5 rounded-xl border bg-card p-4">
-      <div className="grid gap-4 md:grid-cols-2"><form className="space-y-2" onSubmit={event=>{event.preventDefault();mutation.mutate({action:'create_template',name:templateName,body:templateBody});setTemplateName('');setTemplateBody('');}}>
-        <h2 className="font-semibold">New template</h2><input aria-label="Template name" className="w-full rounded border p-2" placeholder="Template name" value={templateName} onChange={event=>setTemplateName(event.target.value)}/>
-        <textarea aria-label="Template text" className="min-h-28 w-full rounded border p-2" placeholder="Hi {{first_name}}, ..." value={templateBody} onChange={event=>setTemplateBody(event.target.value)}/>
-        <button className="rounded bg-primary px-3 py-2 text-primary-foreground" disabled={!templateName||!templateBody||mutation.isPending}>Save template</button>
-        <p className="text-xs text-muted-foreground">Variables: first_name, company, city, industry, google_rating, review_count. Drafts are never sent automatically.</p>
-      </form><div><h2 className="font-semibold">Templates</h2>{templates.map(item=><div key={item.id} className="mt-2 rounded border p-2 text-sm"><strong>{item.name}</strong><p className="whitespace-pre-wrap text-muted-foreground">{item.body}</p></div>)}</div></div>
-      <form className="space-y-3 border-t pt-4" onSubmit={event=>{event.preventDefault();mutation.mutate({action:'create_campaign',name,steps});setName('');setSteps([blank()]);}}>
-        <h2 className="font-semibold">Build campaign</h2><input aria-label="Campaign name" className="w-full rounded border p-2" placeholder="Campaign name" value={name} onChange={event=>setName(event.target.value)}/>
-        {steps.map((step,index)=><div key={index} className="grid gap-2 rounded border p-3 sm:grid-cols-[80px_1fr_1fr_1fr_auto]">
-          <label className="text-xs">Day<input aria-label={`Day for step ${index+1}`} className="w-full rounded border p-2" type="number" min={0} max={365} value={step.day_offset} onChange={event=>changeStep(index,{day_offset:Number(event.target.value)})}/></label>
-          <label className="text-xs">Channel<select className="w-full rounded border p-2" value={step.channel} onChange={event=>changeStep(index,{channel:event.target.value})}>{channels.map(value=><option key={value}>{value}</option>)}</select></label>
-          <label className="text-xs">Action<select className="w-full rounded border p-2" value={step.step_type} onChange={event=>changeStep(index,{step_type:event.target.value})}>{types.map(value=><option key={value}>{value}</option>)}</select></label>
-          <label className="text-xs">Template<select className="w-full rounded border p-2" value={step.template_id||''} onChange={event=>changeStep(index,{template_id:event.target.value||null})}><option value="">None</option>{templates.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <button type="button" className="self-end rounded border px-2 py-2 text-xs" disabled={steps.length===1} onClick={()=>setSteps(current=>current.filter((_,i)=>i!==index))}>Remove</button>
-        </div>)}
-        <div className="flex gap-2"><button type="button" className="rounded border px-3 py-2" onClick={()=>setSteps(current=>[...current,blank()])}>Add step</button>
-          <button className="rounded bg-primary px-3 py-2 text-primary-foreground" disabled={!name||mutation.isPending}>Create draft</button></div>
-      </form>
+  return <div className="page-stack space-y-6">
+    <PageHeader title="DM campaigns" description="Plan personal outreach, manage templates, and track your team's manual actions." actions={<Button size="sm" onClick={()=>setTab('builder')}><Plus className="mr-1.5 h-4 w-4"/>New campaign</Button>}/>
+    <div className="grid gap-3 sm:grid-cols-3">
+      {[{title:'Campaigns',value:campaigns.length,icon:Layers3},{title:'Active',value:active,icon:Send},{title:'Templates',value:templates.length,icon:BookOpen}].map(({title,value,icon:Icon})=><div key={title} className={panel}><div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">{title}</span><Icon className="h-4 w-4 text-primary"/></div><div className="mt-3 text-2xl font-semibold tabular-nums">{value}</div></div>)}
     </div>
-    <div className="space-y-3"><h2 className="text-lg font-semibold">Campaigns</h2>{campaigns.map(c=><div key={c.id} className="space-y-2 rounded-xl border bg-card p-4">
-      <div className="flex flex-wrap items-center gap-3"><strong>{c.name}</strong><span className="rounded bg-muted px-2 text-xs">{c.status}</span><span className="text-xs text-muted-foreground">{c.steps.length} steps</span>
-        {c.status!=='archived'&&<button className="ml-auto rounded border px-2 py-1 text-sm" onClick={()=>mutation.mutate({action:'status',campaign_id:c.id,status:c.status==='active'?'paused':'active'})}>{c.status==='active'?'Pause':'Activate'}</button>}</div>
-      <p className="text-xs text-muted-foreground">{c.steps.map(s=>`Day ${s.day_offset}: ${s.channel} ${s.step_type}`).join(' → ')}</p>
-      {c.status==='active'&&<form className="flex flex-wrap gap-2" onSubmit={event=>{event.preventDefault();mutation.mutate({action:'enroll',campaign_id:c.id,entity_type:enrollType,
-        entity_ids:enrollText.split(/[\s,;]+/).map(x=>x.trim()).filter(Boolean),connected_account_id:accountId||null});}}>
-        <select aria-label="Record type" className="rounded border p-2" value={enrollType} onChange={event=>setEnrollType(event.target.value as typeof enrollType)}>{['lead','contact','company'].map(value=><option key={value}>{value}</option>)}</select>
-        <input aria-label="Record IDs" className="min-w-52 flex-1 rounded border p-2" placeholder="Record UUIDs, separated by commas" value={enrollText} onChange={event=>setEnrollText(event.target.value)}/>
-        <input aria-label="Connected account ID" className="min-w-44 rounded border p-2" placeholder="Account UUID (optional)" value={accountId} onChange={event=>setAccountId(event.target.value)}/>
-        <button className="rounded bg-primary px-3 py-2 text-primary-foreground" disabled={!enrollText||mutation.isPending}>Enroll</button>
-      </form>}</div>)}</div>
-    {notice&&<p role="status" className="rounded border p-3 text-sm">{notice}</p>}
+    <div className="flex gap-1 overflow-x-auto rounded-lg border border-border bg-card p-1" role="tablist" aria-label="DM campaign sections">{(['campaigns','builder','templates'] as const).map(value=><button key={value} role="tab" aria-selected={tab===value} onClick={()=>setTab(value)} className={`min-w-28 rounded-md px-4 py-2 text-sm font-medium transition-colors ${tab===value?'bg-primary/10 text-primary':'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>{value==='builder'?'Build campaign':label(value)}</button>)}</div>
+    {notice&&<p role="status" className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-foreground">{notice}</p>}
+    {query.isError&&<p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">{String(query.error)}</p>}
+    {tab==='campaigns'&&<section className="space-y-4" aria-label="Campaigns">
+      {query.isLoading&&<div className={panel}>Loading campaigns…</div>}
+      {!query.isLoading&&!campaigns.length&&<div className={`${panel} py-12 text-center`}><Layers3 className="mx-auto h-10 w-10 text-muted-foreground"/><h2 className="mt-3 font-semibold">No DM campaigns yet</h2><p className="mt-1 text-sm text-muted-foreground">Create a campaign to organize your team's outreach steps.</p><Button size="sm" className="mt-4" onClick={()=>setTab('builder')}>Build a campaign</Button></div>}
+      <div className="grid gap-4 lg:grid-cols-2">{campaigns.map(c=><article key={c.id} className={panel}>
+        <div className="flex items-start justify-between gap-3"><div className="min-w-0"><Badge variant="outline" className="mb-2 capitalize">{c.status}</Badge><h2 className="truncate text-base font-semibold">{c.name}</h2><p className="mt-1 text-xs text-muted-foreground">{c.steps.length} {c.steps.length===1?'step':'steps'}</p></div>{c.status!=='archived'&&<Button variant="outline" size="sm" disabled={mutation.isPending} onClick={()=>mutation.mutate({action:'status',campaign_id:c.id,status:c.status==='active'?'paused':'active'})}>{c.status==='active'?'Pause':'Activate'}</Button>}</div>
+        <div className="mt-4 space-y-2 border-t border-border pt-4">{c.steps.map((step,index)=><div key={index} className="flex items-center gap-3 text-sm"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{index+1}</span><span className="min-w-0 flex-1">{label(step.step_type)} <span className="text-muted-foreground">on {label(step.channel)}</span></span><span className="text-xs text-muted-foreground">Day {step.day_offset}</span></div>)}</div>
+        {c.status==='active'&&<form className="mt-5 space-y-3 border-t border-border pt-4" onSubmit={event=>{event.preventDefault();mutation.mutate({action:'enroll',campaign_id:c.id,entity_type:enrollType,entity_ids:enrollText.split(/[\s,;]+/).map(x=>x.trim()).filter(Boolean),connected_account_id:accountId||null});}}><h3 className="flex items-center gap-2 text-sm font-medium"><Users className="h-4 w-4"/>Enroll records</h3><div className="grid gap-2 sm:grid-cols-[130px_minmax(0,1fr)]"><select aria-label="Record type" className={input} value={enrollType} onChange={event=>setEnrollType(event.target.value as typeof enrollType)}>{['lead','contact','company'].map(value=><option key={value}>{label(value)}</option>)}</select><input aria-label="Record IDs" className={input} placeholder="Paste record IDs, separated by commas" value={enrollText} onChange={event=>setEnrollText(event.target.value)}/></div><div className="flex flex-wrap items-center gap-2"><select aria-label="Connected account" className={`${input} min-w-48 flex-1`} value={accountId} onChange={event=>setAccountId(event.target.value)}><option value="">Select account later</option>{accountOptions.map(a=><option key={a.id} value={a.id}>{a.label} · {a.display_platform||a.platform}</option>)}</select><Button type="submit" size="sm" disabled={!enrollText.trim()||mutation.isPending}>Enroll <ArrowRight className="ml-1 h-4 w-4"/></Button></div></form>}
+      </article>)}</div>
+    </section>}
+    {tab==='builder'&&<form className={`${panel} space-y-6`} onSubmit={event=>{event.preventDefault();mutation.mutate({action:'create_campaign',name,steps});}}><div><h2 className="text-lg font-semibold">Build campaign</h2><p className="mt-1 text-sm text-muted-foreground">Add steps in the order your team should work them. Social actions go to the manual DM queue.</p></div><label className="block text-sm font-medium">Campaign name<input aria-label="Campaign name" className={`${input} mt-1.5`} placeholder="e.g. Local business introduction" value={name} onChange={event=>setName(event.target.value)}/></label><div className="space-y-3">{steps.map((step,index)=><div key={index} className="rounded-xl border border-border bg-muted/20 p-4"><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold">Step {index+1}</h3><Button type="button" variant="ghost" size="sm" disabled={steps.length===1} onClick={()=>setSteps(current=>current.filter((_,i)=>i!==index))}><Trash2 className="mr-1 h-4 w-4"/>Remove</Button></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><label className="text-xs font-medium text-muted-foreground">Day<input aria-label={`Day for step ${index+1}`} className={`${input} mt-1.5`} type="number" min={0} max={365} value={step.day_offset} onChange={event=>changeStep(index,{day_offset:Number(event.target.value)})}/></label><label className="text-xs font-medium text-muted-foreground">Channel<select className={`${input} mt-1.5`} value={step.channel} onChange={event=>changeStep(index,{channel:event.target.value})}>{channels.map(value=><option key={value} value={value}>{label(value)}</option>)}</select></label><label className="text-xs font-medium text-muted-foreground">Action<select className={`${input} mt-1.5`} value={step.step_type} onChange={event=>changeStep(index,{step_type:event.target.value})}>{types.map(value=><option key={value} value={value}>{label(value)}</option>)}</select></label><label className="text-xs font-medium text-muted-foreground">Template<select className={`${input} mt-1.5`} value={step.template_id||''} onChange={event=>changeStep(index,{template_id:event.target.value||null})}><option value="">None</option>{templates.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div></div>)}</div><div className="flex flex-wrap gap-2 border-t border-border pt-5"><Button type="button" variant="outline" onClick={()=>setSteps(current=>[...current,blank()])}><Plus className="mr-1.5 h-4 w-4"/>Add step</Button><Button type="submit" disabled={!name.trim()||mutation.isPending}><Check className="mr-1.5 h-4 w-4"/>Create draft</Button></div></form>}
+    {tab==='templates'&&<div className="grid gap-5 lg:grid-cols-2"><form className={`${panel} space-y-4`} onSubmit={event=>{event.preventDefault();mutation.mutate({action:'create_template',name:templateName,body:templateBody});}}><div><h2 className="text-lg font-semibold">New template</h2><p className="mt-1 text-sm text-muted-foreground">Prepare copy for a teammate to review and send.</p></div><label className="block text-sm font-medium">Template name<input aria-label="Template name" className={`${input} mt-1.5`} placeholder="e.g. First introduction" value={templateName} onChange={event=>setTemplateName(event.target.value)}/></label><label className="block text-sm font-medium">Message<textarea aria-label="Template text" className={`${input} mt-1.5 min-h-40 resize-y`} placeholder="Hi {{first_name}}, ..." value={templateBody} onChange={event=>setTemplateBody(event.target.value)}/></label><p className="text-xs leading-relaxed text-muted-foreground">Variables: first_name, company, city, industry, google_rating, review_count. Drafts are never sent automatically.</p><Button type="submit" disabled={!templateName.trim()||!templateBody.trim()||mutation.isPending}>Save template</Button></form><section className={panel}><h2 className="text-lg font-semibold">Saved templates</h2><div className="mt-4 space-y-3">{templates.map(item=><article key={item.id} className="rounded-lg border border-border p-4"><h3 className="text-sm font-semibold">{item.name}</h3><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{item.body}</p></article>)}{!templates.length&&<p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Templates you save appear here.</p>}</div></section></div>}
   </div>;
 }
