@@ -5,6 +5,7 @@ import { apiFetch } from '@/lib/api';
 
 type Account={id:string;platform:string;display_platform:string|null;profile_url:string|null;connection_mode:string;label:string;status:string;token_expires_at:string|null;last_webhook_at:string|null;last_error:string|null;daily_new_dm_cap:number;daily_followup_cap:number;warmup_enabled:boolean};
 type Config={configured:boolean;app_id:string;graph_version:string;callback_url:string;webhook_url:string};
+type ThreadsConfig={configured:boolean;app_id:string;callback_url:string};
 const input='mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary';
 const panel='rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6';
 
@@ -22,8 +23,11 @@ export function ConnectedAccounts(){
   const [manualLabel,setManualLabel]=useState('');
   const [manualUrl,setManualUrl]=useState('');
   const [threadsToken,setThreadsToken]=useState('');
+  const [threadsAppId,setThreadsAppId]=useState(''),[threadsAppSecret,setThreadsAppSecret]=useState('');
   const config=useQuery<Config>({queryKey:['social-oauth-config'],queryFn:()=>apiFetch('/api/social-oauth')});
+  const threadsConfig=useQuery<ThreadsConfig>({queryKey:['social-threads-config'],queryFn:()=>apiFetch('/api/social-threads-oauth')});
   useEffect(()=>{if(config.data){setAppId(config.data.app_id);setVersion(config.data.graph_version);}},[config.data]);
+  useEffect(()=>{if(threadsConfig.data)setThreadsAppId(threadsConfig.data.app_id);},[threadsConfig.data]);
   const accounts=useQuery<{accounts:Account[]}>({queryKey:['social-connected-accounts'],queryFn:()=>apiFetch('/api/social-accounts')});
   const refresh=()=>{void qc.invalidateQueries({queryKey:['social-connected-accounts']});void qc.invalidateQueries({queryKey:['social-oauth-config']});};
   const update=useMutation({mutationFn:(data:Record<string,unknown>)=>apiFetch('/api/social-accounts',{method:'PATCH',body:JSON.stringify(data)}),onSuccess:refresh});
@@ -35,10 +39,14 @@ export function ConnectedAccounts(){
     onSuccess:(result,variables)=>{refresh();if(variables.action==='configure'){setVerifyToken(String(result.verify_token||''));setSecret('');setNotice('Meta app saved. Copy the webhook verify token now; it is shown only once.');}
       if(variables.action==='start'&&result.authorization_url)window.location.assign(String(result.authorization_url));
       if(variables.action==='whatsapp'){setWaToken('');setNotice('WhatsApp Business connected.');}}});
+  const threadsAction=useMutation({mutationFn:(data:Record<string,unknown>)=>apiFetch('/api/social-threads-oauth',{method:'POST',body:JSON.stringify(data)}) as Promise<Record<string,string|boolean>>,
+    onSuccess:(result,variables)=>{if(variables.action==='configure'){setThreadsAppSecret('');setNotice('Threads app saved. Add the callback URL in the Threads developer dashboard.');void qc.invalidateQueries({queryKey:['social-threads-config']});}
+      if(variables.action==='start'&&result.authorization_url)window.location.assign(String(result.authorization_url));}});
   return <section className="space-y-5" aria-label="Connected social accounts">
     <div className={panel}><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="flex items-center gap-2 text-lg font-semibold"><ShieldCheck className="h-5 w-5 text-primary"/>Connected accounts</h2>
       <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Connect business accounts from here. App secrets and account tokens are encrypted in Supabase Vault and never shown to teammates.</p></div></div>
       {new URLSearchParams(window.location.search).get('social_connect')&&<p className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">Meta returned to Victory Sync. Check the accounts below, then send a test message.</p>}
+      {new URLSearchParams(window.location.search).get('threads_connect')&&<p className="mt-4 rounded-xl bg-primary/5 p-3 text-sm text-primary">Threads connection result: {new URLSearchParams(window.location.search).get('threads_connect')?.replaceAll('_',' ')}. Check the account below.</p>}
       {notice&&<p role="status" className="mt-4 rounded-xl bg-primary/5 p-3 text-sm text-primary">{notice}</p>}
       {action.isError&&<p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{String(action.error)}</p>}
       {accounts.isError&&<p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">Accounts could not be loaded.</p>}
@@ -62,10 +70,14 @@ export function ConnectedAccounts(){
       {manual.isError&&<p role="alert" className="mt-3 text-sm text-red-700">{String(manual.error)}</p>}
       <button className="mt-4 rounded-xl border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50" disabled={!manualLabel||!manualUrl||manual.isPending} onClick={()=>manual.mutate()}>Add profile</button>
     </div>
-    <div className={panel}><h3 className="font-semibold">Threads API</h3><p className="mt-1 text-sm text-muted-foreground">Connect a Threads account using a long-lived user token with content publishing and insights permissions. Victory Sync verifies the token, stores it in Vault, and can publish text or image posts.</p>
-      <label className="mt-3 block text-xs font-medium">Threads user access token<input className={input} type="password" autoComplete="new-password" value={threadsToken} onChange={e=>setThreadsToken(e.target.value)}/></label>
+    <div className={panel}><h3 className="font-semibold">Threads API</h3><p className="mt-1 text-sm text-muted-foreground">Authorize your Threads account to schedule text, image, or video posts and read supported post insights. Enter your Threads app credentials here once; no server environment variables are needed.</p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-xs font-medium">Threads App ID<input className={input} value={threadsAppId} onChange={e=>setThreadsAppId(e.target.value)} inputMode="numeric"/></label><label className="text-xs font-medium">Threads App Secret<input className={input} type="password" autoComplete="new-password" value={threadsAppSecret} onChange={e=>setThreadsAppSecret(e.target.value)} placeholder={threadsConfig.data?.configured?'Enter to rotate secret':'Paste app secret'}/></label></div>
+      <div className="mt-3 rounded-lg bg-muted/50 p-3 text-xs"><strong>OAuth callback</strong><div className="mt-1 flex items-center gap-2 break-all text-muted-foreground">{threadsConfig.data?.callback_url||'Loading…'}<button type="button" title="Copy Threads callback" onClick={()=>void navigator.clipboard.writeText(threadsConfig.data?.callback_url||'')}><Copy className="h-4 w-4"/></button></div></div>
+      {threadsAction.isError&&<p role="alert" className="mt-2 text-sm text-destructive">{String(threadsAction.error)}</p>}
+      <div className="mt-4 flex flex-wrap gap-2"><button className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50" disabled={!threadsAppId||!threadsAppSecret||threadsAction.isPending} onClick={()=>threadsAction.mutate({action:'configure',app_id:threadsAppId,app_secret:threadsAppSecret})}>Save Threads app</button><button className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50" disabled={!threadsConfig.data?.configured||threadsAction.isPending} onClick={()=>threadsAction.mutate({action:'start'})}>Connect Threads <ExternalLink className="ml-1 inline h-4 w-4"/></button></div>
+      <details className="mt-5 border-t border-border pt-4 text-sm"><summary className="cursor-pointer font-medium">Connect with an existing long-lived token</summary><p className="mt-2 text-xs text-muted-foreground">For an account you have already authorized in another tool. The token stays in Supabase Vault.</p><label className="mt-3 block text-xs font-medium">Threads user access token<input className={input} type="password" autoComplete="new-password" value={threadsToken} onChange={e=>setThreadsToken(e.target.value)}/></label>
       {threads.isError&&<p role="alert" className="mt-2 text-sm text-red-700">{String(threads.error)}</p>}
-      <button className="mt-3 rounded-xl border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50" disabled={!threadsToken||threads.isPending} onClick={()=>threads.mutate()}>Connect Threads API</button>
+      <button className="mt-3 rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50" disabled={!threadsToken||threads.isPending} onClick={()=>threads.mutate()}>Save token</button></details>
     </div>
     {config.data?.configured!==undefined&&<div className="grid gap-5 xl:grid-cols-2"><div className={panel}><h3 className="flex items-center gap-2 font-semibold"><Facebook className="h-5 w-5 text-blue-600"/><Instagram className="h-5 w-5 text-pink-600"/>Facebook Pages and Instagram</h3>
       <p className="mt-2 text-sm text-muted-foreground">Enter your Meta developer app once, then authorize your Pages through Facebook Login. Linked Professional Instagram accounts are discovered automatically.</p>

@@ -16,6 +16,7 @@ import access from '../lib/social-routes/social-access.js';
 import oauth from '../lib/social-routes/social-oauth.js';
 import posts from '../lib/social-routes/social-posts.js';
 import reports from '../lib/social-routes/social-reports.js';
+import threadsOauth from '../lib/social-routes/social-threads-oauth.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const handlers: Record<string, (req: IncomingMessage, res: ServerResponse) => Promise<void>> = {
@@ -25,6 +26,7 @@ const handlers: Record<string, (req: IncomingMessage, res: ServerResponse) => Pr
   'social-worker': worker, 'dm-campaigns': campaigns, 'dm-queue': queue,
   'social-access': access, 'social-oauth': oauth,
   'social-posts': posts, 'social-reports': reports,
+  'social-threads-oauth': threadsOauth,
 };
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
