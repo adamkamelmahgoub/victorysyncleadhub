@@ -12,6 +12,10 @@ import webhook from '../lib/social-routes/social-webhook.js';
 import worker from '../lib/social-routes/social-worker.js';
 import campaigns from '../lib/social-routes/dm-campaigns.js';
 import queue from '../lib/social-routes/dm-queue.js';
+import access from '../lib/social-routes/social-access.js';
+import oauth from '../lib/social-routes/social-oauth.js';
+import posts from '../lib/social-routes/social-posts.js';
+import reports from '../lib/social-routes/social-reports.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const handlers: Record<string, (req: IncomingMessage, res: ServerResponse) => Promise<void>> = {
@@ -19,6 +23,8 @@ const handlers: Record<string, (req: IncomingMessage, res: ServerResponse) => Pr
   'social-draft': draft, 'social-inbox': inbox, 'social-primary': primary,
   'social-reply': reply, 'social-review': review, 'social-webhook': webhook,
   'social-worker': worker, 'dm-campaigns': campaigns, 'dm-queue': queue,
+  'social-access': access, 'social-oauth': oauth,
+  'social-posts': posts, 'social-reports': reports,
 };
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {

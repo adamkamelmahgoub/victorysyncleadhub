@@ -74,7 +74,7 @@ const groups: { label: string; links: Item[] }[] = [
       { href: "/email-unsubscribes", label: "Unsubscribed contacts", icon: Users },
       { href: "/automation", label: "Workflows", icon: Zap },
       { href: "/forms", label: "Forms", icon: FileText },
-      { href: "/social-planner", label: "Social planner", icon: Megaphone },
+      { href: "/social-planner", label: "Social workspace", icon: Megaphone },
     ],
   },
   {

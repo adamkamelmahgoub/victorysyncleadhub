@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { processDueSocialPosts,refreshSocialPostMetrics } from './social-posts.js';
 import { socialRest } from '../social-service.js';
 import type { InboundEvent, MessageStatusEvent } from '../social-providers.js';
 import { syncLegacyInbound } from '../social-legacy-sync.js';
@@ -144,6 +145,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
     }
     const legacy = await syncLegacyInbound();
-    res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ processed, inspected: jobs.length, legacy }));
+    const posts = await processDueSocialPosts(3);
+    const metrics = await refreshSocialPostMetrics(2);
+    res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ processed, inspected: jobs.length, legacy, posts, metrics }));
   } catch (error) { res.statusCode = 500; res.end(JSON.stringify({ error: String(error) })); }
 }
