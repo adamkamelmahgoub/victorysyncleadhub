@@ -23,7 +23,7 @@ Set these on the Vercel project as server variables unless noted:
 | `OPENROUTER_MODEL` | Optional; defaults to `nvidia/nemotron-3.5-lightning:free`. |
 | `SLACK_WEBHOOK_URL` | Existing enrichment alert setting. DM alerts use the current Supabase Vault webhook instead. |
 | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_WABA_ID` | Optional notes for provisioning WhatsApp Cloud API. Runtime tokens go into `connected_account_secrets` through the server-only provisioning script. |
-| `SOCIAL_ACCOUNT_PLATFORM`, `SOCIAL_ACCOUNT_EXTERNAL_ID`, `SOCIAL_ACCOUNT_LABEL`, `SOCIAL_ACCOUNT_ORG_ID`, `SOCIAL_ACCOUNT_TOKEN` | Temporary environment variables for `scripts/connect-social-account.mjs`; never commit them. |
+| `SOCIAL_ACCOUNT_PLATFORM`, `SOCIAL_ACCOUNT_EXTERNAL_ID`, `SOCIAL_ACCOUNT_LABEL`, `SOCIAL_ACCOUNT_ORG_ID`, `SOCIAL_ACCOUNT_TOKEN` | Temporary environment variables for `scripts/connect-social-account.mjs`; never commit them. The script accepts `DATABASE_URL` directly or reads it from `.env` / `SOCIAL_DB_ENV_FILE`. |
 
 For Slack alerts, keep the existing Vault secrets `victorysync_slack_meeting_webhook` and `victorysync_leadgen_origin`. The new social SQL function uses the same `pg_net` delivery and `slack_notification_log` reconciliation pattern as meeting alerts.
 

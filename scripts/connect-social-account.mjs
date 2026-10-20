@@ -5,8 +5,11 @@ import { encryptToken } from '../lib/social-crypto.ts';
 let pg;
 try { pg=createRequire(import.meta.url)('pg'); }
 catch { pg=createRequire(path.join(process.env.TEMP||'','victorysync-social-audit','package.json'))('pg'); }
-const line=fs.readFileSync('.env','utf8').split(/\r?\n/).find((value)=>value.startsWith('DATABASE_URL='));
-if(!line)throw new Error('DATABASE_URL is missing');
+const envFile=process.env.SOCIAL_DB_ENV_FILE||'.env';
+const line=process.env.DATABASE_URL?null:fs.existsSync(envFile)
+  ?fs.readFileSync(envFile,'utf8').split(/\r?\n/).find((value)=>value.startsWith('DATABASE_URL=')):null;
+const databaseUrl=process.env.DATABASE_URL||line?.slice(13).replace(/^"|"$/g,'');
+if(!databaseUrl)throw new Error('DATABASE_URL is missing; set it in the environment or SOCIAL_DB_ENV_FILE');
 const platform=process.env.SOCIAL_ACCOUNT_PLATFORM;
 const externalId=process.env.SOCIAL_ACCOUNT_EXTERNAL_ID;
 const label=process.env.SOCIAL_ACCOUNT_LABEL;
@@ -15,7 +18,7 @@ const token=process.env.SOCIAL_ACCOUNT_TOKEN;
 if(!['facebook','instagram','whatsapp'].includes(platform)||!externalId||!label||!organizationId||!token)
   throw new Error('Set SOCIAL_ACCOUNT_PLATFORM, SOCIAL_ACCOUNT_EXTERNAL_ID, SOCIAL_ACCOUNT_LABEL, SOCIAL_ACCOUNT_ORG_ID, and SOCIAL_ACCOUNT_TOKEN');
 if(!process.argv.includes('--apply')){console.log('Dry run: account input is complete. Pass --apply to store an encrypted token.');process.exit(0);}
-const client=new pg.Client({connectionString:line.slice(13).replace(/^"|"$/g,''),connectionTimeoutMillis:5000});
+const client=new pg.Client({connectionString:databaseUrl,connectionTimeoutMillis:5000});
 try{
   await client.connect();await client.query('begin');
   const result=await client.query(`insert into public.connected_accounts(organization_id,platform,label,external_account_id)
