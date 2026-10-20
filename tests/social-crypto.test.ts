@@ -11,6 +11,8 @@ test('token encryption is authenticated and nondeterministic', () => {
     const b = encryptToken('example-token');
     assert.notEqual(a,b);
     assert.equal(decryptToken(a),'example-token');
-    assert.throws(()=>decryptToken(a.slice(0,-1)+'A'));
+    const parts=a.split(':');
+    parts[3]=(parts[3][0]==='A'?'B':'A')+parts[3].slice(1);
+    assert.throws(()=>decryptToken(parts.join(':')));
   } finally { if (previous === undefined) delete process.env.TOKEN_ENCRYPTION_KEY; else process.env.TOKEN_ENCRYPTION_KEY = previous; }
 });

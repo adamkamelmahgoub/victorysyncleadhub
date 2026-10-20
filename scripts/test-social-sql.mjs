@@ -12,7 +12,11 @@ async function mustFail(sql,args){await db.query('savepoint expected_failure');l
   await db.query('release savepoint expected_failure');assert.equal(failed,true,`Expected SQL rejection: ${sql}`);}
 try{
   await db.connect();await db.query('begin');
-  for(const file of files){const sql=fs.readFileSync(path.join('supabase','migrations',file),'utf8')
+  const existing=await db.query(`select count(*)::int total from information_schema.tables where table_schema='public'
+    and table_name=any($1)`,[['social_profiles','connected_accounts','connected_account_secrets','conversations','messages',
+      'dm_templates','dm_campaigns','dm_campaign_steps','dm_enrollments','dm_tasks','social_webhook_events','social_sync_cursors','social_send_attempts']]);
+  if(existing.rows[0].total!==0&&existing.rows[0].total!==13)throw new Error('Social schema is partially installed');
+  if(existing.rows[0].total===0)for(const file of files){const sql=fs.readFileSync(path.join('supabase','migrations',file),'utf8')
     .replace(/^\s*begin\s*;/i,'').replace(/commit\s*;\s*$/i,'');await db.query(sql);}
   const lead=await db.query(`select id,coalesce(organization_id,'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1'::uuid) org
     from public.leads where not dnc and not public.social_is_suppressed_internal(
