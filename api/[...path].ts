@@ -1721,6 +1721,13 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   if (!Object.hasOwn(orders, sort)) { sendJson(res, 400, { error: "Invalid sort field" }); return; }
   const disposition = url.searchParams.get("disposition")?.trim();
   const sequenceEligible = url.searchParams.get("sequenceEligible") === "true";
+  const socialFilter = url.searchParams.get('socialFilter') || '';
+  const socialFlags:Record<string,[string,string]> = {
+    has_instagram:['has_instagram','true'],no_socials:['has_socials','false'],
+    dmed_recently:['dmed_recently','true'],replied:['replied','true'],
+  };
+  if(socialFilter && (!socialFlags[socialFilter] || sequenceEligible)) {sendJson(res,400,{error:'Invalid social filter'});return;}
+  const leadTable=socialFilter?'crm_social_leads':sequenceEligible?'outreach_eligible_leads':'leads';
 
   const query = new URLSearchParams({
     select: compactList
@@ -1731,6 +1738,10 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
     offset: String(offset),
   });
   const countQuery = new URLSearchParams({ select: "id" });
+  if(socialFilter){
+    const [column,value]=socialFlags[socialFilter];
+    query.set(column,`eq.${value}`);countQuery.set(column,`eq.${value}`);
+  }
   const currentRole = normalizeDashboardRole(currentUser.user_metadata?.role ?? currentUser.app_metadata?.role);
   const assignedClientId = clientAccountIdForUser(currentUser);
   const requestedClientId = url.searchParams.get("clientAccountId")?.trim() ?? "";
@@ -1773,8 +1784,8 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   }
 
   const [rows, count] = await Promise.all([
-    supabaseRest(`${sequenceEligible ? "outreach_eligible_leads" : "leads"}?${query.toString()}`, { method: "GET" }, req) as Promise<LeadRow[]>,
-    sequenceEligible ? Promise.resolve(0) : supabaseRestCount(`leads?${countQuery.toString()}`, req),
+    supabaseRest(`${leadTable}?${query.toString()}`, { method: "GET" }, req) as Promise<LeadRow[]>,
+    sequenceEligible ? Promise.resolve(0) : supabaseRestCount(`${leadTable}?${countQuery.toString()}`, req),
   ]);
 
   const socialById = new Map<string,Record<string,unknown>>();

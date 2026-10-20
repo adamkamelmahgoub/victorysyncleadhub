@@ -82,6 +82,7 @@ export default function Leads() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [socialFilter, setSocialFilter] = useState("all");
   const [tagFilter, setTagFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("");
   const [stateFilter, setStateFilter] = useState("");
@@ -127,13 +128,14 @@ export default function Leads() {
     return () => window.clearTimeout(timer);
   }, [sourceFilter, stateFilter]);
 
-  const queryKey = ["contacts", page, debouncedSearch, statusFilter, tagFilter, debouncedSource, debouncedState, sort, direction];
+  const queryKey = ["contacts", page, debouncedSearch, statusFilter, socialFilter, tagFilter, debouncedSource, debouncedState, sort, direction];
   const { data, isLoading, isFetching, error: contactsError } = useQuery({
     queryKey,
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE), includeActivity: "false", includeSocials: "true" });
       if (debouncedSearch) params.set("search", debouncedSearch);
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (socialFilter !== "all") params.set("socialFilter", socialFilter);
       if (tagFilter !== "all") params.set("tag", tagFilter);
       if (debouncedSource.trim()) params.set("source", debouncedSource.trim());
       if (debouncedState.trim()) params.set("state", debouncedState.trim());
@@ -215,7 +217,7 @@ export default function Leads() {
     } catch (cause) { toast({ title: cause instanceof Error ? cause.message : "Could not save view", variant: "destructive" }); }
   }
 
-  function currentViewFilters() { return { search, status: statusFilter, tag: tagFilter, source: sourceFilter, state: stateFilter, sort, direction, columns: JSON.parse(localStorage.getItem("crm-contact-columns") ?? "null") }; }
+  function currentViewFilters() { return { search, status: statusFilter, socialFilter, tag: tagFilter, source: sourceFilter, state: stateFilter, sort, direction, columns: JSON.parse(localStorage.getItem("crm-contact-columns") ?? "null") }; }
 
   async function updateView() {
     if (!activeViewId) return;
@@ -230,7 +232,7 @@ export default function Leads() {
   }
 
   function applyView(filters: Record<string,unknown>) {
-    setSearch(String(filters.search ?? "")); setStatusFilter(String(filters.status ?? "all")); setTagFilter(String(filters.tag ?? "all"));
+    setSearch(String(filters.search ?? "")); setStatusFilter(String(filters.status ?? "all")); setSocialFilter(String(filters.socialFilter ?? "all")); setTagFilter(String(filters.tag ?? "all"));
     setSourceFilter(String(filters.source ?? "")); setStateFilter(String(filters.state ?? ""));
     setSort(String(filters.sort ?? "created_at")); setDirection(String(filters.direction ?? "desc")); setPage(1);
     if (Array.isArray(filters.columns)) { localStorage.setItem("crm-contact-columns", JSON.stringify(filters.columns)); setLayoutVersion((version) => version + 1); }
@@ -406,6 +408,10 @@ export default function Leads() {
                 {STATUSES.map((status) => <SelectItem key={status} value={status} className="capitalize">{status === "meeting_booked" ? "Meeting Booked" : status}</SelectItem>)}
               </SelectContent>
             </Select>
+            <select className="workspace-control rounded border px-2 py-2 text-sm" aria-label="Social outreach filter" value={socialFilter} onChange={(event) => { setSocialFilter(event.target.value); setPage(1); }}>
+              <option value="all">All social states</option><option value="has_instagram">Has Instagram</option>
+              <option value="no_socials">No socials</option><option value="dmed_recently">DM'd in last 7 days</option><option value="replied">Replied</option>
+            </select>
             <Input className="w-32" placeholder="Source" aria-label="Filter source" value={sourceFilter} onChange={(event) => { setSourceFilter(event.target.value); setPage(1); }} />
             <Input className="w-24" placeholder="State" aria-label="Filter state" value={stateFilter} onChange={(event) => { setStateFilter(event.target.value); setPage(1); }} />
             <select className="workspace-control rounded border px-2 py-2 text-sm" aria-label="Sort contacts" value={sort} onChange={(event) => { setSort(event.target.value); setPage(1); }}>

@@ -33,6 +33,7 @@ const Settings = lazy(() => import("@/pages/settings"));
 const SocialInbox = lazy(() => import("@/pages/social-inbox"));
 const DmQueue = lazy(() => import("@/pages/dm-queue"));
 const DmCampaigns = lazy(() => import("@/pages/dm-campaigns"));
+const SocialReview = lazy(() => import("@/pages/social-review"));
 const Automation = lazy(() => import("@/pages/automation"));
 const Reputation = lazy(() => import("@/pages/reputation"));
 const Team = lazy(() => import("@/pages/team"));
@@ -102,6 +103,7 @@ function Router() {
       <Route path="/leadgen/conversations" component={SocialInbox} />
       <Route path="/leadgen/dm-queue" component={DmQueue} />
       <Route path="/leadgen/dm-campaigns" component={DmCampaigns} />
+      <Route path="/leadgen/social-review" component={SocialReview} />
       <Route path="/leadgen/calendars" component={MeetingScheduler} />
       <Route path="/leadgen/automation" component={Automation} />
       <Route path="/leadgen/reputation" component={Reputation} />
@@ -139,6 +141,7 @@ function Router() {
       <Route path="/conversations" component={SocialInbox} />
       <Route path="/dm-queue" component={DmQueue} />
       <Route path="/dm-campaigns" component={DmCampaigns} />
+      <Route path="/social-review" component={SocialReview} />
       <Route path="/calendars" component={MeetingScheduler} />
       <Route path="/automation" component={Automation} />
       <Route path="/reputation" component={Reputation} />

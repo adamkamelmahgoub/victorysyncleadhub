@@ -57,7 +57,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const entity = await resolveEntity(type,id);
     await assertSocialOrganization(user.id,entity.org);
     if (req.method === 'GET') {
-      const rows = await socialRest<any[]>(`social_profiles?organization_id=eq.${entity.org}&entity_type=eq.${entity.type}&entity_id=eq.${entity.id}&select=*&order=platform.asc,confidence.desc`);
+      const rows = await socialRest<any[]>(`social_profiles?organization_id=eq.${entity.org}&entity_type=eq.${entity.type}&entity_id=eq.${entity.id}&review_status=neq.rejected&select=*&order=platform.asc,confidence.desc`);
       return reply(res,200,{ profiles:rows });
     }
     const input = await body(req);
@@ -88,7 +88,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           platform:normalized.platform,handle:normalized.handle,normalized_handle:normalized.normalizedHandle,
           profile_url:normalized.profileUrl,source:'manual',confidence:100,verified:Boolean(input.verified),is_primary:false }),
       });
-      if (!rows.length) rows = await socialRest<any[]>(`social_profiles?organization_id=eq.${entity.org}&entity_type=eq.${entity.type}&entity_id=eq.${entity.id}&platform=eq.${normalized.platform}&normalized_handle=eq.${encodeURIComponent(normalized.normalizedHandle)}&select=*&limit=1`);
+      if (!rows.length) {
+        rows = await socialRest<any[]>(`social_profiles?organization_id=eq.${entity.org}&entity_type=eq.${entity.type}&entity_id=eq.${entity.id}&platform=eq.${normalized.platform}&normalized_handle=eq.${encodeURIComponent(normalized.normalizedHandle)}&select=*&limit=1`);
+        if (rows[0]?.review_status === 'rejected') {
+          await socialRest(`social_profiles?id=eq.${rows[0].id}`,{method:'PATCH',body:JSON.stringify({review_status:'pending',confidence:100,source:'manual'})});
+        }
+      }
       if (input.is_primary) await socialRest('rpc/social_set_primary', { method:'POST', body:JSON.stringify({p_profile_id:rows[0].id}) });
       return reply(res,200,{ profile:rows[0] });
     }
@@ -97,8 +102,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const profile = await socialRest<any[]>(`social_profiles?id=eq.${profileId}&organization_id=eq.${entity.org}&entity_type=eq.${entity.type}&entity_id=eq.${entity.id}&select=*&limit=1`);
     if (!profile.length) return reply(res,404,{error:'Profile not found'});
     if (req.method === 'DELETE') {
-      await socialRest(`social_profiles?id=eq.${profileId}`, { method:'DELETE' });
-      return reply(res,200,{deleted:true});
+      await socialRest(`social_profiles?id=eq.${profileId}`, { method:'PATCH', body:JSON.stringify({review_status:'rejected',is_primary:false}) });
+      return reply(res,200,{removed:true});
     }
     if (req.method === 'PATCH') {
       if (input.is_primary === true) await socialRest('rpc/social_set_primary', { method:'POST', body:JSON.stringify({p_profile_id:profileId}) });

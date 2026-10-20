@@ -14,6 +14,7 @@
     { "src": "^/api/social-bulk$", "dest": "/api/social-bulk.ts" },
     { "src": "^/api/social-inbox$", "dest": "/api/social-inbox.ts" },
     { "src": "^/api/social-draft$", "dest": "/api/social-draft.ts" },
+    { "src": "^/api/social-review$", "dest": "/api/social-review.ts" },
     { "src": "^/api/social-reply$", "dest": "/api/social-reply.ts" },
     { "src": "^/api/social-accounts$", "dest": "/api/social-accounts.ts" },
     { "src": "^/api/social-daily$", "dest": "/api/social-daily.ts" },

@@ -22,6 +22,10 @@ export default function SocialInbox() {
   if(account)params.set('connected_account_id',account);if(assignee)params.set('assigned_to',assignee);
   const list=useQuery<{conversations:Conversation[]}>({queryKey:['social-inbox',params.toString()],queryFn:()=>apiFetch(`/api/social-inbox?${params}`),refetchInterval:30000});
   const thread=useQuery<Thread>({queryKey:['social-thread',selected],queryFn:()=>apiFetch(`/api/social-inbox?id=${selected}`),enabled:!!selected,refetchInterval:30000});
+  const leadId=thread.data?.conversation.lead_id;
+  const context=useQuery<{opportunities:Array<{id:string;title:string;stageName:string}>;openTasks:Array<{id:string;title:string;dueDate:string|null}>}>({
+    queryKey:['social-lead-context',leadId],queryFn:()=>apiFetch(`/api/contacts/${leadId}/context`),enabled:!!leadId});
+  const stages=useQuery<Array<{id:string;name:string;key?:string}>>({queryKey:['pipeline-stages'],queryFn:()=>apiFetch('/api/pipeline/stages'),enabled:!!leadId});
   const change=useMutation({mutationFn:(payload:Record<string,unknown>)=>apiFetch('/api/social-inbox',{method:'POST',body:JSON.stringify({id:selected,...payload})}),
     onSuccess:()=>{setError('');void qc.invalidateQueries({queryKey:['social-inbox']});void qc.invalidateQueries({queryKey:['social-thread',selected]});},
     onError:(reason)=>setError(String(reason))});
@@ -30,6 +34,8 @@ export default function SocialInbox() {
     onError:(reason)=>setError(String(reason))});
   const suggest=useMutation({mutationFn:()=>apiFetch('/api/social-draft',{method:'POST',body:JSON.stringify({conversation_id:selected})}) as Promise<{draft:string}>,
     onSuccess:(result)=>{setDraft(result.draft);setError('');},onError:(reason)=>setError(String(reason))});
+  const updateLead=useMutation({mutationFn:(value:Record<string,unknown>)=>apiFetch(`/api/leads/${leadId}`,{method:'PATCH',body:JSON.stringify(value)}),
+    onSuccess:()=>{setError('');void qc.invalidateQueries({queryKey:['social-lead-context',leadId]});},onError:(reason)=>setError(String(reason))});
   const current=thread.data?.conversation;
   return <div className="page-stack"><PageHeader title="Unified Inbox" description="Social, email, and SMS replies in one place."/>
     <div className="flex flex-wrap gap-2 rounded-xl border bg-card p-3">
@@ -74,8 +80,13 @@ export default function SocialInbox() {
           <select aria-label="Reply intent" className="w-full rounded border px-2 py-2" value={current.intent} onChange={(e)=>change.mutate({action:'intent',intent:e.target.value})}>{['unknown','interested','not_now','not_interested','wrong_person','ooo','unsubscribe'].map((item)=><option key={item}>{item}</option>)}</select>
           <button className="w-full rounded border p-2" onClick={()=>change.mutate({action:'intent',intent:'unsubscribe'})}>Add to DNC</button>
           <button className="w-full rounded border p-2 disabled:opacity-50" disabled={!current.assigned_to&&!assignee} onClick={()=>change.mutate({action:'assign',assigned_to:current.assigned_to?null:assignee})}>{current.assigned_to?'Unassign':'Assign to filtered user'}</button>
-          {current.lead_id&&<form className="space-y-1" onSubmit={(event)=>{event.preventDefault();change.mutate({action:'create_task',title:taskTitle,due_at:new Date(Date.now()+86400000).toISOString()});setTaskTitle('');}}><input aria-label="Task title" className="w-full rounded border p-2" placeholder="Follow-up task" value={taskTitle} onChange={(event)=>setTaskTitle(event.target.value)}/><button className="w-full rounded border p-2" disabled={!taskTitle}>Create task for tomorrow</button></form>}
+          {current.lead_id&&<><select aria-label="Pipeline stage" className="w-full rounded border p-2" defaultValue="" onChange={(event)=>{const stage=stages.data?.find((item)=>item.id===event.target.value);if(!stage)return;
+            if(stage.key==='meeting_booked'){const value=window.prompt('Meeting time (YYYY-MM-DD HH:MM)');if(!value)return;const meeting=new Date(value);if(!Number.isFinite(meeting.getTime())){setError('Invalid meeting time');return;}
+              updateLead.mutate({pipelineStageId:stage.id,meetingAt:meeting.toISOString(),meetingTimezone:Intl.DateTimeFormat().resolvedOptions().timeZone,status:'meeting_booked'});
+            }else updateLead.mutate({pipelineStageId:stage.id});}}><option value="">Change pipeline stage</option>{stages.data?.map((stage)=><option key={stage.id} value={stage.id}>{stage.name}</option>)}</select>
+          <form className="space-y-1" onSubmit={(event)=>{event.preventDefault();change.mutate({action:'create_task',title:taskTitle,due_at:new Date(Date.now()+86400000).toISOString()});setTaskTitle('');}}><input aria-label="Task title" className="w-full rounded border p-2" placeholder="Follow-up task" value={taskTitle} onChange={(event)=>setTaskTitle(event.target.value)}/><button className="w-full rounded border p-2" disabled={!taskTitle}>Create task for tomorrow</button></form></>}
         </div>
+        {current.lead_id&&<div className="space-y-2"><h2 className="font-semibold">Deals and tasks</h2>{context.data?.opportunities.map((deal)=><div key={deal.id} className="rounded border p-2"><strong>{deal.title}</strong><p className="text-muted-foreground">{deal.stageName}</p></div>)}{context.data?.openTasks.map((task)=><div key={task.id} className="rounded border p-2">{task.title}{task.dueDate&&<span className="block text-xs text-muted-foreground">Due {new Date(task.dueDate).toLocaleDateString()}</span>}</div>)}</div>}
         {!current.lead_id&&!current.contact_id&&!current.company_id&&!current.legacy_company_id&&<form className="space-y-2" onSubmit={(e)=>{e.preventDefault();change.mutate({action:'link',entity_type:linkType,entity_id:linkId});}}><h2 className="font-semibold">Link to CRM record</h2>
           <select aria-label="Record type" className="w-full rounded border px-2 py-2" value={linkType} onChange={(e)=>setLinkType(e.target.value as typeof linkType)}>{['lead','contact','company'].map((item)=><option key={item}>{item}</option>)}</select>
           <input aria-label="Record ID" className="w-full rounded border px-2 py-2" value={linkId} onChange={(e)=>setLinkId(e.target.value)} placeholder="Record UUID"/>
