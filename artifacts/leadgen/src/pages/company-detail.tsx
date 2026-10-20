@@ -1,4 +1,5 @@
 import { DeleteCompanies } from "@/components/company-trash";
+import { SocialsSection } from "@/components/socials-section";
 import { useState } from "react";
 import { Link, useRoute, useLocation } from "wouter";
 import {
@@ -304,6 +305,7 @@ export default function CompanyDetail() {
       />
       <div className="flex items-center justify-between"><div><StageBadge stage={company.stage} />{company.meeting_at && <p className="mt-2 text-sm text-muted-foreground">Meeting: {new Date(company.meeting_at).toLocaleString()}</p>}</div>{role !== "viewer" && <DeleteCompanies companies={[company]} onDeleted={() => navigate("/companies")} />}</div>
       <CompanyEnrichment companyId={company.id} />
+      <SocialsSection entityType="company" entityId={company.id} readOnly={role === "viewer"} />
       <Tabs
         defaultValue="details"
         key={company.id}

@@ -30,7 +30,9 @@ const Forms = lazy(() => import("@/pages/forms"));
 const FormEditor = lazy(() => import("@/pages/form-editor"));
 const Analytics = lazy(() => import("@/pages/analytics"));
 const Settings = lazy(() => import("@/pages/settings"));
-const Conversations = lazy(() => import("@/pages/conversations"));
+const SocialInbox = lazy(() => import("@/pages/social-inbox"));
+const DmQueue = lazy(() => import("@/pages/dm-queue"));
+const DmCampaigns = lazy(() => import("@/pages/dm-campaigns"));
 const Automation = lazy(() => import("@/pages/automation"));
 const Reputation = lazy(() => import("@/pages/reputation"));
 const Team = lazy(() => import("@/pages/team"));
@@ -97,7 +99,9 @@ function Router() {
       <Route path="/leadgen/leads" component={Leads} />
       <Route path="/leadgen/call-queue" component={CallQueue} />
       <Route path="/leadgen/leads/:id" component={() => <ContactErrorBoundary fallback={<div role="alert" className="p-6">Could not display this contact.</div>}><LeadDetail /></ContactErrorBoundary>} />
-      <Route path="/leadgen/conversations" component={Conversations} />
+      <Route path="/leadgen/conversations" component={SocialInbox} />
+      <Route path="/leadgen/dm-queue" component={DmQueue} />
+      <Route path="/leadgen/dm-campaigns" component={DmCampaigns} />
       <Route path="/leadgen/calendars" component={MeetingScheduler} />
       <Route path="/leadgen/automation" component={Automation} />
       <Route path="/leadgen/reputation" component={Reputation} />
@@ -132,7 +136,9 @@ function Router() {
       <Route path="/leads" component={Leads} />
       <Route path="/call-queue" component={CallQueue} />
       <Route path="/leads/:id" component={() => <ContactErrorBoundary fallback={<div role="alert" className="p-6">Could not display this contact.</div>}><LeadDetail /></ContactErrorBoundary>} />
-      <Route path="/conversations" component={Conversations} />
+      <Route path="/conversations" component={SocialInbox} />
+      <Route path="/dm-queue" component={DmQueue} />
+      <Route path="/dm-campaigns" component={DmCampaigns} />
       <Route path="/calendars" component={MeetingScheduler} />
       <Route path="/automation" component={Automation} />
       <Route path="/reputation" component={Reputation} />

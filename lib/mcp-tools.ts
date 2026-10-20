@@ -5,6 +5,7 @@ import type { PoolClient } from "pg";
 import { mcpPool, type McpIdentity } from "./mcp-auth.js";
 import { enrichLead, enrichCompany, askAboutCompany, bulkEnrich, jobStatus, askAboutLead, previewBulk, findNewLeads } from "./enrichment-client.js";
 import { generateGtmLeads } from "./gtm-leads.js";
+import { registerSocialMcpTools } from "./social-mcp.js";
 
 const ident = (s: string) => {
   if (!/^[a-z_][a-z0-9_]*$/i.test(s)) throw new Error("Invalid identifier");
@@ -1088,5 +1089,6 @@ export function createCrmMcpServer(who: McpIdentity) {
       require_website: z.boolean().default(false), save: z.boolean().default(false) },
     false, false, async (_db, a) => generateGtmLeads(a), 180);
   }
+  registerSocialMcpTools(server, who);
   return server;
 }

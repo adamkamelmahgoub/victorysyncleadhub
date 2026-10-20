@@ -6,6 +6,8 @@ import { companyCrmRequest } from "../artifacts/api-server/src/lib/company-crm.j
 import { DISPOSITIONS, parseCall, parseOutreachUpdate } from '../lib/outreach.js';
 import { EmailService,isEmailEndpoint,isPublicEmailEndpoint } from '../lib/email-service.js';
 import { EmailInputError, emailOperationError } from '../lib/email-security.js';
+import { importedSocials } from '../lib/social-import.js';
+import { socialRest } from '../lib/social-service.js';
 import { mailboxTransport } from '../artifacts/api-server/src/lib/email-transports.js';
 import { inboxAdapter } from '../artifacts/api-server/src/lib/inbox-adapters.js';
 import { WorkflowService,isWorkflowEndpoint,isPublicWorkflowEndpoint } from '../lib/workflow-service.js';
@@ -2514,7 +2516,20 @@ async function importLeads(currentUser: AuthenticatedUser, req: VercelRequest, r
   const inserted = (await supabaseRest("leads", {
     method: "POST",
     body: JSON.stringify(valid.map((lead) => ({ ...leadInsertPayload(lead), ...(clientAccountId ? { client_account_id: clientAccountId } : {}) }))),
-  }, req)) as Array<{ id?: number }>;
+  }, req)) as Array<{ id?: number | string; organization_id?: string | null; custom_fields?: Record<string,unknown> }>;
+
+  for(const row of inserted){
+    if(!row.id||!row.custom_fields)continue;
+    try{
+      const profiles=importedSocials(row.custom_fields);
+      for(const profile of profiles)await socialRest('social_profiles?on_conflict=organization_id,platform,normalized_handle,entity_type,entity_id',{
+        method:'POST',headers:{prefer:'resolution=ignore-duplicates,return=representation'},
+        body:JSON.stringify({organization_id:row.organization_id||'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1',
+          entity_type:'lead',entity_id:row.id,platform:profile.platform,handle:profile.handle,
+          normalized_handle:profile.normalizedHandle,profile_url:profile.profileUrl,source:'import',confidence:90}),
+      });
+    }catch(error){errors.push(`Lead ${row.id}: social profile needs review (${error instanceof Error?error.message:'invalid handle'})`);}
+  }
 
   await insertActivities(inserted, actorLabelForUser(currentUser), req);
   sendJson(res, 200, {

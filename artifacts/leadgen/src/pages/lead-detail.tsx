@@ -1,4 +1,5 @@
 import { PageTitle } from "@/components/page-layout";
+import { SocialsSection } from "@/components/socials-section";
 import { useState, useEffect, useRef } from "react";
 import { useRoute, Link } from "wouter";
 import {
@@ -535,6 +536,7 @@ export default function LeadDetail() {
 
         {/* ── Body: sidebar + content ──────────────────────────────────────── */}
         {import.meta.env.VITE_ENRICHMENT_ENABLED === "true" && (role === "owner" || role === "admin") && <EnrichmentCard leadId={id} />}
+        {id && <SocialsSection entityType="lead" entityId={String(id)} readOnly={!['owner','admin'].includes(role)} />}
         {role !== "client" && <div className="grid gap-4 lg:grid-cols-2">
           <section className="rounded-xl border bg-card p-4"><h2 className="font-semibold">Open tasks</h2>{context?.openTasks.length ? <div className="mt-2 space-y-2">{context.openTasks.map((task) => <div key={task.id} className="rounded border p-2 text-sm"><div>{task.title}</div>{task.dueDate && <div className="text-xs text-muted-foreground">Due {new Date(task.dueDate).toLocaleDateString()}</div>}</div>)}</div> : <p className="mt-2 text-sm text-muted-foreground">No open tasks. Use Add Task to schedule a follow-up.</p>}</section>
           <section className="rounded-xl border bg-card p-4"><h2 className="font-semibold">Opportunities</h2>{context?.opportunities.length ? <div className="mt-2 space-y-2">{context.opportunities.map((deal) => <div key={deal.id} className="rounded border p-2 text-sm"><div className="font-medium">{deal.title}</div><div className="text-xs text-muted-foreground">{deal.stageName}{deal.nextAction ? ` · ${deal.nextAction}` : ""}</div></div>)}</div> : <p className="mt-2 text-sm text-muted-foreground">No linked opportunities. Use Create Opportunity to start one.</p>}</section>
