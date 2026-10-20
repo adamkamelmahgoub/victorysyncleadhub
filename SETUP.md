@@ -1,66 +1,36 @@
-# Social DM setup
+﻿# Social workspace setup
 
-The social migrations are committed. The live database inspected on 2026-10-20 already contains all 13 social tables; check the migration history before applying anything again. Complete the account and webhook checklist below before enabling replies. The frontend and API need the same deployed schema version.
+The social CRM and workspace migrations are additive. The live database includes `supabase/migrations/20261022_social_workspace.sql`; run `node scripts/apply-social-workspace-migration.mjs` to verify it in another environment. The owner controls access under **Team > Social workspace access**. Clients and viewers cannot access the social workspace; grant internal teammates only the permissions they need.
 
-## Environment
+## Existing server configuration
 
-Set these on the Vercel project as server variables unless noted:
+The app still needs its existing Supabase and worker settings: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_SERVICE_KEY`), `SUPABASE_ANON_KEY`, `DATABASE_URL`, and `OUTREACH_WORKER_TOKEN`. The existing Supabase Vault secrets `victorysync_leadgen_origin`, `victorysync_native_worker_token`, and Slack webhook must remain configured. `OPENROUTER_API_KEY` enables intent classification and AI drafts. The older `META_*`, `WHATSAPP_*`, and `TOKEN_ENCRYPTION_KEY` variables remain supported for previously provisioned accounts, but **new UI connections do not need social provider env vars**. App secrets, verify tokens, and account tokens are stored in Supabase Vault and are never returned to clients.
 
-| Variable | Purpose |
-| --- | --- |
-| `SUPABASE_URL` | Supabase project URL for server PostgREST and Auth. |
-| `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_SERVICE_KEY` | Server-only key for webhook and social API database writes. Never use a `VITE_` prefix. |
-| `SUPABASE_ANON_KEY` | Verifies a signed-in user with Supabase Auth. |
-| `DATABASE_URL` | Direct Postgres connection for scheduled DM queue and MCP tools. |
-| `MCP_ALLOWED_EMAILS` | Comma-separated admin allowlist used by the existing MCP and social API. |
-| `TOKEN_ENCRYPTION_KEY` | Base64-encoded 32-byte AES key. Generate once with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"`; keep it backed up securely. |
-| `META_APP_ID`, `META_APP_SECRET` | Meta app credentials. The current webhook uses `META_APP_SECRET`; OAuth connection is pending. |
-| `META_WEBHOOK_VERIFY_TOKEN` | Random webhook challenge secret that you enter in the Meta dashboard. |
-| `META_GRAPH_VERSION` | Explicit current Graph API version, such as `v25.0`, after checking the version offered by your Meta app. |
-| `SOCIAL_X_DM_ENABLED` | Optional feature flag for a future paid X DM integration; defaults to disabled. Enabling the flag does not enable sending until an approved adapter is configured. |
-| `OUTREACH_WORKER_TOKEN` | Existing native worker bearer secret. The Supabase Vault secret `victorysync_native_worker_token` must contain the same value for social jobs. `CRON_SECRET` is also accepted by the routes, but the native worker token is preferred for the Supabase scheduler. |
-| `OPENROUTER_API_KEY` | Existing free-model intent classification and enrichment. |
-| `OPENROUTER_MODEL` | Optional; defaults to `nvidia/nemotron-3.5-lightning:free`. |
-| `SLACK_WEBHOOK_URL` | Existing enrichment alert setting. DM alerts use the current Supabase Vault webhook instead. |
-| `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_WABA_ID` | Optional notes for provisioning WhatsApp Cloud API. Runtime tokens go into `connected_account_secrets` through the server-only provisioning script. |
-| `SOCIAL_ACCOUNT_PLATFORM`, `SOCIAL_ACCOUNT_EXTERNAL_ID`, `SOCIAL_ACCOUNT_LABEL`, `SOCIAL_ACCOUNT_ORG_ID`, `SOCIAL_ACCOUNT_TOKEN` | Temporary environment variables for `scripts/connect-social-account.mjs`; never commit them. The script accepts `DATABASE_URL` directly or reads it from `.env` / `SOCIAL_DB_ENV_FILE`. |
+## Facebook Pages and Instagram Professional
 
-For Slack alerts, keep the existing Vault secrets `victorysync_slack_meeting_webhook` and `victorysync_leadgen_origin`. The new social SQL function uses the same `pg_net` delivery and `slack_notification_log` reconciliation pattern as meeting alerts.
+1. At [Meta for Developers](https://developers.facebook.com/apps/), create a Business app. Add Facebook Login for Business, Messenger, Instagram, and Webhooks. Note the App ID and App Secret. Keep the app in development mode for app-role testing.
+2. Change the Instagram account to Professional (Business or Creator) and link it to a Facebook Page you manage. [Meta's Instagram API documentation](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api) requires a linked Page for Facebook Login and excludes personal Instagram accounts.
+3. In Victory Sync, open **Settings > Connected Accounts**. Enter the App ID, App Secret, and Graph API version. Save the app. Copy the displayed OAuth callback into **Facebook Login for Business > Settings > Valid OAuth Redirect URIs**.
+4. Copy the displayed webhook callback into the Meta Webhooks product. Copy the one-time verify token immediately; the UI shows it only once. Subscribe messaging webhook events, including echoes where the Meta dashboard offers them. The endpoint verifies `X-Hub-Signature-256` before processing.
+5. Request `pages_show_list`, `pages_manage_metadata`, `pages_read_engagement`, `pages_messaging`, `pages_manage_posts`, `instagram_basic`, `instagram_manage_messages`, and `instagram_content_publish`. App-role users can test role-linked accounts in development mode; broader use needs Meta App Review and Advanced Access as applicable.
+6. Click **Connect Facebook and Instagram** in Victory Sync and authorize the Pages. The callback discovers Page tokens and linked Instagram IDs through [Meta's Page token workflow](https://www.postman.com/meta/instagram/request/lpx8lul/get-access-tokens-of-pages-you-manage). Confirm that both accounts appear in Settings. Send a test inbound message and a manual app message to verify webhook and echo capture.
+7. Open **Social workspace** to draft or schedule Facebook Page text/image posts and Instagram Professional image posts. Images must have a public HTTPS URL. The five-minute Supabase worker publishes due posts; Instagram uses a media container and `media_publish` per [Meta's official publishing collection](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api).
 
-## Database
-
-1. Back up the Supabase database and review the current staged migrations in this working tree.
-2. Run `node scripts/validate-social-migrations.mjs`, `node scripts/test-social-sql.mjs`, `node scripts/test-dm-campaign-sql.mjs`, and `node scripts/test-social-cascade-sql.mjs`. The SQL tests roll back. If all 13 tables already exist, they inspect and exercise the installed schema instead of replaying the foundation migrations.
-3. If the schema is absent in another environment, apply `supabase/migrations/20261020_social_dm_foundation.sql`, then `supabase/migrations/20261020_z_social_dm_guards.sql`, `20261021_social_review_status.sql`, `20261021_z_social_lead_list.sql`, `20261021_zz_social_suppression_cascade.sql`, and `20261021_zzz_social_scheduler.sql` through the normal migration deployment process. The October 21 migrations were applied to the inspected live database and verified on 2026-10-20. Do not push unrelated pending migrations without review.
-4. Run `node --experimental-strip-types scripts/backfill-social-profiles.mjs` to preview old handle data. Add `--apply` only after the two migrations are deployed. On 2026-10-20, the preview found zero stored handle strings.
-5. Set `SOCIAL_ACCOUNT_ORG_ID` to the intended organization UUID, then preview and apply the optional sample campaign with `node scripts/seed-dm-campaign.mjs` and `node scripts/seed-dm-campaign.mjs --apply`.
-
-## Meta app and Instagram Professional account
-
-1. In [Meta for Developers](https://developers.facebook.com/apps/), create a Business app for the organization and record its App ID and App Secret in Vercel. Keep the app in development mode while testing with app-role users.
-2. In the Instagram mobile app, change the account type to Professional (Business or Creator). Link it to a Facebook Page that you administer. The [official Meta Instagram API collection](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api) states that the Facebook Login variant requires this Page link and cannot access personal Instagram accounts.
-3. Add the Facebook Login for Business, Messenger, and Instagram products to the Meta app. Request `pages_show_list`, `pages_manage_metadata`, `pages_read_engagement`, `pages_messaging`, `instagram_basic`, and `instagram_manage_messages` for the Page and Instagram messaging path. [Meta's Messenger Conversations API collection](https://www.postman.com/meta/messenger-platform-api/folder/22794852-255610cd-47f5-4f4d-b3fa-71aec360be9a) lists these permissions and explains the app-role versus Advanced Access boundary. App admins/testers can test their own role-linked accounts before App Review; conversations with people outside app roles require the appropriate Advanced Access and business verification.
-4. In Meta Webhooks, set the callback URL to `https://YOUR_DOMAIN/api/social-webhook` and enter the exact `META_WEBHOOK_VERIFY_TOKEN`. Subscribe the Page/Instagram messaging object to message events, including message echoes where available in the current dashboard. The endpoint verifies `X-Hub-Signature-256` against the raw body before storing the event. Subscribe the actual Page and Instagram account to the app; dashboard test delivery alone does not subscribe a real account.
-5. Use Meta's Graph API Explorer or Page access-token workflow to obtain a Page token as an app-role user with the messaging task. Meta's [Page token request](https://www.postman.com/meta/instagram/request/lpx8lul/get-access-tokens-of-pages-you-manage) uses `/me/accounts?fields=name,access_token,tasks,instagram_business_account` to locate the Page ID, Page token, and linked Instagram business ID.
-6. Provision the Page account with `SOCIAL_ACCOUNT_PLATFORM=facebook`, `SOCIAL_ACCOUNT_EXTERNAL_ID=PAGE_ID`, and `SOCIAL_ACCOUNT_TOKEN=PAGE_ACCESS_TOKEN`. Provision the Instagram account separately with `SOCIAL_ACCOUNT_PLATFORM=instagram`, `SOCIAL_ACCOUNT_EXTERNAL_ID=IG_BUSINESS_ID`, and its authorized token. Set the organization ID and label, then run `node --experimental-strip-types scripts/connect-social-account.mjs` to preview and `... --apply` to store the AES-GCM encrypted token. Tokens are stored in a table with no client grants.
-7. Open **Settings → Connected Accounts** to check webhook health and caps. Test one inbound message and one manual app send from an app-role account. The social worker runs every five minutes. API replies are currently enabled only for Facebook Pages and WhatsApp within 24 hours; Instagram API sending remains disabled pending verified Facebook Login send-endpoint testing. Instagram manual sends can be logged in the DM Queue and confirmed by an echo if Meta delivers it.
-
-The [official Meta Messenger Send API collection](https://www.postman.com/meta/messenger-platform-api/folder/vilwbh4/send-api) requires the person to have messaged the Page in the 24-hour window or separately agreed to an allowed outside-window message. This implementation sends only replies within 24 hours, without a Human Agent extension.
+The [Messenger Send API](https://www.postman.com/meta/messenger-platform-api/folder/vilwbh4/send-api) limits ordinary API replies to the 24-hour customer messaging window. This CRM enforces the window. It does not automate cold sends from personal accounts.
 
 ## WhatsApp Business Cloud API
 
-1. In Meta Business Manager, create or select a WhatsApp Business Account, register a business phone number, and note its WABA ID and Phone Number ID.
-2. Subscribe the app to the WABA `messages` webhook and use the same `/api/social-webhook` callback. The [official Meta Cloud API collection](https://www.postman.com/meta/whatsapp-business-platform/documentation/wlk6lh4/whatsapp-cloud-api) shows the WABA subscription and phone-number endpoints.
-3. Provision `SOCIAL_ACCOUNT_PLATFORM=whatsapp`, `SOCIAL_ACCOUNT_EXTERNAL_ID=PHONE_NUMBER_ID`, and the authorized Cloud API token with the same server-only script.
-4. Test inbound and reply inside the rolling 24-hour customer support window. Outside it, Meta requires approved templates and opt-in; this CRM deliberately has **no cold WhatsApp or outside-window send path**. The [official status documentation](https://www.postman.com/meta/whatsapp-business-platform/folder/fuaee8l/statuses-object) distinguishes the customer support window from the billing conversation window.
+1. In Meta Business Manager, create or choose a WhatsApp Business Account and business phone number. Record the WABA ID and Phone Number ID.
+2. In **Settings > Connected Accounts**, enter those IDs and a Cloud API token. The server verifies the phone through [Meta's official phone number endpoint](https://www.postman.com/meta/whatsapp-business-platform/request/86mq7mn/get-phone-numbers), stores the token in Vault, and subscribes the WABA webhook.
+3. Use the Meta webhook callback and verify token from the UI. Test an inbound message and reply inside the rolling 24-hour support window. Sending outside that window requires approved templates and opt-in; cold WhatsApp is unavailable.
 
-## Operations
+## Daily use and limits
 
-- Supabase `pg_cron` calls `/api/social-worker` every five minutes for verified webhook events plus email/SMS backfill, and `/api/social-daily` at 05:00 UTC for DM tasks, stale-task expiry, and token-expiry alerts. The scheduler uses the existing Vault origin and native worker token; it works on Vercel Hobby without Vercel cron.
-- The Inbox includes an **Unmatched** filter. Link a thread to an existing CRM record or create a lead; the platform user ID is copied to an existing social profile when one is available. Do not guess a social handle from a platform ID. Related channel history, assignee and account filters, DNC, stage, meeting, and task actions are available. AI reply suggestions fill the composer for human review and never send automatically.
-- The DM Queue never sends on its own. A user marks a manual action complete; `Sent` records an outbound message. Facebook and WhatsApp API reply buttons appear only while the 24-hour window is open and a connected account is present.
-- The **DM campaigns** page creates draft templates and multi-step campaigns, activates them, and enrolls record UUIDs. The daily cron turns eligible steps into manual queue tasks. The existing Victory Sync CRM MCP server exposes social profile, discovery, inbox, draft, enrollment, queue, account, manual log, and permitted reply tools. Writes are audited in `mcp_audit_log`.
-- CSV/XLSX contact and company imports recognize Instagram/IG, Facebook/FB, LinkedIn, X/Twitter, TikTok, and website columns. Contact and company CSV exports include primary social handles. Social handles are normalized into `social_profiles`; low-confidence discoveries appear in **Review socials** for approval or rejection. Contact list social filters cover Has Instagram, No socials, DM'd in seven days, and Replied, and they can be saved as views. Company list filters cover Has Instagram and No socials. Bulk contact actions include Find socials and Enroll in DM campaign; company lists also have bulk Find socials.
-- WhatsApp delivery and read statuses are merged into existing messages when the Cloud API delivers status webhooks. Email and MightyCall SMS replies are classified with the same intent model as social replies.
-- `x`, LinkedIn, TikTok, Threads, Nextdoor, Yelp, and Angi remain manual-assisted. There is no browser automation, private-platform scraping, or personal-account auto-send.
-- The current connection path uses a server-only provisioning script. A complete Facebook Login OAuth connect/reconnect flow and in-app WhatsApp setup are still required before calling this a self-service production integration.
+- **DM queue** records human assisted follows, engagement, and sends. It applies per-account caps, warmup, suppression, and reply stopping rules.
+- **Unified inbox** combines social, email, and MightyCall SMS replies. Incoming messages are matched to CRM records, classified for intent, and surfaced in an Unmatched view if no record matches. AI drafts are never auto-sent.
+- **Social workspace** stores drafts, scheduled posts, publish outcomes, and basic per-post likes/comments/shares where Meta returns them. Its 30-day report counts real inbound and outbound messages, interested conversations, tasks, and published posts. Reach remains zero until a supported provider insight endpoint is configured.
+- **Team** lets the owner grant inbox view/reply, queue work, campaign management, social profile editing, account management, post creation/publishing, report viewing, and social MCP permission. Client accounts are excluded by database guard and server authorization.
+- **MCP** offers the original social CRM tools plus social post listing/scheduling, a social report, and owner team access tools. Existing MCP authentication still uses `MCP_ALLOWED_EMAILS`; granting the `mcp_use` flag alone does not provide a team member an MCP credential.
+- LinkedIn, TikTok, X, Threads, Yelp, Nextdoor, and Angi remain manual assisted for DMs. Additional post types such as reels, stories, carousels, and video are not in the native publisher.
+
+The previous server-side provisioning script remains available for legacy account recovery. Do not paste tokens into tickets, logs, or source control.

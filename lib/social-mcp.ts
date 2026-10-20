@@ -35,6 +35,46 @@ function tool(server:McpServer,who:McpIdentity,name:string,description:string,sh
     async(args:any)=>run(who,name,args,write,(db,orgs)=>fn(db,args,orgs)));
 }
 export function registerSocialMcpTools(server:McpServer,who:McpIdentity){
+  tool(server,who,'list_social_team_access','List internal team social permissions. Client accounts are excluded.',{organization_id:id},false,
+    async(db,a,orgs)=>{allowed(orgs,a.organization_id);return(await db.query(`select m.id,m.name,m.email,m.role,m.status,coalesce(p.permissions,'{}'::text[]) permissions
+      from public.team_members m left join public.social_team_permissions p on p.team_member_id=m.id
+      where m.org_id=$1 and m.client_account_id is null and m.role not in ('client','viewer') order by m.name`,[a.organization_id])).rows;});
+  tool(server,who,'set_social_team_access','Set explicit social permissions for one active internal team member.',
+    {organization_id:id,team_member_id:id,permissions:z.array(z.enum(['inbox_view','inbox_reply','queue_work','campaign_manage','socials_manage','accounts_manage','posts_create','posts_publish','reports_view','mcp_use']))},true,
+    async(db,a,orgs)=>{allowed(orgs,a.organization_id);
+      const owner=await db.query(`select 1 from public.team_members where auth_user_id=$1 and org_id=$2 and role='owner' and status='active'`,[who.userId,a.organization_id]);
+      if(!owner.rowCount)throw new Error('Owner access required');
+      const member=await db.query(`select id from public.team_members where id=$1 and org_id=$2 and status='active' and client_account_id is null and role not in ('owner','client','viewer')`,[a.team_member_id,a.organization_id]);
+      if(!member.rowCount)throw new Error('Choose an active internal team member');
+      await db.query(`insert into public.social_team_permissions(team_member_id,organization_id,permissions,updated_by) values($1,$2,$3,$4)
+        on conflict(team_member_id) do update set permissions=excluded.permissions,updated_by=excluded.updated_by,updated_at=now()`,
+        [a.team_member_id,a.organization_id,[...new Set(a.permissions)],who.userId]);return {updated:true};});
+  tool(server,who,'list_social_posts','List scheduled, draft, and published posts with per-account status.',
+    {organization_id:id,limit:z.number().int().min(1).max(100).optional()},false,
+    async(db,a,orgs)=>{allowed(orgs,a.organization_id);return(await db.query(`select p.id,p.body,p.media_url,p.status,p.scheduled_at,p.created_at,
+      coalesce(json_agg(json_build_object('account_id',t.connected_account_id,'status',t.status,'provider_post_id',t.provider_post_id,'metrics',t.metrics)) filter(where t.id is not null),'[]'::json) targets
+      from public.social_posts p left join public.social_post_targets t on t.post_id=p.id where p.organization_id=$1 group by p.id order by p.created_at desc limit $2`,
+      [a.organization_id,a.limit||50])).rows;});
+  tool(server,who,'schedule_social_post','Create a draft or schedule a Facebook Page or Instagram Professional image post. Does not immediately publish.',
+    {organization_id:id,body:z.string().min(1).max(2200),account_ids:z.array(id).min(1).max(10),media_url:z.string().url().optional(),scheduled_at:z.string().datetime().optional()},true,
+    async(db,a,orgs)=>{allowed(orgs,a.organization_id);
+      if(a.media_url&&!a.media_url.startsWith('https://'))throw new Error('Media URL must use HTTPS');
+      const unique=[...new Set<string>(a.account_ids)];
+      const accounts=await db.query<{id:string;platform:string;status:string}>(`select id,platform,status from public.connected_accounts where organization_id=$1 and id=any($2::uuid[])`,[a.organization_id,unique]);
+      if(accounts.rows.length!==unique.length||accounts.rows.some(x=>x.status!=='active'||!['facebook','instagram'].includes(x.platform)))throw new Error('Choose active Facebook or Instagram accounts in this organization');
+      if(accounts.rows.some(x=>x.platform==='instagram')&&!a.media_url)throw new Error('Instagram requires a public image URL');
+      const when=a.scheduled_at?new Date(a.scheduled_at):null;if(when&&when.getTime()<Date.now()+60000)throw new Error('Schedule at least one minute ahead');
+      const status=when?'scheduled':'draft';const post=await db.query<{id:string}>(`insert into public.social_posts(organization_id,body,media_url,media_type,status,scheduled_at,created_by) values($1,$2,$3,$4,$5,$6,$7) returning id`,
+        [a.organization_id,a.body,a.media_url||null,a.media_url?'image':null,status,when,who.userId]);
+      for(const accountId of unique)await db.query(`insert into public.social_post_targets(organization_id,post_id,connected_account_id,status) values($1,$2,$3,$4)`,[a.organization_id,post.rows[0].id,accountId,when?'scheduled':'manual_required']);
+      return {id:post.rows[0].id,status};});
+  tool(server,who,'get_social_report','Summarize social DM replies, sent messages, interested conversations, and posts.',
+    {organization_id:id,days:z.number().int().min(1).max(365).optional()},false,
+    async(db,a,orgs)=>{allowed(orgs,a.organization_id);const days=a.days||30;
+      const messages=await db.query(`select count(*) filter(where direction='inbound')::int replies,count(*) filter(where direction='outbound')::int sent from public.messages where organization_id=$1 and created_at>=now()-($2::int*interval '1 day')`,[a.organization_id,days]);
+      const conversations=await db.query(`select count(*) filter(where intent='interested')::int interested,count(*) filter(where unread_count>0)::int unread from public.conversations where organization_id=$1 and last_message_at>=now()-($2::int*interval '1 day')`,[a.organization_id,days]);
+      const posts=await db.query(`select count(*) filter(where status='published')::int published,count(*) filter(where status='scheduled')::int scheduled from public.social_post_targets where organization_id=$1`,[a.organization_id]);
+      return {days,messages:messages.rows[0],conversations:conversations.rows[0],posts:posts.rows[0]};});
   tool(server,who,'add_social_profile','Add an observed social handle to a CRM record.',
     {organization_id:id,entity_type:entity,entity_id:id,platform,handle:z.string().min(1),is_primary:z.boolean().optional()},true,
     async(db,a,orgs)=>{allowed(orgs,a.organization_id);const p=normalizeSocial(a.platform,a.handle);
