@@ -1,6 +1,6 @@
 # Social DM setup
 
-The social migrations are committed but have **not** been applied to production. Complete the checklist below before enabling webhooks or sending replies. The frontend and API need the same deployed schema version.
+The social migrations are committed. The live database inspected on 2026-10-20 already contains all 13 social tables; check the migration history before applying anything again. Complete the account and webhook checklist below before enabling replies. The frontend and API need the same deployed schema version.
 
 ## Environment
 
@@ -29,8 +29,8 @@ For Slack alerts, keep the existing Vault secrets `victorysync_slack_meeting_web
 ## Database
 
 1. Back up the Supabase database and review the current staged migrations in this working tree.
-2. Run `node scripts/validate-social-migrations.mjs` and `node scripts/test-social-sql.mjs`. Both run against live schema **inside a transaction that rolls back**.
-3. Apply `supabase/migrations/20261020_social_dm_foundation.sql`, then `supabase/migrations/20261020_z_social_dm_guards.sql` through the normal migration deployment process. Do not push unrelated pending migrations without review.
+2. Run `node scripts/validate-social-migrations.mjs` and `node scripts/test-social-sql.mjs`. Both use a transaction that rolls back. If all 13 tables already exist, they inspect and exercise the installed schema instead of replaying the migrations.
+3. If the schema is absent in another environment, apply `supabase/migrations/20261020_social_dm_foundation.sql`, then `supabase/migrations/20261020_z_social_dm_guards.sql` through the normal migration deployment process. Do not push unrelated pending migrations without review.
 4. Run `node --experimental-strip-types scripts/backfill-social-profiles.mjs` to preview old handle data. Add `--apply` only after the two migrations are deployed. On 2026-10-20, the preview found zero stored handle strings.
 5. Set `SOCIAL_ACCOUNT_ORG_ID` to the intended organization UUID, then preview and apply the optional sample campaign with `node scripts/seed-dm-campaign.mjs` and `node scripts/seed-dm-campaign.mjs --apply`.
 
@@ -58,5 +58,6 @@ The [official Meta Messenger Send API collection](https://www.postman.com/meta/m
 - Vercel cron calls `/api/social-worker` every five minutes for verified webhook events plus email/SMS backfill, and `/api/social-daily` at 05:00 UTC for DM tasks, stale-task expiry, and token-expiry alerts. Confirm your Vercel plan supports the configured cron frequency.
 - The Inbox includes an **Unmatched** filter. Link a thread to an existing CRM record; the platform user ID is copied to an existing social profile when one is available. Do not guess a social handle from a platform ID.
 - The DM Queue never sends on its own. A user marks a manual action complete; `Sent` records an outbound message. Facebook and WhatsApp API reply buttons appear only while the 24-hour window is open and a connected account is present.
+- The **DM campaigns** page creates draft templates and multi-step campaigns, activates them, and enrolls record UUIDs. The daily cron turns eligible steps into manual queue tasks. The existing Victory Sync CRM MCP server exposes social profile, discovery, inbox, draft, enrollment, queue, account, manual log, and permitted reply tools. Writes are audited in `mcp_audit_log`.
 - `x`, LinkedIn, TikTok, Threads, Nextdoor, Yelp, and Angi remain manual-assisted. There is no browser automation, private-platform scraping, or personal-account auto-send.
 - The current connection path uses a server-only provisioning script. A complete Facebook Login OAuth connect/reconnect flow and in-app WhatsApp setup are still required before calling this a self-service production integration.
