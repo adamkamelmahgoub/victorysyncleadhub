@@ -17,6 +17,7 @@ Set these on the Vercel project as server variables unless noted:
 | `META_APP_ID`, `META_APP_SECRET` | Meta app credentials. The current webhook uses `META_APP_SECRET`; OAuth connection is pending. |
 | `META_WEBHOOK_VERIFY_TOKEN` | Random webhook challenge secret that you enter in the Meta dashboard. |
 | `META_GRAPH_VERSION` | Explicit current Graph API version, such as `v25.0`, after checking the version offered by your Meta app. |
+| `SOCIAL_X_DM_ENABLED` | Optional feature flag for a future paid X DM integration; defaults to disabled. Enabling the flag does not enable sending until an approved adapter is configured. |
 | `CRON_SECRET` | Vercel cron bearer secret for `/api/social-worker` and `/api/social-daily`. |
 | `OPENROUTER_API_KEY` | Existing free-model intent classification and enrichment. |
 | `OPENROUTER_MODEL` | Optional; defaults to `nvidia/nemotron-3.5-lightning:free`. |

@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { allowedEmail } from '../lib/mcp-auth.js';
-import { replyAllowed } from '../lib/social-providers.js';
+import { providerAdapters, replyAllowed, type Channel } from '../lib/social-providers.js';
 import { socialRest } from '../lib/social-service.js';
 import { socialOrganizationIds } from '../lib/social-auth.js';
 
@@ -47,7 +47,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
         `messages?conversation_id=in.(${related.map((item)=>item.id).join(',')})&select=id,conversation_id,direction,body,created_at&order=created_at.desc&limit=200`):[];
       const channelById=new Map(related.map((item)=>[item.id,item.channel]));
       return reply(res,200,{conversation:thread,messages,profiles,relatedMessages:relatedMessages.map((message)=>({...message,channel:channelById.get(message.conversation_id)})),
-        canReply:['facebook','whatsapp'].includes(thread.channel)&&Boolean(thread.connected_account_id)&&
+        canReply:Boolean(providerAdapters[thread.channel as Channel]?.capabilities.canReply)&&Boolean(thread.connected_account_id)&&
           replyAllowed(thread.channel as any,thread.last_inbound_at?new Date(thread.last_inbound_at):null)});
     }
     if(req.method==='GET') {

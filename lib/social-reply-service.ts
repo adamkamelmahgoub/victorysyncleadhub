@@ -1,6 +1,7 @@
 import {decryptToken} from './social-crypto.js';
 import {socialRest} from './social-service.js';
 import {assertSocialOrganization} from './social-auth.js';
+import {providerAdapters,type Channel} from './social-providers.js';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Thread={id:string;organization_id:string;channel:string;connected_account_id:string;participant_platform_id:string;
@@ -14,22 +15,14 @@ export async function sendSocialReply(userId:string,conversationId:string,body:s
     if(!thread)throw new Error('Conversation not found');
     await assertSocialOrganization(userId,thread.organization_id);
     const [account]=await socialRest<Account[]>(`connected_accounts?id=eq.${thread.connected_account_id}&select=id,platform,external_account_id&limit=1`);
-    if(!account||!['facebook','whatsapp'].includes(thread.channel)||account.platform!==thread.channel)throw new Error('API reply unavailable for this channel');
+    const adapter=providerAdapters[thread.channel as Channel];
+    if(!account||!adapter?.capabilities.canReply||account.platform!==thread.channel)throw new Error('API reply unavailable for this channel');
     const [secret]=await socialRest<Array<{encrypted_access_token:string}>>(`connected_account_secrets?connected_account_id=eq.${account.id}&select=encrypted_access_token&limit=1`);
     if(!secret?.encrypted_access_token)throw new Error('Connected account token missing');
     attemptId=await socialRest<string>('rpc/social_reserve_reply',{method:'POST',body:JSON.stringify({p_conversation_id:conversationId,p_sent_by:userId})});
-    const version=process.env.META_GRAPH_VERSION;
-    if(!version||!/^v\d+\.\d+$/.test(version))throw new Error('META_GRAPH_VERSION is not configured');
-    const endpoint=`https://graph.facebook.com/${version}/${encodeURIComponent(account.external_account_id)}/messages`;
-    const payload=thread.channel==='whatsapp'
-      ? {messaging_product:'whatsapp',to:thread.participant_platform_id,type:'text',text:{body:text}}
-      : {recipient:{id:thread.participant_platform_id},messaging_type:'RESPONSE',message:{text}};
-    const response=await fetch(endpoint,{method:'POST',headers:{authorization:`Bearer ${decryptToken(secret.encrypted_access_token)}`,'content-type':'application/json'},
-      body:JSON.stringify(payload),signal:AbortSignal.timeout(15000)});
-    const result=await response.json() as{message_id?:string;messages?:Array<{id:string}>;error?:{message?:string}};
-    if(!response.ok)throw new Error(`Provider rejected reply: ${result.error?.message||response.status}`);
-    const externalId=thread.channel==='whatsapp'?result.messages?.[0]?.id:result.message_id;
-    if(!externalId)throw new Error('Provider did not return a message ID');providerSent=true;
+    const externalId=await adapter.sendReply({accountExternalId:account.external_account_id,recipientId:thread.participant_platform_id,
+      body:text,accessToken:decryptToken(secret.encrypted_access_token),graphVersion:process.env.META_GRAPH_VERSION||''});
+    providerSent=true;
     await socialRest(`social_send_attempts?id=eq.${attemptId}`,{method:'PATCH',body:JSON.stringify({status:'sent',external_message_id:externalId,completed_at:new Date().toISOString()})});
     const created=await socialRest<Array<{id:string}>>('messages?on_conflict=conversation_id,external_message_id',{
       method:'POST',headers:{prefer:'resolution=ignore-duplicates,return=representation'},

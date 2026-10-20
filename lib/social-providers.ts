@@ -8,13 +8,15 @@ export type InboundEvent = {
 };
 export type MessageStatusEvent = { kind:'message_status'; channel:'whatsapp'; accountId:string; externalMessageId:string;
   status:'sent'|'delivered'|'read'|'failed'; timestamp:Date; error:string|null };
+export type ManualPlatform = 'tiktok'|'threads'|'nextdoor'|'yelp'|'angi'|'youtube';
+export type ReplyRequest = {accountExternalId:string;recipientId:string;body:string;accessToken:string;graphVersion:string};
 export type ProviderAdapter = {
-  channel: Channel;
-  capabilities: { canInitiateDM: boolean; canReply: boolean; replyWindowHours: number | null; supportsEcho: boolean };
+  channel: Channel | ManualPlatform;
+  capabilities: { canInitiateDM: boolean; canReply: boolean; replyWindowHours: number | null; supportsEcho: boolean; enabled:boolean };
   connect(): Promise<never>;
   refreshToken(): Promise<never>;
   handleWebhook(payload: unknown): InboundEvent[];
-  sendReply(): Promise<never>;
+  sendReply(request:ReplyRequest): Promise<string>;
   fetchHistory(): Promise<never>;
 };
 
@@ -83,17 +85,33 @@ export function parseWhatsAppStatuses(payload:any):MessageStatusEvent[] {
 }
 
 const unavailable = async (): Promise<never> => { throw new Error('Provider connection is not configured'); };
-export const providerAdapters: Record<Channel, ProviderAdapter> = Object.fromEntries(
-  (['instagram','facebook','whatsapp','x','linkedin','email','sms','other'] as Channel[]).map((channel) => [channel, {
+async function sendMetaReply(channel:'facebook'|'whatsapp',request:ReplyRequest):Promise<string>{
+  if(!/^v\d+\.\d+$/.test(request.graphVersion))throw new Error('META_GRAPH_VERSION is not configured');
+  const endpoint=`https://graph.facebook.com/${request.graphVersion}/${encodeURIComponent(request.accountExternalId)}/messages`;
+  const payload=channel==='whatsapp'
+    ? {messaging_product:'whatsapp',to:request.recipientId,type:'text',text:{body:request.body}}
+    : {recipient:{id:request.recipientId},messaging_type:'RESPONSE',message:{text:request.body}};
+  const response=await fetch(endpoint,{method:'POST',headers:{authorization:`Bearer ${request.accessToken}`,'content-type':'application/json'},
+    body:JSON.stringify(payload),signal:AbortSignal.timeout(15000)});
+  const result=await response.json() as{message_id?:string;messages?:Array<{id:string}>;error?:{message?:string}};
+  if(!response.ok)throw new Error(`Provider rejected reply: ${result.error?.message||response.status}`);
+  const id=channel==='whatsapp'?result.messages?.[0]?.id:result.message_id;
+  if(!id)throw new Error('Provider did not return a message ID');
+  return id;
+}
+export const providerAdapters: Record<Channel|ManualPlatform, ProviderAdapter> = Object.fromEntries(
+  (['instagram','facebook','whatsapp','x','linkedin','email','sms','other','tiktok','threads','nextdoor','yelp','angi','youtube'] as Array<Channel|ManualPlatform>).map((channel) => [channel, {
     channel,
     capabilities: {
       canInitiateDM: false,
-      canReply: ['instagram','facebook','whatsapp'].includes(channel),
+      canReply: ['facebook','whatsapp'].includes(channel),
       replyWindowHours: ['instagram','facebook','whatsapp'].includes(channel) ? 24 : null,
       supportsEcho: ['instagram','facebook'].includes(channel),
+      enabled: channel!=='x'||process.env.SOCIAL_X_DM_ENABLED==='true',
     },
     connect: unavailable, refreshToken: unavailable,
     handleWebhook: channel === 'whatsapp' ? parseWhatsAppWebhook : ['instagram','facebook'].includes(channel) ? parseMetaWebhook : () => [],
-    sendReply: unavailable, fetchHistory: unavailable,
+    sendReply:channel==='facebook'||channel==='whatsapp'?(request:ReplyRequest)=>sendMetaReply(channel,request):unavailable,
+    fetchHistory: unavailable,
   }]),
-) as Record<Channel, ProviderAdapter>;
+) as Record<Channel|ManualPlatform, ProviderAdapter>;

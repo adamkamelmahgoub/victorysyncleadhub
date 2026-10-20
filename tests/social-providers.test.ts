@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createHmac } from 'node:crypto';
-import { parseMetaWebhook, parseWhatsAppWebhook, parseWhatsAppStatuses, replyAllowed, verifyMetaSignature } from '../lib/social-providers.ts';
+import { parseMetaWebhook, parseWhatsAppWebhook, parseWhatsAppStatuses, providerAdapters, replyAllowed, verifyMetaSignature } from '../lib/social-providers.ts';
 
 test('Meta signature checks raw bytes', () => {
   const raw = Buffer.from('{"entry":[]}');
@@ -34,4 +34,22 @@ test('reply window closes at 24 hours', () => {
   assert.equal(replyAllowed('instagram', new Date(now.getTime()-23*3600000), now), true);
   assert.equal(replyAllowed('instagram', new Date(now.getTime()-24*3600000), now), false);
   assert.equal(replyAllowed('linkedin', now, now), false);
+});
+test('provider adapters only send through supported business APIs', async () => {
+  assert.equal(providerAdapters.instagram.capabilities.canReply,false);
+  assert.equal(providerAdapters.linkedin.capabilities.canReply,false);
+  assert.equal(providerAdapters.tiktok.capabilities.canReply,false);
+  const previous=globalThis.fetch;
+  const requests:Array<{url:string;body:any}>=[];
+  globalThis.fetch=async(input,init)=>{requests.push({url:String(input),body:JSON.parse(String(init?.body))});
+    return new Response(JSON.stringify({message_id:'meta.1',messages:[{id:'wamid.1'}]}),{status:200});};
+  try{
+    const base={accountExternalId:'account',recipientId:'recipient',body:'Hello',accessToken:'test-token',graphVersion:'v26.0'};
+    assert.equal(await providerAdapters.facebook.sendReply(base),'meta.1');
+    assert.equal(await providerAdapters.whatsapp.sendReply(base),'wamid.1');
+    assert.equal(requests[0].url,'https://graph.facebook.com/v26.0/account/messages');
+    assert.equal(requests[0].body.messaging_type,'RESPONSE');
+    assert.equal(requests[1].body.messaging_product,'whatsapp');
+    await assert.rejects(()=>providerAdapters.instagram.sendReply(base));
+  }finally{globalThis.fetch=previous;}
 });
