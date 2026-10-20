@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { mcpPool } from '../mcp-auth.js';
-import { socialActor, assertSocialPermission } from '../social-workspace-auth.js';
+import { socialActor, socialActorOrganizations, assertSocialPermission } from '../social-workspace-auth.js';
 import { socialAccountToken, socialGraphVersion } from '../social-vault.js';
 
 const idPattern=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -75,8 +75,15 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
     const actor=await socialActor(req);const data=req.method==='GET'?{}:await body(req);
     const url=new URL(req.url||'/','https://local.invalid');
     const org=String(req.method==='GET'?url.searchParams.get('organization_id')||'':data.organization_id||'');
+    if(req.method==='GET'&&!org){
+      const ids=[...new Set([...socialActorOrganizations(actor,'reports_view'),...socialActorOrganizations(actor,'posts_create')])];
+      const organizations=ids.length?await mcpPool.query<{id:string;name:string}>('select id,name from public.organizations where id=any($1::uuid[]) order by name',[ids]):{rows:[]};
+      return send(res,200,{organizations:organizations.rows});
+    }
     if(!idPattern.test(org))throw new Error('Choose an organization');
-    assertSocialPermission(actor,org,req.method==='GET'?'reports_view':'posts_create');
+    if(req.method==='GET'){
+      if(![...socialActorOrganizations(actor,'reports_view'),...socialActorOrganizations(actor,'posts_create')].includes(org))throw new Error('Social workspace access denied');
+    }else assertSocialPermission(actor,org,'posts_create');
     if(req.method==='GET'){
       const posts=await mcpPool.query(`select p.*,coalesce(json_agg(json_build_object('id',t.id,'account_id',t.connected_account_id,'platform',a.platform,'account_label',a.label,'status',t.status,'error',t.error,'provider_post_id',t.provider_post_id,'metrics',t.metrics)) filter(where t.id is not null),'[]'::json) targets
         from public.social_posts p left join public.social_post_targets t on t.post_id=p.id left join public.connected_accounts a on a.id=t.connected_account_id

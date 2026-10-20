@@ -1,4 +1,4 @@
-﻿import {useEffect,useMemo,useState} from 'react';
+﻿import {useEffect,useState} from 'react';
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
 import {CalendarDays,CheckCircle2,Clock3,Image,MessageCircle,Send,TrendingUp} from 'lucide-react';
 import {PageTitle,PageDescription} from '@/components/page-layout';
@@ -12,9 +12,10 @@ const card='rounded-2xl border border-border bg-card p-5 shadow-sm';
 const field='w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary';
 export default function SocialPlanner(){
  const qc=useQueryClient(),[org,setOrg]=useState(''),[text,setText]=useState(''),[media,setMedia]=useState(''),[when,setWhen]=useState(''),[selected,setSelected]=useState<string[]>([]),[filter,setFilter]=useState('all');
+ const available=useQuery<{organizations:{id:string;name:string}[]}>({queryKey:['social-workspace-organizations'],queryFn:()=>apiFetch('/api/social-posts')});
  const accounts=useQuery<{accounts:Account[]}>({queryKey:['social-connected-accounts'],queryFn:()=>apiFetch('/api/social-accounts')});
- const organizations=useMemo(()=>[...new Map((accounts.data?.accounts||[]).map((a)=>[a.organization_id,{id:a.organization_id,label:a.organization_id}])).values()], [accounts.data]);
- useEffect(()=>{if(!org&&organizations.length)setOrg(organizations[0].id)},[org,organizations]);
+ const organizations=(available.data?.organizations||[]).map((value)=>({id:value.id,label:value.name}));
+ useEffect(()=>{if(!org&&organizations.length)setOrg(organizations[0].id)},[org,available.data]);
  const posts=useQuery<{posts:Post[]}>({queryKey:['social-posts',org],queryFn:()=>apiFetch(`/api/social-posts?organization_id=${org}`),enabled:!!org});
  const reports=useQuery<Report>({queryKey:['social-reports',org],queryFn:()=>apiFetch(`/api/social-reports?organization_id=${org}&days=30`),enabled:!!org});
  const create=useMutation({mutationFn:()=>apiFetch('/api/social-posts',{method:'POST',body:JSON.stringify({organization_id:org,body:text,media_url:media||null,scheduled_at:when?new Date(when).toISOString():null,account_ids:selected})}),onSuccess:()=>{setText('');setMedia('');setWhen('');setSelected([]);void qc.invalidateQueries({queryKey:['social-posts',org]});void qc.invalidateQueries({queryKey:['social-reports',org]});}});
