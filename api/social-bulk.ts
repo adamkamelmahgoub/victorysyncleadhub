@@ -40,10 +40,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     if (rows.length !== ids.length || rows.some((row) => !orgs.includes(row.organization_id || legacyOrg))) throw new Error('Organization access denied');
     let saved = 0, review = 0, missingWebsite = 0;
     const failures: Array<{ id: string; error: string }> = [];
-    for (const row of rows) {
+    let nextRow = 0;
+    async function processNext(): Promise<void> {
+      const row = rows[nextRow++];
+      if (!row) return;
       const fields = row.custom_fields || {};
       const website = row.website || fields.website || fields.website_url || fields.open_places?.website || fields.google_places?.website;
-      if (typeof website !== 'string' || !website.trim()) { missingWebsite++; continue; }
+      if (typeof website !== 'string' || !website.trim()) { missingWebsite++; return processNext(); }
       try {
         const candidates = await resolveAmbiguousSocials(await discoverWebsiteSocials(website), website);
         for (const item of candidates) {
@@ -61,7 +64,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           }
         }
       } catch (error) { failures.push({ id: row.id, error: error instanceof Error ? error.message : 'Discovery failed' }); }
+      return processNext();
     }
+    await Promise.all(Array.from({ length: Math.min(10, rows.length) }, () => processNext()));
     return send(res, 200, { processed: rows.length, saved, review, missingWebsite, failures });
   } catch (error) { return send(res, 400, { error: error instanceof Error ? error.message : 'Bulk discovery failed' }); }
 }

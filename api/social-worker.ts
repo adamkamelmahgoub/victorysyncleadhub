@@ -110,11 +110,16 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   const secret = process.env.CRON_SECRET || process.env.OUTREACH_WORKER_TOKEN;
   if (!secret || req.headers.authorization !== `Bearer ${secret}`) { res.statusCode = 401; res.end('Unauthorized'); return; }
   try {
+    const now = new Date();
+    await socialRest(`social_webhook_events?status=eq.processing&next_attempt_at=lte.${encodeURIComponent(now.toISOString())}`, {
+      method: 'PATCH', body: JSON.stringify({ status: 'queued', error: 'Worker lease expired; retrying' }),
+    });
     const jobs = await socialRest<Job[]>(`social_webhook_events?status=eq.queued&next_attempt_at=lte.${encodeURIComponent(new Date().toISOString())}&select=id,provider,payload,attempts&order=created_at.asc&limit=50`);
     let processed = 0;
     for (const job of jobs) {
       const claimed = await socialRest<Job[]>(`social_webhook_events?id=eq.${job.id}&status=eq.queued`, {
-        method: 'PATCH', body: JSON.stringify({ status: 'processing', attempts: job.attempts + 1 }),
+        method: 'PATCH', body: JSON.stringify({ status: 'processing', attempts: job.attempts + 1,
+          next_attempt_at: new Date(Date.now() + 5*60*1000).toISOString() }),
       });
       if (!claimed.length) continue;
       try {
