@@ -121,7 +121,7 @@ export async function companyCrmRequest(
           const row=inserted[0];
           if(!row?.id)return;
           try{
-            for(const profile of importedSocials(row.custom_fields||data.custom_fields||{}))
+            for(const profile of importedSocials((row.custom_fields||data.custom_fields||{}) as Record<string,unknown>))
               await socialRest('social_profiles?on_conflict=organization_id,platform,normalized_handle,entity_type,entity_id',{
                 method:'POST',headers:{prefer:'resolution=ignore-duplicates,return=representation'},
                 body:JSON.stringify({organization_id:'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1',entity_type:'company',entity_id:row.id,
@@ -129,6 +129,7 @@ export async function companyCrmRequest(
                   profile_url:profile.profileUrl,source:'import',confidence:90}),
               });
           }catch(error){return `Company ${row.id}: social profile needs review (${error instanceof Error?error.message:String(error)})`;}
+          return null;
         }));
         results.forEach((result, index) => {
           if (result.status === "fulfilled") { imported++;if(result.value)errors.push(result.value); }
