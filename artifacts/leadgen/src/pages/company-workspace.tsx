@@ -1,7 +1,7 @@
 import { DeleteCompanies, CompanyTrash } from "@/components/company-trash";
 import { useEffect, useMemo, useState } from "react";
 import { useSearch } from "wouter";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
   Search,
@@ -51,6 +51,7 @@ type SavedView = {
   stage: string;
   scope: string;
   sort: string;
+  socialFilter?: string;
 };
 const columnOptions = [
   "industry",
@@ -58,13 +59,32 @@ const columnOptions = [
   "next_action",
   "trial",
   "value",
+  "instagram",
+  "facebook",
+  "linkedin",
+  "x",
+  "tiktok",
 ] as const;
+const socialColumns=["instagram","facebook","linkedin","x","tiktok"] as const;
 function csvValue(value: unknown) {
   const text = String(value ?? "");
   return `"${(/^[=+@\-\t\r]/.test(text) ? "'" : "") + text.replace(/"/g, '""')}"`;
 }
 export default function CompanyWorkspace() {
   const query = useCompanies();
+  const companyIds=(query.data??[]).map((company)=>company.id);
+  const socialQuery=useQuery<{handles:Array<Record<string,string|null>>}>({
+    queryKey:['company-social-handles',companyIds.join(',')],enabled:companyIds.length>0,
+    queryFn:async()=>{
+      const batches=[];
+      for(let start=0;start<companyIds.length;start+=200){
+        const response=await apiFetch('/api/social-primary',{method:'POST',body:JSON.stringify({entity_type:'company',ids:companyIds.slice(start,start+200)})}) as {handles:Array<Record<string,string|null>>};
+        batches.push(...response.handles);
+      }
+      return {handles:batches};
+    },
+  });
+  const socialsById=new Map(socialQuery.data?.handles.map((item)=>[item.entity_id,item])??[]);
   const { role, user } = useAuth();
   const readOnly = role === "viewer";
   const qc = useQueryClient();
@@ -73,6 +93,7 @@ export default function CompanyWorkspace() {
     () => new URLSearchParams(queryString).get("q") ?? "",
   );
   const [stage, setStage] = useState("all");
+  const [socialFilter,setSocialFilter]=useState("all");
   const [scope, setScope] = useState("all");
   const [sort, setSort] = useState("name");
   const [view, setView] = useState<"table" | "board">("table");
@@ -132,6 +153,8 @@ export default function CompanyWorkspace() {
           .toLowerCase();
         return (
           haystack.includes(text) &&
+          (socialFilter==="all" || socialFilter==="has_instagram" && !!socialsById.get(company.id)?.instagram ||
+            socialFilter==="no_socials" && !socialColumns.some((platform)=>!!socialsById.get(company.id)?.[platform])) &&
           (stage === "all" || company.stage === stage) &&
           (scope === "all" ||
             (scope === "trials" &&
@@ -155,7 +178,7 @@ export default function CompanyWorkspace() {
                 )
               : a.name.localeCompare(b.name),
       );
-  }, [query.data, search, stage, scope, sort]);
+  }, [query.data, socialQuery.data, socialFilter, search, stage, scope, sort]);
   const company = query.data?.find((row) => row.id === active);
   const updateStage = useMutation({
     mutationFn: async (ids: string[]) => {
@@ -209,11 +232,12 @@ export default function CompanyWorkspace() {
       "next_follow_up_at",
       "proposed_monthly_price",
       "currency",
+      ...socialColumns,
     ];
     const csv = [
       keys.join(","),
       ...rows.map((company) =>
-        keys.map((key) => csvValue(company[key as keyof Company])).join(","),
+        keys.map((key) => csvValue((socialColumns as readonly string[]).includes(key)?socialsById.get(company.id)?.[key]:company[key as keyof Company])).join(","),
       ),
     ].join("\r\n");
     const url = URL.createObjectURL(
@@ -236,7 +260,7 @@ export default function CompanyWorkspace() {
               size="sm"
               variant="outline"
               onClick={exportCsv}
-              disabled={!rows.length}
+              disabled={!rows.length||socialQuery.isLoading}
             >
               <Download className="h-3.5 w-3.5" />
               Export
@@ -297,6 +321,9 @@ export default function CompanyWorkspace() {
                 {label(stage)}
               </option>
             ))}
+          </select>
+          <select aria-label="Filter company socials" className={`${crmSelect} w-auto text-xs`} value={socialFilter} onChange={(event)=>setSocialFilter(event.target.value)}>
+            <option value="all">All social states</option><option value="has_instagram">Has Instagram</option><option value="no_socials">No socials</option>
           </select>
           <div className="flex items-center gap-1">
             <ArrowUpDown className="h-3.5 w-3.5 text-slate-400" />
@@ -367,6 +394,7 @@ export default function CompanyWorkspace() {
                 setStage(saved.stage);
                 setScope(saved.scope);
                 setSort(saved.sort);
+                setSocialFilter(saved.socialFilter||"all");
               }
             }}
           >
@@ -399,13 +427,14 @@ export default function CompanyWorkspace() {
               ? "Clear all companies"
               : `Select all companies (${query.data?.length ?? 0})`}
           </Button>
-          {(search || stage !== "all" || scope !== "all") && (
+          {(search || stage !== "all" || scope !== "all" || socialFilter !== "all") && (
             <button
               className="text-xs text-slate-500 underline"
               onClick={() => {
                 setSearch("");
                 setStage("all");
                 setScope("all");
+                setSocialFilter("all");
               }}
             >
               Clear filters
@@ -436,6 +465,12 @@ export default function CompanyWorkspace() {
               >
                 Update stage
               </Button>
+              <Button size="sm" variant="outline" disabled={selectedCompanies.length>25} onClick={async()=>{
+                try{const result=await apiFetch('/api/social-bulk',{method:'POST',body:JSON.stringify({entity_type:'company',ids:selectedCompanies.map((item)=>item.id)})}) as {saved:number;review:number;missingWebsite:number;failures:unknown[]};
+                  setNotice(`${result.saved} social profiles found; ${result.review} need review; ${result.missingWebsite} lack websites; ${result.failures.length} failed`);
+                  setSelected([]);void qc.invalidateQueries({queryKey:['company-social-handles']});
+                }catch(error){setNotice(error instanceof Error?error.message:'Social discovery failed');}
+              }}>Find socials</Button>
             </div>
           )}
         </div>
@@ -543,7 +578,9 @@ export default function CompanyWorkspace() {
                         key={column}
                         className="max-w-56 px-3 py-4 text-slate-600"
                       >
-                        {column === "industry" ? (
+                        {(socialColumns as readonly string[]).includes(column) ? (
+                          socialsById.get(company.id)?.[column] ? `@${socialsById.get(company.id)?.[column]}` : "—"
+                        ) : column === "industry" ? (
                           company.industry || "—"
                         ) : column === "contact" ? (
                           <>
@@ -672,7 +709,7 @@ export default function CompanyWorkspace() {
               if (!name) return;
               const next = [
                 ...savedViews.filter((item) => item.name !== name),
-                { name, search, stage, scope, sort },
+                { name, search, stage, scope, sort, socialFilter },
               ].slice(-20);
               try {
                 localStorage.setItem(preferenceKey, JSON.stringify(next));
