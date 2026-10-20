@@ -1,7 +1,7 @@
 import type {IncomingMessage,ServerResponse} from 'node:http';
 import {createHash,randomBytes} from 'node:crypto';
 import {mcpPool} from '../mcp-auth.js';
-import {socialActor,isSocialOwner} from '../social-workspace-auth.js';
+import {socialActor,isSocialOwner,SOCIAL_WORKSPACE_ORG_ID} from '../social-workspace-auth.js';
 import {socialVaultRead,socialVaultWrite} from '../social-vault.js';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -82,13 +82,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
     if(req.method==='GET'&&url.searchParams.get('action')==='callback')return await callback(req,res,url);
     const actor=await socialActor(req);
     if(req.method==='GET'){
-      const orgId=url.searchParams.get('organization_id')||'';
-      if(!orgId){
-        const ids=[...new Set([...actor.ownerOrganizations,...actor.memberships.filter((m)=>m.role==='owner').map((m)=>m.org_id)])];
-        const organizations=ids.length?await mcpPool.query<{id:string;name:string}>(
-          'select id,name from public.organizations where id=any($1::uuid[]) order by name',[ids]):{rows:[]};
-        return json(res,200,{organizations:organizations.rows});
-      }
+      const orgId=url.searchParams.get('organization_id')||SOCIAL_WORKSPACE_ORG_ID;
       if(!uuid.test(orgId)||!isSocialOwner(actor,orgId))throw new Error('Owner access required');
       const result=await mcpPool.query<App>('select * from public.social_oauth_apps where organization_id=$1',[orgId]);
       const base=await origin();
@@ -99,7 +93,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
     if(req.method!=='POST')return json(res,405,{error:'Method not allowed'});
     let raw='';for await(const part of req){raw+=part;if(raw.length>12000)throw new Error('Request too large');}
     const input=JSON.parse(raw||'{}') as Record<string,unknown>;
-    const orgId=String(input.organization_id||'');
+    const orgId=String(input.organization_id||SOCIAL_WORKSPACE_ORG_ID);
     if(!uuid.test(orgId)||!isSocialOwner(actor,orgId))throw new Error('Owner access required');
     if(input.action==='configure'){
       const appId=String(input.app_id||'').trim(),appSecret=String(input.app_secret||''),version=String(input.graph_version||'');

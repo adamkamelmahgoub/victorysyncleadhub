@@ -1,6 +1,6 @@
 import type {IncomingMessage,ServerResponse} from 'node:http';
 import {mcpPool} from '../mcp-auth.js';
-import {socialActor,socialActorOrganizations} from '../social-workspace-auth.js';
+import {socialActor,socialActorOrganizations,internalSocialOrganization} from '../social-workspace-auth.js';
 
 export const config={api:{bodyParser:false},maxDuration:30};
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -23,8 +23,8 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){le
       return send(res,200,{campaigns:campaigns.rows,templates:templates.rows,organizations:organizations.rows});
     }
     if(req.method!=='POST')return send(res,405,{error:'Method not allowed'});
-    const data=await body(req);const action=String(data.action||'');const org=String(data.organization_id||'');
-    if(!uuid.test(org)||!orgs.includes(org))throw new Error('Organization access denied');
+    const data=await body(req);const action=String(data.action||'');const org=internalSocialOrganization(user,'campaign_manage');
+    if(data.organization_id&&data.organization_id!==org)throw new Error('Social campaigns are internal to Victory Sync');
     await db.query('begin');
     if(action==='create_template'){
       const name=String(data.name||'').trim(),text=String(data.body||'').trim();

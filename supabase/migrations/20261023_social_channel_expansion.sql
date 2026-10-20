@@ -1,0 +1,10 @@
+﻿begin;
+alter table public.connected_accounts add column if not exists display_platform text;
+alter table public.connected_accounts add column if not exists profile_url text;
+alter table public.connected_accounts add column if not exists connection_mode text not null default 'api';
+alter table public.social_posts add column if not exists post_type text not null default 'feed';
+alter table public.social_post_targets add column if not exists metrics_source text;
+create index if not exists social_post_targets_published_at on public.social_post_targets(organization_id,published_at desc) where status='published';
+create index if not exists social_messages_org_created on public.messages(organization_id,created_at desc);
+create index if not exists social_tasks_org_created on public.dm_tasks(organization_id,created_at desc);
+commit;

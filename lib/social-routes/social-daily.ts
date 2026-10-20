@@ -1,5 +1,6 @@
 import type { IncomingMessage,ServerResponse } from 'node:http';
 import { mcpPool } from '../mcp-auth.js';
+import {refreshThreadsAccounts} from '../social-vault.js';
 
 export const config={maxDuration:60};
 type Due={id:string;organization_id:string;connected_account_id:string|null;step_id:string;step_type:string;due_at:Date;
@@ -53,7 +54,8 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
     for(const account of expiring.rows)await db.query(`select public.social_slack_notify('token_expiring',$1::uuid,$2::text)`,
       [account.id,`Social account token expires within 7 days: ${account.label}`]);
     await db.query('commit');
-    res.setHeader('content-type','application/json');res.end(JSON.stringify({created,expired:expired.rowCount,token_alerts:expiring.rowCount}));
+    const threads=await refreshThreadsAccounts();
+    res.setHeader('content-type','application/json');res.end(JSON.stringify({created,expired:expired.rowCount,token_alerts:expiring.rowCount,threads}));
   }catch(error){await db.query('rollback').catch(()=>{});res.statusCode=500;res.end(JSON.stringify({error:String(error)}));}
   finally{db.release();}
 }

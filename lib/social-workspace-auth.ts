@@ -1,6 +1,9 @@
 import type { IncomingMessage } from 'node:http';
 import { allowedEmail, mcpPool } from './mcp-auth.js';
 
+// Victory Sync's internal CRM organization. Social outreach is never exposed to client workspaces.
+export const SOCIAL_WORKSPACE_ORG_ID='cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
+
 export const SOCIAL_PERMISSIONS = [
   'inbox_view','inbox_reply','queue_work','campaign_manage','socials_manage',
   'accounts_manage','posts_create','posts_publish','reports_view','mcp_use',
@@ -38,11 +41,16 @@ export async function socialActor(req:IncomingMessage):Promise<SocialActor>{
 
 export function socialActorOrganizations(actor:SocialActor,permission:SocialPermission):string[]{
   return [...new Set([...actor.ownerOrganizations,...actor.memberships
-    .filter((m)=>m.role==='owner'||m.permissions.includes(permission)).map((m)=>m.org_id)])];
+    .filter((m)=>m.role==='owner'||m.permissions.includes(permission)).map((m)=>m.org_id)])]
+    .filter((id)=>id===SOCIAL_WORKSPACE_ORG_ID);
 }
 export function assertSocialPermission(actor:SocialActor,orgId:string,permission:SocialPermission):void{
   if(!socialActorOrganizations(actor,permission).includes(orgId))throw new Error('Social workspace access denied');
 }
+export function internalSocialOrganization(actor:SocialActor,permission:SocialPermission):string{
+  assertSocialPermission(actor,SOCIAL_WORKSPACE_ORG_ID,permission);
+  return SOCIAL_WORKSPACE_ORG_ID;
+}
 export function isSocialOwner(actor:SocialActor,orgId:string):boolean{
-  return actor.ownerOrganizations.includes(orgId)||actor.memberships.some((m)=>m.org_id===orgId&&m.role==='owner');
+  return orgId===SOCIAL_WORKSPACE_ORG_ID&&(actor.ownerOrganizations.includes(orgId)||actor.memberships.some((m)=>m.org_id===orgId&&m.role==='owner'));
 }

@@ -13,7 +13,7 @@ export const PAGE_PERMISSIONS = [
   { key: "sequences", label: "Sequences", paths: ["/sequences", "/sequence-analytics"] },
   { key: "campaigns", label: "Campaigns", paths: ["/campaigns"] },
   { key: "email", label: "Email Templates & Mailboxes", paths: ["/email-templates", "/email-accounts"] },
-  { key: "social", label: "Social Planner", paths: ["/social-planner"] },
+  { key: "social", label: "Social Workspace", paths: ["/social-planner", "/social-reports"] },
   { key: "automation", label: "Automation", paths: ["/automation"] },
   { key: "forms", label: "Sites / Forms", paths: ["/forms"] },
   { key: "integrations", label: "Integrations & Webhooks", paths: ["/integrations", "/webhooks"] },

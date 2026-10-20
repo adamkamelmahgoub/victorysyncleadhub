@@ -75,6 +75,7 @@ const groups: { label: string; links: Item[] }[] = [
       { href: "/automation", label: "Workflows", icon: Zap },
       { href: "/forms", label: "Forms", icon: FileText },
       { href: "/social-planner", label: "Social workspace", icon: Megaphone },
+      { href: "/social-reports", label: "Social reports", icon: BarChart3 },
     ],
   },
   {

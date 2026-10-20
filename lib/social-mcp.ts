@@ -6,6 +6,7 @@ import {normalizeSocial,SOCIAL_PLATFORMS} from './social-handles.js';
 import {discoverWebsiteSocials,resolveAmbiguousSocials} from './social-discovery.js';
 import {renderDmTemplate} from './dm-template.js';
 import {sendSocialReply} from './social-reply-service.js';
+import {SOCIAL_WORKSPACE_ORG_ID} from './social-workspace-auth.js';
 
 const id=z.string().uuid();
 const entity=z.enum(['lead','contact','company']);
@@ -28,11 +29,13 @@ async function run(who:McpIdentity,name:string,args:unknown,write:boolean,fn:(db
     return {isError:true,content:[{type:'text' as const,text:error instanceof Error?error.message:'Social tool failed'}]};
   }finally{db.release();}
 }
-function allowed(orgs:string[],org:string){if(!orgs.includes(org))throw new Error('Organization access denied');}
+function allowed(orgs:string[],org:string){if(org!==SOCIAL_WORKSPACE_ORG_ID||!orgs.includes(org))throw new Error('Internal social workspace access denied');}
 function tool(server:McpServer,who:McpIdentity,name:string,description:string,shape:z.ZodRawShape,write:boolean,
   fn:(db:PoolClient,args:any,orgs:string[])=>Promise<unknown>){
-  server.registerTool(name,{description,inputSchema:shape,annotations:{readOnlyHint:!write,destructiveHint:false}},
-    async(args:any)=>run(who,name,args,write,(db,orgs)=>fn(db,args,orgs)));
+  const inputSchema='organization_id' in shape?{...shape,organization_id:id.optional()}:shape;
+  server.registerTool(name,{description,inputSchema,annotations:{readOnlyHint:!write,destructiveHint:false}},
+    async(args:any)=>{const scoped={...args,organization_id:args.organization_id||SOCIAL_WORKSPACE_ORG_ID};
+      return run(who,name,scoped,write,(db,orgs)=>fn(db,scoped,orgs));});
 }
 export function registerSocialMcpTools(server:McpServer,who:McpIdentity){
   tool(server,who,'list_social_team_access','List internal team social permissions. Client accounts are excluded.',{organization_id:id},false,

@@ -1,6 +1,6 @@
 import type {IncomingMessage,ServerResponse} from 'node:http';
 import {mcpPool} from '../mcp-auth.js';
-import {socialActor,isSocialOwner,SOCIAL_PERMISSIONS} from '../social-workspace-auth.js';
+import {socialActor,isSocialOwner,SOCIAL_PERMISSIONS,SOCIAL_WORKSPACE_ORG_ID} from '../social-workspace-auth.js';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const answer=(res:ServerResponse,status:number,data:unknown)=>{res.statusCode=status;res.setHeader('content-type','application/json');res.end(JSON.stringify(data));};
@@ -8,7 +8,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
   try{
     const actor=await socialActor(req);
     if(req.method==='GET'){
-      const organizationId=new URL(req.url||'/', 'https://local.invalid').searchParams.get('organization_id')||'';
+      const organizationId=new URL(req.url||'/', 'https://local.invalid').searchParams.get('organization_id')||SOCIAL_WORKSPACE_ORG_ID;
       if(!uuid.test(organizationId)||!isSocialOwner(actor,organizationId))throw new Error('Owner access required');
       const members=await mcpPool.query(`select m.id,m.name,m.email,m.role,m.status,m.org_id organization_id,
         coalesce(p.permissions,'{}'::text[]) permissions
@@ -19,7 +19,8 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
     if(req.method!=='PATCH')return answer(res,405,{error:'Method not allowed'});
     let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>10000)throw new Error('Request too large');}
     const input=JSON.parse(raw||'{}') as{organization_id?:string;team_member_id?:string;permissions?:unknown};
-    if(!uuid.test(input.organization_id||'')||!uuid.test(input.team_member_id||'')||!isSocialOwner(actor,input.organization_id!))
+    input.organization_id=input.organization_id||SOCIAL_WORKSPACE_ORG_ID;
+    if(!uuid.test(input.organization_id)||!uuid.test(input.team_member_id||'')||!isSocialOwner(actor,input.organization_id))
       throw new Error('Owner access required');
     if(!Array.isArray(input.permissions)||input.permissions.some((value)=>!SOCIAL_PERMISSIONS.includes(value)))throw new Error('Invalid social permissions');
     const members=await mcpPool.query(`select role from public.team_members where id=$1 and org_id=$2 and client_account_id is null
