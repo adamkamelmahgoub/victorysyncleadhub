@@ -41,6 +41,7 @@ const Integrations = lazy(() => import("@/pages/integrations"));
 const LeadImport = lazy(() => import("@/pages/lead-import"));
 const SocialPlanner = lazy(() => import("@/pages/social-planner"));
 const SocialReports = lazy(() => import("@/pages/social-reports"));
+const SocialRepStats = lazy(() => import("@/pages/social-rep-stats"));
 const Segments = lazy(() => import("@/pages/segments-v2"));
 const SegmentDetail = lazy(() => import("@/pages/segment-detail"));
 const Webhooks = lazy(() => import("@/pages/webhooks"));
@@ -126,6 +127,7 @@ function Router() {
       <Route path="/leadgen/lead-import" component={() => <LeadImport />} />
       <Route path="/leadgen/social-planner" component={SocialPlanner} />
       <Route path="/leadgen/social-reports" component={SocialReports} />
+      <Route path="/leadgen/me/stats" component={SocialRepStats} />
       <Route path="/leadgen/segments" component={Segments} />
       <Route path="/leadgen/webhooks" component={Webhooks} />
       <Route path="/leadgen/email-templates" component={EmailTemplatesPage} />
@@ -169,6 +171,7 @@ function Router() {
       <Route path="/lead-import" component={() => <LeadImport />} />
       <Route path="/social-planner" component={SocialPlanner} />
       <Route path="/social-reports" component={SocialReports} />
+      <Route path="/me/stats" component={SocialRepStats} />
       <Route path="/segments" component={Segments} />
       <Route path="/contacts/segments/:id" component={SegmentDetail} />
       <Route path="/webhooks" component={Webhooks} />

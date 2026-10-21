@@ -45,6 +45,7 @@ const core: Item[] = [
   { href: "/trial-queue", label: "Trial schedule", icon: CalendarClock },
   { href: "/conversations", label: "Inbox", icon: Mail },
   { href: "/dm-queue", label: "DM queue", icon: Megaphone },
+  { href: "/me/stats", label: "My DM stats", icon: BarChart3 },
   { href: "/dm-campaigns", label: "DM campaigns", icon: Layers },
   { href: "/social-review", label: "Review socials", icon: Megaphone },
   { href: "/pipeline", label: "Deal pipelines", icon: GitBranch },

@@ -1,6 +1,6 @@
 ﻿import type {IncomingMessage,ServerResponse} from 'node:http';
 import {mcpPool} from '../mcp-auth.js';
-import {socialActor,assertSocialPermission,SOCIAL_WORKSPACE_ORG_ID} from '../social-workspace-auth.js';
+import {socialActor,assertSocialPermission,isSocialOwner,SOCIAL_WORKSPACE_ORG_ID} from '../social-workspace-auth.js';
 const json=(res:ServerResponse,status:number,value:unknown)=>{res.statusCode=status;res.setHeader('content-type','application/json');res.setHeader('cache-control','no-store');res.end(JSON.stringify(value));};
 export default async function handler(req:IncomingMessage,res:ServerResponse){
  try{
@@ -8,6 +8,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
   const actor=await socialActor(req),url=new URL(req.url||'/','https://local.invalid'),org=SOCIAL_WORKSPACE_ORG_ID;
   if(url.searchParams.get('organization_id')&&url.searchParams.get('organization_id')!==org)throw new Error('Social reports are internal to Victory Sync');
   assertSocialPermission(actor,org,'reports_view');
+  if(!isSocialOwner(actor,org))throw new Error('Organization-wide reports require owner access');
   const days=Number(url.searchParams.get('days')||30);if(![7,30,90,365].includes(days))throw new Error('Choose a 7, 30, 90, or 365 day period');
   const args=[org,days];
   const queries=[

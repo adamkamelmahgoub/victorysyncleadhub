@@ -33,7 +33,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
       const entityFilter=thread.lead_id?`lead_id=eq.${thread.lead_id}`:thread.contact_id?`contact_id=eq.${thread.contact_id}`:
         thread.company_id?`company_id=eq.${thread.company_id}`:thread.legacy_company_id?`legacy_company_id=eq.${thread.legacy_company_id}`:null;
       const related=entityFilter?await socialRest<Array<{id:string;channel:string}>>(
-        `conversations?organization_id=eq.${thread.organization_id}&${entityFilter}&id=neq.${id}&select=id,channel&limit=30`):[];
+        `conversations?organization_id=eq.${thread.organization_id}&${entityFilter}&id=neq.${id}${isSocialOwner(user,thread.organization_id)?'':`&assigned_to=eq.${user.id}`}&select=id,channel&limit=30`):[];
       const relatedMessages=related.length?await socialRest<Array<{id:string;conversation_id:string;direction:string;body:string;created_at:string}>>(
         `messages?conversation_id=in.(${related.map((item)=>item.id).join(',')})&select=id,conversation_id,direction,body,created_at&order=created_at.desc&limit=200`):[];
       const channelById=new Map(related.map((item)=>[item.id,item.channel]));
