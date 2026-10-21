@@ -2,6 +2,7 @@ import type {IncomingMessage,ServerResponse} from 'node:http';
 import {createHmac,randomUUID} from 'node:crypto';
 import {mcpPool} from '../mcp-auth.js';
 import {SOCIAL_WORKSPACE_ORG_ID} from '../social-workspace-auth.js';
+import {socialRest} from '../social-service.js';
 
 export const config={api:{bodyParser:false},maxDuration:30};
 const org=SOCIAL_WORKSPACE_ORG_ID;
@@ -104,8 +105,9 @@ function sectionHtml(section:Record<string,unknown>,formSlug:string|null,formQue
 function pageHtml(row:PageRow,formSlug:string|null,utm:Record<string,string>){const theme=validatedTheme(row.theme),title=html(row.seo_title||row.name),description=html(row.seo_description||'');
   const query=new URLSearchParams({lp:row.id,...utm}).toString();
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><meta name="description" content="${description}"><meta property="og:title" content="${title}"><meta property="og:description" content="${description}"><style>:root{--primary:${theme.primary};--bg:${theme.background};--text:${theme.text};font-family:${theme.font==='serif'?'Georgia,serif':'system-ui,sans-serif'};color:var(--text)}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text)}main{max-width:1120px;margin:auto}.section{padding:64px 24px}.section h1{font-size:clamp(2.5rem,6vw,5rem);line-height:1.05;margin:12px 0}.section h2{font-size:clamp(1.8rem,4vw,2.8rem)}.section p{font-size:1.1rem;line-height:1.7;max-width:720px}.hero,.cta{text-align:center;background:color-mix(in srgb,var(--primary) 8%,var(--bg))}.hero p,.cta p{margin:18px auto}.eyebrow{color:var(--primary);font-weight:700;letter-spacing:.08em;text-transform:uppercase}.button{display:inline-block;background:var(--primary);color:#fff;padding:14px 24px;border-radius:12px;text-decoration:none;font-weight:700;margin-top:15px}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}.cards article,.cards details{padding:20px;border:1px solid #dce2eb;border-radius:14px}.image-block img{max-width:100%;height:auto;border-radius:18px}.testimonial{font-size:1.5rem}.spacer{height:32px}.form-block iframe{width:100%;min-height:620px;border:1px solid #dce2eb;border-radius:16px}footer{text-align:center;padding:30px;color:#6b7280;font-size:13px}@media(max-width:600px){.section{padding:48px 20px}}</style></head><body><main>${(row.sections||[]).map(s=>sectionHtml(s,formSlug,`?${query}`)).join('')}</main><footer>© ${new Date().getFullYear()} Victory Sync</footer></body></html>`;}
-async function publicForm(req:IncomingMessage,res:ServerResponse,slug:string,submit:boolean){const found=await mcpPool.query<FormRow>(`select * from public.forms where organization_id=$1 and slug=$2 and status='active' limit 1`,[org,slug]);
-  const form=found.rows[0];if(!form)return json(res,404,{error:'Form unavailable'});
+async function publicForm(req:IncomingMessage,res:ServerResponse,slug:string,submit:boolean){
+  const forms=await socialRest<FormRow[]>(`forms?organization_id=eq.${org}&slug=eq.${encodeURIComponent(slug)}&status=eq.active&select=*&limit=1`);
+  const form=forms[0];if(!form)return json(res,404,{error:'Form unavailable'});
   form.fields=validatedFields(form.fields||[]);
   if(!Array.isArray(form.fields)||!form.fields.length)return json(res,404,{error:'Form is not ready'});
   const url=new URL(req.url||'/','https://local.invalid'),utm=Object.fromEntries(['utm_source','utm_medium','utm_campaign','utm_term','utm_content'].map(key=>[key,plain(url.searchParams.get(key),120)]).filter(([,value])=>value));
@@ -149,16 +151,17 @@ async function publicForm(req:IncomingMessage,res:ServerResponse,slug:string,sub
     res.statusCode=303;res.setHeader('location',`/f/${slug}?submitted=1`);res.end();return;}
   json(res,201,{accepted:true,submissionId,message:form.success_message,redirectUrl:form.redirect_url});
 }
-async function publicPage(req:IncomingMessage,res:ServerResponse,slug:string){const found=await mcpPool.query<PageRow>(`select * from public.landing_pages
-  where organization_id=$1 and slug=$2 and status='published' limit 1`,[org,slug]);const page=found.rows[0];if(!page)return json(res,404,{error:'Page unavailable'});
-  const linked=page.form_id?await mcpPool.query<{slug:string}>(`select slug from public.forms where id=$1 and status='active' limit 1`,[page.form_id]):null;
+async function publicPage(req:IncomingMessage,res:ServerResponse,slug:string){
+  const pages=await socialRest<PageRow[]>(`landing_pages?organization_id=eq.${org}&slug=eq.${encodeURIComponent(slug)}&status=eq.published&select=*&limit=1`);
+  const page=pages[0];if(!page)return json(res,404,{error:'Page unavailable'});
+  const linked=page.form_id?await socialRest<Array<{slug:string}>>(`forms?id=eq.${page.form_id}&organization_id=eq.${org}&status=eq.active&select=slug&limit=1`):[];
   const referrer=plain(req.headers.referer,1000);let referrerDomain:string|null=null;
   try{if(referrer)referrerDomain=new URL(referrer).hostname.slice(0,200);}catch{}
   const url=new URL(req.url||'/','https://local.invalid');const utm=Object.fromEntries(['utm_source','utm_medium','utm_campaign'].map(key=>[key,plain(url.searchParams.get(key),120)]).filter(([,value])=>value));
   await mcpPool.query(`update public.landing_pages set visits=visits+1 where id=$1`,[page.id]);
   await mcpPool.query(`insert into public.landing_page_events(organization_id,landing_page_id,event_type,referrer_domain,utm)
     values($1,$2,'view',$3,$4)`,[org,page.id,referrerDomain,JSON.stringify(utm)]);
-  securityHeaders(res);res.setHeader('cache-control','no-store');res.end(pageHtml(page,linked?.rows[0]?.slug||null,utm));
+  securityHeaders(res);res.setHeader('cache-control','no-store');res.end(pageHtml(page,linked[0]?.slug||null,utm));
 }
 export default async function handler(req:IncomingMessage,res:ServerResponse){try{
   const url=new URL(req.url||'/','https://local.invalid'),path=url.pathname,method=req.method||'GET';
