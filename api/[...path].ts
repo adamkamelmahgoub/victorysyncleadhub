@@ -3322,6 +3322,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if(isPublicWorkflowEndpoint(emailPath)) {await runWorkflow(false);return;}
 
     if (path === "/api/healthz") {
+      if (new URL(req.url || path, "https://app.victorysync.com").searchParams.get("deep") === "1") {
+        const checks = await Promise.allSettled([
+          fetch(`${supabaseUrl}/rest/v1/forms?select=id&limit=1`, {
+            headers: { apikey: supabaseKey || "", authorization: `Bearer ${supabaseKey || ""}` },
+            signal: AbortSignal.timeout(8000),
+          }).then(response => response.status),
+          mcpPool.query("select 1").then(() => true),
+        ]);
+        const restStatus = checks[0].status === "fulfilled" ? checks[0].value : null;
+        const databaseReachable = checks[1].status === "fulfilled";
+        const healthy = restStatus === 200 && databaseReachable;
+        sendJson(res, healthy ? 200 : 503, { status: healthy ? "ok" : "degraded", supabaseRestStatus: restStatus, databaseReachable });
+        return;
+      }
       sendJson(res, 200, {
         status: "ok",
         supabaseConfigured: Boolean(supabaseUrl && supabaseKey),
