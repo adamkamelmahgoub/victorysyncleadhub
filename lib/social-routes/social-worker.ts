@@ -8,6 +8,7 @@ import {processCalendlyAttribution,processStripeAttribution} from '../social-att
 import {mcpPool} from '../mcp-auth.js';
 import {socialVaultRead} from '../social-vault.js';
 import {matchSocialLead} from '../social-matching.js';
+import {dispatchSocialNotifications} from '../social-notification-outbox.js';
 
 export const config = { maxDuration: 60 };
 type Job = { id: string; provider: string; payload: InboundEvent | MessageStatusEvent | Record<string,unknown>; attempts: number };
@@ -282,6 +283,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const legacy = await syncLegacyInbound();
     const posts = await processDueSocialPosts(3);
     const metrics = await refreshSocialPostMetrics(2);
-    res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ processed, inspected: jobs.length, reconciled, legacy, posts, metrics }));
+    const notifications=await dispatchSocialNotifications(3);
+    res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ processed, inspected: jobs.length, reconciled, legacy, posts, metrics, notifications }));
   } catch (error) { res.statusCode = 500; res.end(JSON.stringify({ error: String(error) })); }
 }
