@@ -19,6 +19,7 @@ import reports from '../lib/social-routes/social-reports.js';
 import threadsOauth from '../lib/social-routes/social-threads-oauth.js';
 import unipile from '../lib/social-routes/social-unipile.js';
 import repStats from '../lib/social-routes/social-rep-stats.js';
+import attribution from '../lib/social-routes/social-attribution.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const handlers: Record<string, (req: IncomingMessage, res: ServerResponse) => Promise<void>> = {
@@ -31,6 +32,7 @@ const handlers: Record<string, (req: IncomingMessage, res: ServerResponse) => Pr
   'social-threads-oauth': threadsOauth,
   'social-unipile': unipile,
   'social-rep-stats': repStats,
+  'social-attribution': attribution,
 };
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {

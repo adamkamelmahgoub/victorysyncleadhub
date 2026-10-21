@@ -4,6 +4,7 @@ import { socialRest } from '../social-service.js';
 import type { InboundEvent, MessageStatusEvent } from '../social-providers.js';
 import { syncLegacyInbound } from '../social-legacy-sync.js';
 import { classifyIntent } from '../social-intent.js';
+import {processCalendlyAttribution,processStripeAttribution} from '../social-attribution-worker.js';
 
 export const config = { maxDuration: 60 };
 type Job = { id: string; provider: string; payload: InboundEvent | MessageStatusEvent | Record<string,unknown>; attempts: number };
@@ -68,6 +69,8 @@ async function processUnipileEvent(raw:Record<string,unknown>){
 
 async function processEvent(job: Job) {
   if(job.provider==='unipile')return processUnipileEvent(job.payload as Record<string,unknown>);
+  if(job.provider==='calendly')return processCalendlyAttribution(job.payload as Record<string,unknown>);
+  if(job.provider==='stripe')return processStripeAttribution(job.payload as Record<string,unknown>);
   const event = job.payload as InboundEvent | MessageStatusEvent;
   if('kind' in event){
     const accounts=await socialRest<Account[]>(`connected_accounts?platform=eq.${event.channel}&external_account_id=eq.${encodeURIComponent(event.accountId)}&select=id,organization_id&limit=2`);
