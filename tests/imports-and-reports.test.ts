@@ -141,6 +141,7 @@ test("reports count real records, blank sources, unassigned campaigns and UTC da
 });
 
 test("production analytics endpoints page through records and retain client scope", async () => {
+  const token=`header.${Buffer.from(JSON.stringify({sub:'user-id',crm_role:'owner',crm_client_account_id:'client-id'})).toString('base64url')}.signature`;
   process.env.SUPABASE_URL = "https://reports-test.invalid";
   process.env.SUPABASE_ANON_KEY = "test-key";
   const { default: handler } = await import("../api/[...path].js");
@@ -153,6 +154,7 @@ test("production analytics endpoints page through records and retain client scop
         id: "user-id",
         user_metadata: { role: "owner", client_account_id: "client-id" },
       });
+    if (url.pathname === "/rest/v1/portal_activity_log") return Response.json([]);
     if (url.pathname === "/rest/v1/campaigns") return Response.json([]);
     assert.equal(url.pathname, "/rest/v1/leads");
     assert.equal(url.searchParams.get("client_account_id"), "eq.client-id");
@@ -181,7 +183,7 @@ test("production analytics endpoints page through records and retain client scop
       {
         method: "GET",
         url: "/api/analytics/overview",
-        headers: { authorization: "Bearer user-token" },
+        headers: { authorization: `Bearer ${token}` },
         on() {},
       },
       res,
@@ -190,7 +192,7 @@ test("production analytics endpoints page through records and retain client scop
     assert.equal(result.totalLeads, 501);
     assert.equal(pages, 2);
     for (const route of ["by-status", "by-source", "by-campaign", "timeline", "attribution"]) {
-      await handler({ method: "GET", url: `/api/analytics/${route}`, headers: { authorization: "Bearer user-token" }, on() {} }, res);
+      await handler({ method: "GET", url: `/api/analytics/${route}`, headers: { authorization: `Bearer ${token}` }, on() {} }, res);
       assert.equal(res.statusCode, 200, route);
       if (route === "attribution") {
         assert.equal(result.total, 501);
@@ -209,7 +211,7 @@ test("production analytics endpoints page through records and retain client scop
       {
         method: "GET",
         url: "/api/analytics/overview",
-        headers: { authorization: "Bearer user-token" },
+        headers: { authorization: `Bearer ${token}` },
         on() {},
       },
       res,
