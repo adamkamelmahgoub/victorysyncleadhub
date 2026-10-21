@@ -12,7 +12,7 @@ const databaseUrl = (() => {
 export const mcpPool = new Pool({
   connectionString: databaseUrl,
   max: 2,
-  idleTimeoutMillis: 10000,
+  idleTimeoutMillis: 60000,
   connectionTimeoutMillis: 8000,
 });
 export const hashSecret = (value: string) =>
