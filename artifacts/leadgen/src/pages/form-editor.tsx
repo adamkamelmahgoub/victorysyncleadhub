@@ -1,310 +1,45 @@
-import { PageHeader } from "@/components/page-layout";
-import { useState, useEffect } from "react";
-import { useRoute, Link } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Plus, Trash2, GripVertical, Copy, Check, Save } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import { asArray } from "@/lib/data-shape";
-import { apiFetch } from "@/lib/api";
+import {useEffect,useState} from "react";
+import {Link,useRoute} from "wouter";
+import {useMutation,useQuery,useQueryClient} from "@tanstack/react-query";
+import {ArrowLeft,ArrowDown,ArrowUp,Copy,ExternalLink,Plus,Save,Trash2,Download} from "lucide-react";
+import {PageHeader} from "@/components/page-layout";
+import {Card} from "@/components/ui/card";
+import {Button} from "@/components/ui/button";
+import {Input} from "@/components/ui/input";
+import {Label} from "@/components/ui/label";
+import {Textarea} from "@/components/ui/textarea";
+import {Switch} from "@/components/ui/switch";
+import {apiFetch} from "@/lib/api";
+import {supabase} from "@/lib/supabase";
+import {useToast} from "@/hooks/use-toast";
 
-interface FormField {
-  id: string;
-  label: string;
-  fieldType: string;
-  required: boolean;
-  order: number;
-  placeholder: string | null;
-  options: string[];
-  mappedLeadField: string | null;
-}
-
-interface FormRecord {
-  id: string;
-  name: string;
-  fields?: FormField[];
-  successMessage?: string | null;
-  submissionCount?: number;
-  embedCode?: string | null;
-}
-
-const FIELD_TYPES = ["text", "email", "tel", "number", "textarea", "select", "checkbox"];
-const LEAD_FIELD_MAP = [
-  { value: "firstName", label: "First Name" },
-  { value: "lastName", label: "Last Name" },
-  { value: "email", label: "Email" },
-  { value: "phone", label: "Phone" },
-  { value: "company", label: "Company" },
-  { value: "title", label: "Job Title" },
-];
-
-function generateId() {
-  return Math.random().toString(36).slice(2, 9);
-}
-
-export default function FormEditor() {
-  const [, params] = useRoute("/forms/:id");
-  const id = params?.id ?? "";
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-
-  const formQueryKey = ["form", id];
-  const { data: form, isLoading } = useQuery({
-    queryKey: formQueryKey,
-    queryFn: () => apiFetch(`/api/forms/${id}`) as Promise<FormRecord>,
-    enabled: !!id,
-  });
-  const updateForm = useMutation({
-    mutationFn: (data: object) => apiFetch(`/api/forms/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-  });
-
-  const [fields, setFields] = useState<FormField[]>([]);
-  const [formName, setFormName] = useState("");
-  const [successMsg, setSuccessMsg] = useState("");
-  const [copiedEmbed, setCopiedEmbed] = useState(false);
-  const [dirty, setDirty] = useState(false);
-
-  useEffect(() => {
-    if (form) {
-      setFields(asArray<FormField>(form.fields));
-      setFormName(form.name);
-      setSuccessMsg(form.successMessage ?? "");
-    }
-  }, [form]);
-
-  function addField() {
-    const newField: FormField = {
-      id: generateId(),
-      label: "New Field",
-      fieldType: "text",
-      required: false,
-      order: fields.length,
-      placeholder: null,
-      options: [],
-      mappedLeadField: null,
-    };
-    setFields((f) => [...f, newField]);
-    setDirty(true);
-  }
-
-  function updateField(id: string, patch: Partial<FormField>) {
-    setFields((f) => f.map((field) => field.id === id ? { ...field, ...patch } : field));
-    setDirty(true);
-  }
-
-  function removeField(id: string) {
-    setFields((f) => f.filter((field) => field.id !== id));
-    setDirty(true);
-  }
-
-  function save() {
-    updateForm.mutate(
-      { name: formName, fields, successMessage: successMsg },
-      {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: formQueryKey });
-          setDirty(false);
-          toast({ title: "Form saved" });
-        },
-      }
-    );
-  }
-
-  function copyEmbed() {
-    if (!form?.embedCode) return;
-    navigator.clipboard.writeText(form.embedCode);
-    setCopiedEmbed(true);
-    setTimeout(() => setCopiedEmbed(false), 2000);
-    toast({ title: "Embed code copied!" });
-  }
-
-  if (isLoading) {
-    return <div className="space-y-4"><Skeleton className="h-8 w-64" /><Skeleton className="h-96 w-full" /></div>;
-  }
-  if (!form) {
-    return <div className="text-center py-20 text-muted-foreground">Form not found.</div>;
-  }
-
-  return (
-
-      <div className="page-stack"><PageHeader title="Form editor" description="Build your form, preview the fields, and manage submissions."/>
-        <div className="flex flex-wrap items-center gap-3">
-            <Link href="/forms">
-            <Button variant="ghost" size="icon" className="w-8 h-8"><ArrowLeft className="w-4 h-4" /></Button>
-          </Link>
-          <Input
-            className="text-lg font-bold bg-transparent border-transparent hover:border-border focus:border-border h-9 px-2 w-full sm:w-80"
-            value={formName}
-            onChange={(e) => { setFormName(e.target.value); setDirty(true); }}
-          />
-          <span className="text-xs text-muted-foreground">{form.submissionCount} submissions</span>
-          <div className="ml-auto flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={copyEmbed}>
-              {copiedEmbed ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
-              {copiedEmbed ? "Copied!" : "Copy Embed Code"}
-            </Button>
-            <Button size="sm" className="gap-1.5" onClick={save} disabled={!dirty || updateForm.isPending}>
-              <Save className="w-3.5 h-3.5" />
-              {updateForm.isPending ? "Saving..." : "Save"}
-            </Button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-          {/* Field builder */}
-          <div className="lg:col-span-3 space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-foreground">Fields</p>
-              <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" onClick={addField}>
-                <Plus className="w-3.5 h-3.5" /> Add Field
-              </Button>
-            </div>
-            {fields.length === 0 && (
-              <Card className="p-8 border border-dashed border-border bg-card text-center">
-                <p className="text-sm text-muted-foreground">No fields yet. Add your first field.</p>
-                <Button size="sm" variant="outline" className="mt-3 gap-1.5" onClick={addField}>
-                  <Plus className="w-3.5 h-3.5" /> Add Field
-                </Button>
-              </Card>
-            )}
-            <div className="space-y-2">
-              {fields.map((field) => (
-                <Card key={field.id} className="p-4 border border-border bg-card">
-                  <div className="flex items-center gap-2 mb-3">
-                    <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
-                    <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
-                      <div className="col-span-2">
-                        <Label className="text-xs text-muted-foreground">Label</Label>
-                        <Input
-                          className="mt-0.5 h-8 text-sm"
-                          value={field.label}
-                          onChange={(e) => updateField(field.id, { label: e.target.value })}
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Type</Label>
-                        <Select value={field.fieldType} onValueChange={(v) => updateField(field.id, { fieldType: v })}>
-                          <SelectTrigger className="mt-0.5 h-8 text-sm"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {FIELD_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    <Button variant="ghost" size="icon" className="w-7 h-7 text-muted-foreground hover:text-destructive self-end" onClick={() => removeField(field.id)}>
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <div>
-                      <Label className="text-xs text-muted-foreground">Placeholder</Label>
-                      <Input
-                        className="mt-0.5 h-8 text-sm"
-                        value={field.placeholder ?? ""}
-                        onChange={(e) => updateField(field.id, { placeholder: e.target.value || null })}
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-xs text-muted-foreground">Maps to</Label>
-                      <Select value={field.mappedLeadField ?? ""} onValueChange={(v) => updateField(field.id, { mappedLeadField: v || null })}>
-                        <SelectTrigger className="mt-0.5 h-8 text-sm"><SelectValue placeholder="Custom field" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="">Custom field</SelectItem>
-                          {LEAD_FIELD_MAP.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 mt-3">
-                    <Switch
-                      checked={field.required}
-                      onCheckedChange={(v) => updateField(field.id, { required: v })}
-                      className="scale-75"
-                    />
-                    <Label className="text-xs text-muted-foreground cursor-pointer">Required</Label>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          </div>
-
-          {/* Preview + embed */}
-          <div className="lg:col-span-2 space-y-4">
-            {/* Form preview */}
-            <Card className="p-5 border border-border bg-card">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">Preview</p>
-              <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-foreground">{formName}</h3>
-                {fields.map((field) => (
-                  <div key={field.id}>
-                    <label className="text-xs font-medium text-foreground">
-                      {field.label}{field.required && <span className="text-destructive ml-1">*</span>}
-                    </label>
-                    {field.fieldType === "textarea" ? (
-                      <div className="mt-1 h-16 rounded-md border border-border bg-background" />
-                    ) : field.fieldType === "select" ? (
-                      <div className="mt-1 h-8 rounded-md border border-border bg-background flex items-center px-2">
-                        <span className="text-xs text-muted-foreground">{field.placeholder ?? "Select..."}</span>
-                      </div>
-                    ) : field.fieldType === "checkbox" ? (
-                      <div className="mt-1 flex items-center gap-2">
-                        <div className="w-4 h-4 rounded border border-border bg-background" />
-                        <span className="text-xs text-muted-foreground">{field.placeholder ?? field.label}</span>
-                      </div>
-                    ) : (
-                      <div className="mt-1 h-8 rounded-md border border-border bg-background flex items-center px-2">
-                        <span className="text-xs text-muted-foreground">{field.placeholder ?? ""}</span>
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {fields.length > 0 && (
-                  <div className="pt-1">
-                    <div className="h-8 rounded-md bg-primary flex items-center justify-center">
-                      <span className="text-xs font-medium text-primary-foreground">Submit</span>
-                    </div>
-                  </div>
-                )}
-                {fields.length === 0 && (
-                  <p className="text-xs text-muted-foreground text-center py-4">Add fields to preview</p>
-                )}
-              </div>
-            </Card>
-
-            {/* Success message */}
-            <Card className="p-5 border border-border bg-card">
-              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Success Message</Label>
-              <Input
-                className="mt-2 text-sm"
-                value={successMsg}
-                onChange={(e) => { setSuccessMsg(e.target.value); setDirty(true); }}
-              />
-            </Card>
-
-            {/* Embed code */}
-            <Card className="p-5 border border-border bg-card">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Embed Code</p>
-                <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={copyEmbed}>
-                  {copiedEmbed ? <Check className="w-3 h-3 text-primary" /> : <Copy className="w-3 h-3" />}
-                  Copy
-                </Button>
-              </div>
-              <pre className="text-xs text-muted-foreground bg-muted/40 rounded p-3 overflow-x-auto whitespace-pre-wrap break-all font-mono">
-                {form.embedCode ?? "Save the form to generate an embed code."}
-              </pre>
-              <p className="text-xs text-muted-foreground mt-2">Paste this snippet on any webpage to display your lead capture form.</p>
-            </Card>
-          </div>
-        </div>
-      </div>
-
-  );
+type Field={id:string;label:string;fieldType:string;required:boolean;order:number;placeholder:string|null;options:string[];mappedLeadField:string|null};
+type Form={id:string;name:string;description:string|null;slug:string;status:string;fields:Field[];successMessage:string|null;submitButtonText:string;redirectUrl:string|null;publicUrl:string;embedCode:string;submissionCount:number};
+type Submission={id:string;created_at:string;data:Record<string,unknown>;lead_id:string|null;source_url:string|null;utm:Record<string,string>};
+const TYPES=["text","email","tel","number","textarea","select","checkbox","date","url"];
+const MAPPINGS=["firstName","lastName","email","phone","company","title"];
+export default function FormEditor(){
+  const [,params]=useRoute("/forms/:id"),[,legacyParams]=useRoute("/leadgen/forms/:id"),id=params?.id||legacyParams?.id||"",{toast}=useToast(),queryClient=useQueryClient();
+  const form=useQuery({queryKey:["marketing-form",id],queryFn:()=>apiFetch(`/api/forms/${id}`) as Promise<Form>,enabled:!!id});
+  const submissions=useQuery({queryKey:["marketing-submissions",id],queryFn:()=>apiFetch(`/api/forms/${id}/submissions`) as Promise<{submissions:Submission[]}>,enabled:!!id});
+  const [draft,setDraft]=useState<Form|null>(null),[dirty,setDirty]=useState(false);
+  useEffect(()=>{if(form.data&&!dirty)setDraft(form.data);},[form.data,dirty]);
+  const change=(patch:Partial<Form>)=>{setDraft(old=>old?{...old,...patch}:old);setDirty(true);};
+  const fields=draft?.fields||[];
+  const field=(index:number,patch:Partial<Field>)=>change({fields:fields.map((item,i)=>i===index?{...item,...patch}:item)});
+  const move=(index:number,step:number)=>{const next=[...fields],target=index+step;if(target<0||target>=next.length)return;[next[index],next[target]]=[next[target],next[index]];change({fields:next});};
+  const save=useMutation({mutationFn:(value:Form)=>apiFetch(`/api/forms/${id}`,{method:"PATCH",body:JSON.stringify({name:value.name,description:value.description,slug:value.slug,status:value.status,fields:value.fields,successMessage:value.successMessage,submitButtonText:value.submitButtonText,redirectUrl:value.redirectUrl})}) as Promise<Form>,onSuccess:(value)=>{setDraft(value);setDirty(false);queryClient.invalidateQueries({queryKey:["marketing-form",id]});queryClient.invalidateQueries({queryKey:["marketing-forms"]});toast({title:"Form saved"});},onError:(error)=>toast({title:"Could not save form",description:error.message,variant:"destructive"})});
+  const copy=async(text:string)=>{await navigator.clipboard.writeText(text);toast({title:"Copied to clipboard"});};
+  const exportCsv=async()=>{try{const {data}=await supabase.auth.getSession();const response=await fetch(`/api/forms/${id}/submissions/export.csv`,{headers:{authorization:`Bearer ${data.session?.access_token||""}`}});if(!response.ok)throw new Error((await response.json()).error||"Export failed");const url=URL.createObjectURL(await response.blob()),link=document.createElement("a");link.href=url;link.download=`form-${id}-submissions.csv`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(error){toast({title:"Export failed",description:error instanceof Error?error.message:String(error),variant:"destructive"});}};
+  if(form.isPending)return <Card className="p-8">Loading form…</Card>;
+  if(form.isError)return <Card className="p-8 text-destructive">Could not load form: {form.error.message} <Button onClick={()=>form.refetch()}>Retry</Button></Card>;
+  if(!draft)return null;
+  return <div className="page-stack"><PageHeader title="Form editor" description="Build, publish, and measure your lead capture form."/>
+    <div className="flex flex-wrap items-center gap-2"><Link href="/forms"><Button variant="outline" size="sm"><ArrowLeft className="mr-1 h-4 w-4"/>Forms</Button></Link><span className="text-xs text-muted-foreground">{dirty?"Unsaved changes":draft.status==="active"?"Published":"Inactive"}</span><div className="ml-auto flex gap-2"><Button variant="outline" size="sm" onClick={()=>copy(draft.embedCode)}><Copy className="mr-1 h-4 w-4"/>Embed</Button>{draft.status==="active"&&<a href={draft.publicUrl} target="_blank" rel="noreferrer"><Button variant="outline" size="sm"><ExternalLink className="mr-1 h-4 w-4"/>Open</Button></a>}<Button size="sm" disabled={!dirty||save.isPending} onClick={()=>save.mutate(draft)}><Save className="mr-1 h-4 w-4"/>{save.isPending?"Saving…":"Save"}</Button></div></div>
+    <div className="grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]"><div className="space-y-5"><Card className="space-y-4 p-5"><h2 className="font-semibold">Details</h2><div className="grid gap-3 sm:grid-cols-2"><div><Label>Name</Label><Input value={draft.name} onChange={e=>change({name:e.target.value})}/></div><div><Label>Public slug</Label><Input value={draft.slug} onChange={e=>change({slug:e.target.value})}/></div></div><div><Label>Description</Label><Textarea value={draft.description||""} onChange={e=>change({description:e.target.value})}/></div><div className="flex items-center gap-3"><Switch checked={draft.status==="active"} onCheckedChange={checked=>change({status:checked?"active":"inactive"})}/><Label>{draft.status==="active"?"Published":"Inactive"}</Label></div><p className="text-xs text-muted-foreground">Publishing requires at least one saved field. The public link is available only while active.</p></Card>
+    <Card className="space-y-4 p-5"><div className="flex items-center justify-between"><h2 className="font-semibold">Fields</h2><Button variant="outline" size="sm" onClick={()=>change({fields:[...fields,{id:crypto.randomUUID().slice(0,12),label:"New field",fieldType:"text",required:false,order:fields.length,placeholder:null,options:[],mappedLeadField:null}]})}><Plus className="mr-1 h-4 w-4"/>Add field</Button></div>{fields.length===0&&<p className="text-sm text-muted-foreground">Add at least one field to start collecting submissions.</p>}{fields.map((item,index)=><div key={item.id} className="space-y-3 rounded-xl border p-4"><div className="flex items-center gap-2"><b className="flex-1 text-sm">Field {index+1}</b><Button variant="ghost" size="icon" disabled={index===0} onClick={()=>move(index,-1)} aria-label="Move up"><ArrowUp className="h-4 w-4"/></Button><Button variant="ghost" size="icon" disabled={index===fields.length-1} onClick={()=>move(index,1)} aria-label="Move down"><ArrowDown className="h-4 w-4"/></Button><Button variant="ghost" size="icon" onClick={()=>change({fields:fields.filter((_,i)=>i!==index)})} aria-label="Remove field"><Trash2 className="h-4 w-4"/></Button></div><div className="grid gap-3 sm:grid-cols-2"><div><Label>Label</Label><Input value={item.label} onChange={e=>field(index,{label:e.target.value})}/></div><div><Label>Type</Label><select className="flex h-10 w-full rounded-md border bg-background px-3 text-sm" value={item.fieldType} onChange={e=>field(index,{fieldType:e.target.value})}>{TYPES.map(type=><option key={type}>{type}</option>)}</select></div><div><Label>Placeholder</Label><Input value={item.placeholder||""} onChange={e=>field(index,{placeholder:e.target.value})}/></div><div><Label>Maps to lead</Label><select className="flex h-10 w-full rounded-md border bg-background px-3 text-sm" value={item.mappedLeadField||""} onChange={e=>field(index,{mappedLeadField:e.target.value||null})}><option value="">Custom answer</option>{MAPPINGS.map(key=><option key={key} value={key}>{key}</option>)}</select></div></div>{item.fieldType==="select"&&<div><Label>Options (one per line)</Label><Textarea value={item.options.join("\n")} onChange={e=>field(index,{options:e.target.value.split("\n").map(v=>v.trim()).filter(Boolean)})}/></div>}<div className="flex items-center gap-2"><Switch checked={item.required} onCheckedChange={checked=>field(index,{required:checked})}/><Label>Required</Label></div></div>)}</Card>
+    <Card className="space-y-3 p-5"><h2 className="font-semibold">After submission</h2><div><Label>Button text</Label><Input value={draft.submitButtonText} onChange={e=>change({submitButtonText:e.target.value})}/></div><div><Label>Success message</Label><Input value={draft.successMessage||""} onChange={e=>change({successMessage:e.target.value})}/></div><div><Label>Redirect URL (optional, HTTPS)</Label><Input value={draft.redirectUrl||""} onChange={e=>change({redirectUrl:e.target.value})}/></div></Card></div>
+    <div className="space-y-5"><Card className="space-y-3 p-5"><h2 className="font-semibold">Preview</h2><h3 className="font-medium">{draft.name}</h3><p className="text-sm text-muted-foreground">{draft.description}</p>{fields.map(item=><div key={item.id}><Label>{item.label}{item.required?" *":""}</Label>{item.fieldType==="textarea"?<Textarea disabled placeholder={item.placeholder||""}/>:item.fieldType==="select"?<select disabled className="h-10 w-full rounded-md border bg-background px-3"><option>Choose an option</option>{item.options.map(option=><option key={option}>{option}</option>)}</select>:item.fieldType==="checkbox"?<Input type="checkbox" disabled className="h-4 w-4"/>:<Input disabled placeholder={item.placeholder||""}/>}</div>)}<Button disabled>{draft.submitButtonText||"Submit"}</Button></Card><Card className="space-y-3 p-5"><h2 className="font-semibold">Share</h2><p className="break-all text-xs text-muted-foreground">{draft.publicUrl}</p><Button variant="outline" size="sm" onClick={()=>copy(draft.publicUrl)}>Copy link</Button><pre className="whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs">{draft.embedCode}</pre></Card></div></div>
+    <Card className="space-y-3 p-5"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold">Submissions</h2><p className="text-sm text-muted-foreground">{draft.submissionCount} total; latest 500 shown</p></div><Button variant="outline" size="sm" onClick={exportCsv}><Download className="mr-1 h-4 w-4"/>Export CSV</Button></div>{submissions.isError&&<p className="text-sm text-destructive">Could not load submissions: {submissions.error.message}</p>}{submissions.isPending&&<p className="text-sm text-muted-foreground">Loading submissions…</p>}{submissions.isSuccess&&submissions.data.submissions.length===0&&<p className="text-sm text-muted-foreground">No submissions yet.</p>}<div className="space-y-2">{submissions.data?.submissions.map(row=><div key={row.id} className="rounded-lg border p-3 text-sm"><div className="flex flex-wrap justify-between gap-2"><time className="font-medium">{new Date(row.created_at).toLocaleString()}</time>{row.lead_id&&<Link href={`/leads/${row.lead_id}`} className="text-primary">Open contact</Link>}</div><p className="mt-1 text-muted-foreground">{Object.entries(row.data).map(([key,value])=>`${fields.find(f=>f.id===key)?.label||key}: ${String(value)}`).join(" · ")}</p></div>)}</div></Card>
+  </div>;
 }

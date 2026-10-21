@@ -15,7 +15,7 @@ export const PAGE_PERMISSIONS = [
   { key: "email", label: "Email Templates & Mailboxes", paths: ["/email-templates", "/email-accounts"] },
   { key: "social", label: "Social Workspace", paths: ["/social-planner", "/social-reports"] },
   { key: "automation", label: "Automation", paths: ["/automation"] },
-  { key: "forms", label: "Sites / Forms", paths: ["/forms"] },
+  { key: "forms", label: "Sites / Forms", paths: ["/forms", "/landing-pages"] },
   { key: "integrations", label: "Integrations & Webhooks", paths: ["/integrations", "/webhooks"] },
   { key: "reputation", label: "Reputation", paths: ["/reputation"] },
   { key: "reporting", label: "Reports & Attribution", paths: ["/outreach-weekly", "/analytics", "/revenue-attribution"] },

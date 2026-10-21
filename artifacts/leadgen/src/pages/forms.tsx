@@ -1,210 +1,31 @@
-import { PageTitle, PageDescription } from "@/components/page-layout";
-import { useState } from "react";
-import { useListForms, useCreateForm, useDeleteForm, getListFormsQueryKey } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Trash2, ArrowRight, FormInput, Copy, Check } from "lucide-react";
-import { Link } from "wouter";
-import { useListCampaigns } from "@workspace/api-client-react";
-import { useToast } from "@/hooks/use-toast";
-import { formatDistanceToNow, parseISO } from "date-fns";
-import { asArray, type ArrayElement } from "@/lib/data-shape";
+import {useState} from "react";
+import {Link, useLocation} from "wouter";
+import {useMutation,useQuery,useQueryClient} from "@tanstack/react-query";
+import {FileText,Plus,Copy,ExternalLink,Archive,ArrowRight} from "lucide-react";
+import {PageTitle,PageDescription} from "@/components/page-layout";
+import {Card} from "@/components/ui/card";
+import {Button} from "@/components/ui/button";
+import {Input} from "@/components/ui/input";
+import {Textarea} from "@/components/ui/textarea";
+import {Dialog,DialogContent,DialogHeader,DialogTitle} from "@/components/ui/dialog";
+import {Badge} from "@/components/ui/badge";
+import {apiFetch} from "@/lib/api";
+import {useToast} from "@/hooks/use-toast";
 
-function formatRelativeDate(value: string | null | undefined) {
-  if (!value) return "Date unavailable";
-  const date = parseISO(value);
-  return Number.isNaN(date.getTime())
-    ? "Date unavailable"
-    : formatDistanceToNow(date, { addSuffix: true });
-}
-
-export default function Forms() {
-  const [showCreate, setShowCreate] = useState(false);
-  const [copiedId, setCopiedId] = useState<number | null>(null);
-  const [form, setForm] = useState({ name: "", description: "", campaignId: "", status: "active" });
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-
-  const { data: formsResponse, isLoading } = useListForms();
-  const { data: campaigns } = useListCampaigns();
-  const forms = asArray<ArrayElement<NonNullable<typeof formsResponse>>>(formsResponse);
-  const campaignRows = asArray<ArrayElement<NonNullable<typeof campaigns>>>(campaigns);
-  const createForm = useCreateForm();
-  const deleteForm = useDeleteForm();
-
-  function handleCreate() {
-    if (!form.name.trim()) {
-      toast({ title: "Name is required", variant: "destructive" });
-      return;
-    }
-    createForm.mutate(
-      { data: { ...form, campaignId: form.campaignId ? parseInt(form.campaignId) : undefined, fields: [] } },
-      {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListFormsQueryKey() });
-          setShowCreate(false);
-          setForm({ name: "", description: "", campaignId: "", status: "active" });
-          toast({ title: "Form created" });
-        },
-      }
-    );
-  }
-
-  function handleDelete(id: number) {
-    deleteForm.mutate({ id }, {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListFormsQueryKey() });
-        toast({ title: "Form deleted" });
-      },
-    });
-  }
-
-  function copyEmbed(embedCode: string | null | undefined, id: number) {
-    if (!embedCode) return;
-    navigator.clipboard.writeText(embedCode);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
-    toast({ title: "Embed code copied!" });
-  }
-
-  return (
-    <>
-      <div className="page-stack ">
-        <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
-          <div>
-            <PageTitle>Forms</PageTitle>
-            <PageDescription>Embeddable lead capture forms</PageDescription>
-          </div>
-          <Button size="sm" onClick={() => setShowCreate(true)} className="gap-1.5">
-            <Plus className="w-4 h-4" /> New Form
-          </Button>
-        </div>
-
-        {isLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-52" />)}
-          </div>
-        ) : forms.length === 0 ? (
-          <Card className="p-12 border border-border bg-card text-center">
-            <FormInput className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-            <p className="text-foreground font-medium">No forms yet</p>
-            <p className="text-sm text-muted-foreground mt-1">Create embeddable forms to capture leads from any website</p>
-            <Button size="sm" className="mt-4" onClick={() => setShowCreate(true)}>New Form</Button>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {forms.map((f) => (
-              <Card key={f.id} className="p-5 border border-border bg-card hover:border-primary/40 transition-colors group">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Badge variant="outline" className="text-xs" style={{ borderColor: f.status === "active" ? "hsl(140 70% 50% / 0.5)" : "hsl(215 20% 65% / 0.5)", color: f.status === "active" ? "hsl(140 70% 50%)" : "hsl(215 20% 65%)" }}>
-                        {f.status}
-                      </Badge>
-                    </div>
-                    <h3 className="font-semibold text-foreground text-sm">{f.name}</h3>
-                    {f.description && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{f.description}</p>}
-                  </div>
-                  <Button
-                    variant="ghost" size="icon"
-                    className="w-7 h-7 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive flex-shrink-0 ml-2"
-                    onClick={() => handleDelete(f.id)}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-
-                <div className="flex items-center gap-4 py-3 border-y border-border my-3">
-                  <div>
-                    <p className="text-lg font-bold text-foreground">{f.submissionCount}</p>
-                    <p className="text-xs text-muted-foreground">Submissions</p>
-                  </div>
-                  <div>
-                    <p className="text-lg font-bold text-foreground">{asArray(f.fields).length}</p>
-                    <p className="text-xs text-muted-foreground">Fields</p>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Button
-                    variant="outline" size="sm"
-                    className="w-full gap-1.5 text-xs"
-                    onClick={() => copyEmbed(f.embedCode, f.id)}
-                  >
-                    {copiedId === f.id ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
-                    {copiedId === f.id ? "Copied!" : "Copy Embed Code"}
-                  </Button>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">{formatRelativeDate(f.createdAt)}</span>
-                      <Link href={`/forms/${f.id}`}>
-                      <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-primary">
-                        Edit form <ArrowRight className="w-3 h-3" />
-                      </Button>
-                    </Link>
-                  </div>
-                </div>
-              </Card>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>New Form</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <Label className="text-xs text-muted-foreground">Form Name *</Label>
-              <Input className="mt-1" placeholder="Contact Us" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-            </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">Description</Label>
-              <Textarea className="mt-1 resize-none" rows={2} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs text-muted-foreground">Campaign</Label>
-                <Select value={form.campaignId} onValueChange={(v) => setForm((f) => ({ ...f, campaignId: v }))}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="None" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">No campaign</SelectItem>
-                    {campaignRows.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">Status</Label>
-                <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="inactive">Inactive</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={createForm.isPending}>
-              {createForm.isPending ? "Creating..." : "Create Form"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-    </>
-  );
+type Form={id:string;name:string;description:string|null;status:string;slug:string;publicUrl:string;embedCode:string;submissionCount:number;fields:unknown[];updatedAt:string};
+export default function Forms(){
+  const [open,setOpen]=useState(false),[name,setName]=useState(""),[description,setDescription]=useState("");
+  const [,navigate]=useLocation(),queryClient=useQueryClient(),{toast}=useToast();
+  const list=useQuery({queryKey:["marketing-forms"],queryFn:()=>apiFetch("/api/forms") as Promise<Form[]>});
+  const create=useMutation({mutationFn:()=>apiFetch("/api/forms",{method:"POST",body:JSON.stringify({name,description,status:"inactive",fields:[]})}) as Promise<Form>,onSuccess:(form)=>{queryClient.invalidateQueries({queryKey:["marketing-forms"]});setOpen(false);setName("");setDescription("");navigate(`/forms/${form.id}`);},onError:(error)=>toast({title:"Could not create form",description:error.message,variant:"destructive"})});
+  const archive=useMutation({mutationFn:(id:string)=>apiFetch(`/api/forms/${id}`,{method:"DELETE"}),onSuccess:()=>{queryClient.invalidateQueries({queryKey:["marketing-forms"]});toast({title:"Form deactivated"});},onError:(error)=>toast({title:"Could not deactivate form",description:error.message,variant:"destructive"})});
+  const copy=async(value:string)=>{await navigator.clipboard.writeText(value);toast({title:"Copied to clipboard"});};
+  return <div className="page-stack">
+    <div className="flex flex-wrap items-center justify-between gap-4"><div><PageTitle>Forms</PageTitle><PageDescription>Capture leads from your pages or any website.</PageDescription></div><div className="flex gap-2"><Link href="/landing-pages"><Button variant="outline">Landing pages</Button></Link><Button onClick={()=>setOpen(true)}><Plus className="mr-2 h-4 w-4"/>New form</Button></div></div>
+    {list.isError&&<Card className="p-5 text-destructive">Could not load forms: {list.error.message} <Button variant="outline" size="sm" onClick={()=>list.refetch()}>Retry</Button></Card>}
+    {list.isPending&&<Card className="p-8 text-muted-foreground">Loading forms…</Card>}
+    {list.isSuccess&&list.data.length===0&&<Card className="p-12 text-center"><FileText className="mx-auto mb-3 h-9 w-9 text-muted-foreground"/><h2 className="font-semibold">Create your first form</h2><p className="mt-1 text-sm text-muted-foreground">Add fields, publish it, and share the link or embed code.</p><Button className="mt-4" onClick={()=>setOpen(true)}>New form</Button></Card>}
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{list.data?.map(form=><Card key={form.id} className="p-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><Badge variant="outline">{form.status}</Badge><h2 className="mt-2 truncate font-semibold">{form.name}</h2><p className="mt-1 text-sm text-muted-foreground line-clamp-2">{form.description||"No description"}</p></div><FileText className="h-5 w-5 text-muted-foreground"/></div><div className="my-5 flex gap-8 border-y py-3 text-sm"><div><b>{form.submissionCount}</b><span className="block text-muted-foreground">Submissions</span></div><div><b>{form.fields.length}</b><span className="block text-muted-foreground">Fields</span></div></div><div className="flex flex-wrap gap-2"><Link href={`/forms/${form.id}`}><Button size="sm">Edit <ArrowRight className="ml-1 h-3 w-3"/></Button></Link><Button variant="outline" size="sm" onClick={()=>copy(form.embedCode)}><Copy className="mr-1 h-3 w-3"/>Embed</Button>{form.status==="active"&&<a href={form.publicUrl} target="_blank" rel="noreferrer"><Button variant="outline" size="sm"><ExternalLink className="mr-1 h-3 w-3"/>Open</Button></a>}{form.status==="active"&&<Button variant="ghost" size="sm" onClick={()=>archive.mutate(form.id)}><Archive className="h-3 w-3"/><span className="sr-only">Deactivate {form.name}</span></Button>}</div></Card>)}</div>
+    <Dialog open={open} onOpenChange={setOpen}><DialogContent><DialogHeader><DialogTitle>New form</DialogTitle></DialogHeader><div className="space-y-3"><Input aria-label="Form name" placeholder="Form name" value={name} onChange={event=>setName(event.target.value)}/><Textarea aria-label="Description" placeholder="Description (optional)" value={description} onChange={event=>setDescription(event.target.value)}/><p className="text-xs text-muted-foreground">Forms begin inactive. Add fields, then publish.</p><Button disabled={!name.trim()||create.isPending} onClick={()=>create.mutate()}>{create.isPending?"Creating…":"Create form"}</Button></div></DialogContent></Dialog>
+  </div>;
 }
