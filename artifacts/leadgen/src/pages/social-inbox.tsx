@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/page-layout';
 import { apiFetch } from '@/lib/api';
 
-type Conversation = {id:string;channel:string;connected_account_id:string|null;assigned_to:string|null;participant_handle:string|null;participant_platform_id:string|null;lead_id:string|null;contact_id:string|null;company_id:string|null;legacy_company_id:string|null;status:string;intent:string;unread_count:number;last_message_at:string|null;reply_window_expires_at:string|null};
+type Conversation = {id:string;channel:string;connected_account_id:string|null;assigned_to:string|null;participant_handle:string|null;participant_platform_id:string|null;lead_id:string|null;contact_id:string|null;company_id:string|null;legacy_company_id:string|null;match_status:string;match_confidence:number|null;status:string;intent:string;unread_count:number;last_message_at:string|null;reply_window_expires_at:string|null};
 type Message = {id:string;direction:'inbound'|'outbound';body:string;created_at:string;sent_via:string|null};
 type Profile = {id:string;platform:string;handle:string;profile_url:string|null};
 type Thread = {conversation:Conversation;messages:Message[];profiles:Profile[];relatedMessages:Array<Message & {channel:string}>;canReply:boolean;manualReply:boolean};
@@ -13,7 +13,7 @@ const panel='rounded-xl border border-border bg-card shadow-sm';
 export default function SocialInbox() {
   const qc=useQueryClient();
   const [channel,setChannel]=useState('all'),[status,setStatus]=useState('open'),[intent,setIntent]=useState('all');
-  const [unmatched,setUnmatched]=useState(false),[unread,setUnread]=useState(false),[selected,setSelected]=useState<string|null>(null);
+  const [matchFilter,setMatchFilter]=useState('all'),[unread,setUnread]=useState(false),[selected,setSelected]=useState<string|null>(null);
   const [linkId,setLinkId]=useState(''),[linkType,setLinkType]=useState<'lead'|'contact'|'company'>('lead'),[error,setError]=useState('');
   const [draft,setDraft]=useState('');
   const [manualIntent,setManualIntent]=useState('unknown');
@@ -21,7 +21,7 @@ export default function SocialInbox() {
   const accounts=useQuery<{accounts:Array<{id:string;label:string}>}>({queryKey:['social-accounts'],queryFn:()=>apiFetch('/api/social-accounts')});
   const params=new URLSearchParams();
   if(channel!=='all')params.set('channel',channel);if(status!=='all')params.set('status',status);if(intent!=='all')params.set('intent',intent);
-  if(unmatched)params.set('unmatched','true');if(unread)params.set('unread','true');
+  if(matchFilter!=='all')params.set('match_status',matchFilter);if(unread)params.set('unread','true');
   if(account)params.set('connected_account_id',account);if(assignee)params.set('assigned_to',assignee);
   const list=useQuery<{conversations:Conversation[]}>({queryKey:['social-inbox',params.toString()],queryFn:()=>apiFetch(`/api/social-inbox?${params}`),refetchInterval:30000});
   const thread=useQuery<Thread>({queryKey:['social-thread',selected],queryFn:()=>apiFetch(`/api/social-inbox?id=${selected}`),enabled:!!selected,refetchInterval:30000});
@@ -51,7 +51,7 @@ export default function SocialInbox() {
       <select aria-label="Connected account" className={field} value={account} onChange={(e)=>setAccount(e.target.value)}><option value="">All accounts</option>{accounts.data?.accounts.map((item)=><option key={item.id} value={item.id}>{item.label}</option>)}</select>
       <input aria-label="Assignee ID filter" className={field+' w-40'} value={assignee} onChange={(e)=>setAssignee(e.target.value)} placeholder="Assignee UUID" />
       <label className="flex items-center gap-1 text-sm"><input type="checkbox" checked={unread} onChange={(e)=>setUnread(e.target.checked)}/> Unread</label>
-      <label className="flex items-center gap-1 text-sm"><input type="checkbox" checked={unmatched} onChange={(e)=>setUnmatched(e.target.checked)}/> Unmatched</label>
+      <select aria-label="Match status" className={field} value={matchFilter} onChange={e=>setMatchFilter(e.target.value)}>{['all','matched','suggested','unmatched','ignored'].map(value=><option key={value} value={value}>{value==='all'?'All matches':value[0].toUpperCase()+value.slice(1)}</option>)}</select>
     </div>
     <div className="grid min-h-[560px] gap-3 lg:grid-cols-[280px_minmax(0,1fr)_250px]">
       <div className={panel+' max-h-[70vh] overflow-y-auto'}>
@@ -60,7 +60,7 @@ export default function SocialInbox() {
         {list.data?.conversations.map((item)=><button key={item.id} onClick={()=>{setSelected(item.id);setError('');}} className={`w-full border-b p-3 text-left hover:bg-muted ${selected===item.id?'bg-muted':''}`}>
           <div className="flex items-center justify-between gap-2"><strong className="truncate text-sm">{item.participant_handle||item.participant_platform_id||'Unknown sender'}</strong>{item.unread_count>0&&<span className="rounded-full bg-primary px-2 text-xs text-primary-foreground">{item.unread_count}</span>}</div>
           <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground"><span className="capitalize">{item.channel} · {item.intent}</span><span>{item.last_message_at?new Date(item.last_message_at).toLocaleDateString():''}</span></div>
-          {!item.lead_id&&!item.contact_id&&!item.company_id&&!item.legacy_company_id&&<span className="mt-1 inline-block text-xs text-amber-700">Unmatched</span>}
+          {item.match_status!=='matched'&&<span className="mt-1 inline-block rounded-full bg-amber-50 px-2 py-0.5 text-xs capitalize text-amber-700">{item.match_status}</span>}
         </button>)}
         {!list.isLoading&&!list.data?.conversations.length&&<p className="p-4 text-sm text-muted-foreground">No conversations match these filters.</p>}
       </div>
@@ -98,10 +98,12 @@ export default function SocialInbox() {
           <form className="space-y-1" onSubmit={(event)=>{event.preventDefault();change.mutate({action:'create_task',title:taskTitle,due_at:new Date(Date.now()+86400000).toISOString()});setTaskTitle('');}}><input aria-label="Task title" className="w-full rounded border p-2" placeholder="Follow-up task" value={taskTitle} onChange={(event)=>setTaskTitle(event.target.value)}/><button className="w-full rounded border p-2" disabled={!taskTitle}>Create task for tomorrow</button></form></>}
         </div>
         {current.lead_id&&<div className="space-y-2"><h2 className="font-semibold">Deals and tasks</h2>{context.data?.opportunities.map((deal)=><div key={deal.id} className="rounded border p-2"><strong>{deal.title}</strong><p className="text-muted-foreground">{deal.stageName}</p></div>)}{context.data?.openTasks.map((task)=><div key={task.id} className="rounded border p-2">{task.title}{task.dueDate&&<span className="block text-xs text-muted-foreground">Due {new Date(task.dueDate).toLocaleDateString()}</span>}</div>)}</div>}
-        {!current.lead_id&&!current.contact_id&&!current.company_id&&!current.legacy_company_id&&<form className="space-y-2" onSubmit={(e)=>{e.preventDefault();change.mutate({action:'link',entity_type:linkType,entity_id:linkId});}}><h2 className="font-semibold">Link to CRM record</h2>
+        {!current.lead_id&&!current.contact_id&&!current.company_id&&!current.legacy_company_id&&<form className="space-y-2" onSubmit={(e)=>{e.preventDefault();change.mutate({action:'link',entity_type:linkType,entity_id:linkId});}}><h2 className="font-semibold">{current.match_status==='suggested'?'Confirm a lead match':'Link to CRM record'}</h2>
+          {current.match_status==='suggested'&&<p className="text-xs text-muted-foreground">A possible match needs your review before any lead is linked.</p>}
           <select aria-label="Record type" className="w-full rounded border px-2 py-2" value={linkType} onChange={(e)=>setLinkType(e.target.value as typeof linkType)}>{['lead','contact','company'].map((item)=><option key={item}>{item}</option>)}</select>
           <input aria-label="Record ID" className="w-full rounded border px-2 py-2" value={linkId} onChange={(e)=>setLinkId(e.target.value)} placeholder="Record UUID"/>
           <button className="w-full rounded bg-primary px-2 py-2 text-primary-foreground" disabled={!linkId||change.isPending}>Link record</button>
+          <button type="button" className="w-full rounded border border-border p-2 text-muted-foreground hover:bg-muted" onClick={()=>change.mutate({action:'ignore'})}>Personal conversation, ignore</button>
           <button type="button" className="w-full rounded border p-2" onClick={async()=>{try{const firstName=window.prompt('New lead name',current.participant_handle||'')?.trim();if(!firstName)return;
             const lead=await apiFetch('/api/leads',{method:'POST',body:JSON.stringify({firstName,source:`${current.channel} inbound`})}) as {id:string};
             change.mutate({action:'link',entity_type:'lead',entity_id:lead.id});}catch(reason){setError(String(reason));}}}>Create lead and link</button></form>}

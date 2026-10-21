@@ -71,6 +71,9 @@ async function callback(res:ServerResponse,url:URL){
     await mcpPool.query(`update public.connected_accounts set external_account_id=$1,connected_provider_user_id=$2,connected_handle=$3,
       username=$3,label=$4,status=$5,health=$6,last_error=null,updated_at=now() where id=$7 and organization_id=$8 and owner_user_id=$9`,
       [externalId,userId||null,handle||null,handle||`${attempt.platform} account`,status,status==='active'?'healthy':'warning',attempt.account_id,org,attempt.rep_user_id]);
+    await mcpPool.query(`insert into public.social_unipile_sync_state(connected_account_id,organization_id,next_sync_at)
+      values($1,$2,now()) on conflict(connected_account_id) do update set chat_cursor=null,
+      initial_sync_complete=false,next_sync_at=now(),updated_at=now()`,[attempt.account_id,org]);
     await mcpPool.query(`insert into public.social_workspace_audit(organization_id,actor_id,action,target_type,target_id)
       values($1,$2,'unipile_account_connected','connected_account',$3)`,[org,attempt.rep_user_id,attempt.account_id]);
     return redirect(status==='active'?'connected':'needs_attention');

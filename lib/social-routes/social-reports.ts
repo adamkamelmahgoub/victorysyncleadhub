@@ -79,7 +79,29 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
   ];
   const result=await Promise.all(queries.map((query)=>mcpPool.query(query,args)));
   const [messages,conversations,tasks,posts,byChannel,daily,campaigns,accounts,response,topPosts,postPlatforms]=result.map((row)=>row.rows);
+  const breakdownBy=url.searchParams.get('group_by')||'rep';
+  if(!['rep','account','platform','campaign','template','variant'].includes(breakdownBy))throw new Error('Invalid report grouping');
+  const dimension:Record<string,string>={rep:'rep_user_id',account:'connected_account_id',platform:'platform',campaign:'campaign_id',
+    template:'template_id',variant:'variant_key'};
+  const fact=await mcpPool.query(`select ${dimension[breakdownBy]} group_key,event_type,sum(event_count)::bigint event_count,
+    sum(value_cents)::bigint value_cents from public.metrics_daily where organization_id=$1
+    and activity_day >= (now() at time zone 'America/New_York')::date-$2::integer
+    group by 1,2 order by 1 nulls last,2`,args);
+  const [bookingTotals,revenueTotals,quality]=await Promise.all([
+    mcpPool.query(`select count(*) filter(where status='booked')::int booked,count(*) filter(where status='held')::int held,
+      count(*) filter(where status='no_show')::int no_show,count(*) filter(where status='canceled')::int canceled
+      from public.audit_bookings where organization_id=$1 and created_at>=now()-($2::int*interval '1 day')`,args),
+    mcpPool.query(`select coalesce(sum(amount_cents) filter(where not refunded),0)::bigint earned_cents,
+      coalesce(sum(abs(amount_cents)) filter(where refunded),0)::bigint refunded_cents,
+      count(*) filter(where not refunded)::int payments from public.revenue_events
+      where organization_id=$1 and occurred_at>=now()-($2::int*interval '1 day')`,args),
+    mcpPool.query(`select count(*) filter(where match_status='matched')::int matched,
+      count(*) filter(where match_status='suggested')::int suggested,
+      count(*) filter(where match_status='unmatched')::int unmatched
+      from public.conversations where organization_id=$1 and last_message_at>=now()-($2::int*interval '1 day')`,args),
+  ]);
   return json(res,200,{days,generated_at:new Date().toISOString(),timezone:'Africa/Cairo',messages:messages[0],conversations:conversations[0],tasks:tasks[0],posts:posts[0],byChannel,daily,campaigns,accounts,response:response[0],topPosts,postPlatforms,
+    factGroup:breakdownBy,facts:fact.rows,bookings:bookingTotals.rows[0],revenue:revenueTotals.rows[0],matchQuality:quality.rows[0],
     definitions:{reply_rate:'Conversations with an inbound message after their first outbound message divided by conversations with an outbound message in the period.',
       campaign_replied:'Enrollments whose current state is replied; earlier replies that later changed state may be undercounted.',
       post_metrics:'Provider reported or manually entered counts; blank insight fields are not estimates.'}});

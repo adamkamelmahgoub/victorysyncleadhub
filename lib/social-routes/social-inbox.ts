@@ -40,7 +40,9 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
       const [account]=thread.connected_account_id?await socialRest<Array<{provider:string|null;status:string;connection_mode:string}>>(`connected_accounts?id=eq.${thread.connected_account_id}&select=provider,status,connection_mode&limit=1`):[];
       const inbound=messages.some(message=>message.direction==='inbound');
       const withinWindow=Boolean(thread.last_inbound_at)&&Date.now()-new Date(thread.last_inbound_at!).getTime()<24*3600000;
-      return reply(res,200,{conversation:thread,messages,profiles,relatedMessages:relatedMessages.map((message)=>({...message,channel:channelById.get(message.conversation_id)})),manualReply:account?.connection_mode==='manual',
+      const privateThread=thread.match_status==='ignored'&&isSocialOwner(user,thread.organization_id)&&thread.assigned_to!==user.id;
+      return reply(res,200,{conversation:thread,messages:privateThread?messages.map(({body,...message})=>({...message,body:''})):messages,
+        profiles,relatedMessages:relatedMessages.map((message)=>({...message,channel:channelById.get(message.conversation_id)})),manualReply:account?.connection_mode==='manual',
         canReply:inbound&&withinWindow&&Boolean(thread.lead_id||thread.contact_id||thread.company_id||thread.legacy_company_id)&&account?.status==='active'&&Boolean(account?.provider==='unipile'||
           (providerAdapters[thread.channel as Channel]?.capabilities.canReply&&replyAllowed(thread.channel as Channel,new Date(thread.last_inbound_at!))))});
     }
@@ -53,7 +55,10 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
         const value=url.searchParams.get(name);if(value)filters.push(`${name}=eq.${encodeURIComponent(value)}`);
       }
       if(url.searchParams.get('unread')==='true')filters.push('unread_count=gt.0');
-      if(url.searchParams.get('unmatched')==='true')filters.push('contact_id=is.null','company_id=is.null','legacy_company_id=is.null','lead_id=is.null');
+      const matchStatus=url.searchParams.get('match_status');
+      if(matchStatus&&['matched','suggested','unmatched','ignored'].includes(matchStatus))filters.push(`match_status=eq.${matchStatus}`);
+      if(url.searchParams.get('unmatched')==='true')filters.push('match_status=in.(unmatched,suggested)');
+      if(matchStatus!=='ignored')filters.push('match_status=neq.ignored');
       const conversations=await socialRest<Conversation[]>(`conversations?${filters.join('&')}`);
       return reply(res,200,{conversations});
     }
@@ -93,16 +98,27 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
       const type=String(data.entity_type||'');const entityId=String(data.entity_id||'');
       if(!uuid.test(entityId)||!['lead','contact','company'].includes(type))throw new Error('Invalid link target');
       const table=type==='lead'?'leads':type==='contact'?'crm_contacts':'crm_companies';
-      let target=await socialRest<any[]>(`${table}?id=eq.${entityId}&select=id${type==='company'?',organization_id':',organization_id'}&limit=1`);
+      let target=await socialRest<any[]>(`${table}?id=eq.${entityId}&select=id,organization_id${type==='lead'?',owner_rep_id':''}&limit=1`);
       if(!target.length&&type==='company'&&thread.organization_id===LEGACY_ORG)
         target=await socialRest<any[]>(`companies?id=eq.${entityId}&select=id&limit=1`);
       if(!target.length||(target[0].organization_id||LEGACY_ORG)!==thread.organization_id)throw new Error('Target belongs to another organization');
+      if(type==='lead'&&thread.assigned_to&&!isSocialOwner(user,thread.organization_id)&&target[0].owner_rep_id!==thread.assigned_to)
+        throw new Error('This lead belongs to another rep');
       update.lead_id=type==='lead'?entityId:null;update.contact_id=type==='contact'?entityId:null;
       update.company_id=type==='company'&&target[0].organization_id?entityId:null;
       update.legacy_company_id=type==='company'&&!target[0].organization_id?entityId:null;
-      const profiles=await socialRest<any[]>(`social_profiles?organization_id=eq.${thread.organization_id}&entity_type=eq.${type}&entity_id=eq.${entityId}&platform=eq.${thread.channel}&select=id,platform_user_id&order=is_primary.desc&limit=1`);
+      update.match_status='matched';update.match_confidence=1;update.matched_at=new Date().toISOString();update.matched_by_user_id=user.id;
+      const profilePlatform=thread.channel==='linkedin'?'linkedin_person':thread.channel;
+      const profiles=await socialRest<any[]>(`social_profiles?organization_id=eq.${thread.organization_id}&entity_type=eq.${type}&entity_id=eq.${entityId}&platform=eq.${profilePlatform}&select=id,platform_user_id&order=is_primary.desc&limit=1`);
       if(profiles.length&&thread.participant_platform_id&&!profiles[0].platform_user_id)
         await socialRest(`social_profiles?id=eq.${profiles[0].id}`,{method:'PATCH',body:JSON.stringify({platform_user_id:thread.participant_platform_id})});
+      await mcpPool.query(`insert into public.social_workspace_audit(organization_id,actor_id,action,target_type,target_id,metadata)
+        values($1,$2,'conversation_linked','conversation',$3,jsonb_build_object('entity_type',$4,'entity_id',$5))`,
+        [thread.organization_id,user.id,thread.id,type,entityId]);
+    } else if(data.action==='ignore') {
+      update.match_status='ignored';update.status='closed';update.unread_count=0;
+      await mcpPool.query(`insert into public.social_workspace_audit(organization_id,actor_id,action,target_type,target_id)
+        values($1,$2,'conversation_ignored','conversation',$3)`,[thread.organization_id,user.id,thread.id]);
     } else if(data.action==='status') {
       if(!['open','snoozed','closed'].includes(data.status))throw new Error('Invalid status');update.status=data.status;
       if(data.status==='snoozed'){
