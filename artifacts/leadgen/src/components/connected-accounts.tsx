@@ -6,6 +6,7 @@ import { apiFetch } from '@/lib/api';
 type Account={id:string;platform:string;display_platform:string|null;profile_url:string|null;connection_mode:string;label:string;status:string;token_expires_at:string|null;last_webhook_at:string|null;last_error:string|null;daily_new_dm_cap:number;daily_followup_cap:number;warmup_enabled:boolean};
 type Config={configured:boolean;app_id:string;graph_version:string;callback_url:string;webhook_url:string};
 type ThreadsConfig={configured:boolean;app_id:string;callback_url:string};
+type UnipileConfig={configured:boolean;webhook_configured:boolean;callback_url:string;webhook_url:string};
 const input='mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary';
 const panel='rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6';
 
@@ -24,8 +25,10 @@ export function ConnectedAccounts(){
   const [manualUrl,setManualUrl]=useState('');
   const [threadsToken,setThreadsToken]=useState('');
   const [threadsAppId,setThreadsAppId]=useState(''),[threadsAppSecret,setThreadsAppSecret]=useState('');
+  const [unipileKey,setUnipileKey]=useState(''),[unipileWebhookSecret,setUnipileWebhookSecret]=useState(''),[unipileConsent,setUnipileConsent]=useState(false);
   const config=useQuery<Config>({queryKey:['social-oauth-config'],queryFn:()=>apiFetch('/api/social-oauth')});
   const threadsConfig=useQuery<ThreadsConfig>({queryKey:['social-threads-config'],queryFn:()=>apiFetch('/api/social-threads-oauth')});
+  const unipileConfig=useQuery<UnipileConfig>({queryKey:['social-unipile-config'],queryFn:()=>apiFetch('/api/social-unipile')});
   useEffect(()=>{if(config.data){setAppId(config.data.app_id);setVersion(config.data.graph_version);}},[config.data]);
   useEffect(()=>{if(threadsConfig.data)setThreadsAppId(threadsConfig.data.app_id);},[threadsConfig.data]);
   const accounts=useQuery<{accounts:Account[]}>({queryKey:['social-connected-accounts'],queryFn:()=>apiFetch('/api/social-accounts')});
@@ -43,11 +46,16 @@ export function ConnectedAccounts(){
   const threadsAction=useMutation({mutationFn:(data:Record<string,unknown>)=>apiFetch('/api/social-threads-oauth',{method:'POST',body:JSON.stringify(data)}) as Promise<Record<string,string|boolean>>,
     onSuccess:(result,variables)=>{if(variables.action==='configure'){setThreadsAppSecret('');setNotice('Threads app saved. Add the callback URL in the Threads developer dashboard.');void qc.invalidateQueries({queryKey:['social-threads-config']});}
       if(variables.action==='start'&&result.authorization_url)window.location.assign(String(result.authorization_url));}});
+  const unipileAction=useMutation({mutationFn:(data:Record<string,unknown>)=>apiFetch('/api/social-unipile',{method:'POST',body:JSON.stringify(data)}) as Promise<Record<string,string|boolean>>,
+    onSuccess:(result,variables)=>{if(variables.action==='configure'){setUnipileKey('');setNotice('Unipile API key saved in Supabase Vault.');void qc.invalidateQueries({queryKey:['social-unipile-config']});}
+      if(variables.action==='webhook_secret'){setUnipileWebhookSecret('');setNotice('Webhook signing secret saved.');void qc.invalidateQueries({queryKey:['social-unipile-config']});}
+      if(variables.action==='start'&&result.authorization_url)window.location.assign(String(result.authorization_url));}});
   return <section className="space-y-5" aria-label="Connected social accounts">
     <div className={panel}><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="flex items-center gap-2 text-lg font-semibold"><ShieldCheck className="h-5 w-5 text-primary"/>Connected accounts</h2>
       <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Connect business accounts from here. App secrets and account tokens are encrypted in Supabase Vault and never shown to teammates.</p></div><a className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground" href="#meta-connect">Connect Facebook &amp; Instagram</a></div>
       {new URLSearchParams(window.location.search).get('social_connect')&&<p className="mt-4 rounded-xl bg-primary/5 p-3 text-sm text-primary">{new URLSearchParams(window.location.search).get('social_connect')==='no_pages'?'Meta authorized the app but returned no Pages. Check Page access and link a Professional Instagram account.':new URLSearchParams(window.location.search).get('social_connect')==='connected_with_warnings'?'Accounts connected, but at least one Page webhook subscription needs attention. See the account error below.':'Meta returned to Victory Sync. Check the accounts below, then send a test message.'}</p>}
       {new URLSearchParams(window.location.search).get('threads_connect')&&<p className="mt-4 rounded-xl bg-primary/5 p-3 text-sm text-primary">Threads connection result: {new URLSearchParams(window.location.search).get('threads_connect')?.replaceAll('_',' ')}. Check the account below.</p>}
+      {new URLSearchParams(window.location.search).get('unipile_connect')&&<p className="mt-4 rounded-xl bg-primary/5 p-3 text-sm text-primary">Personal account connection: {new URLSearchParams(window.location.search).get('unipile_connect')?.replaceAll('_',' ')}. Check the account below.</p>}
       {notice&&<p role="status" className="mt-4 rounded-xl bg-primary/5 p-3 text-sm text-primary">{notice}</p>}
       {action.isError&&<p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{String(action.error)}</p>}
       {config.isError&&<p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">Meta app setup could not be loaded: {String(config.error)}</p>}
@@ -62,17 +70,12 @@ export function ConnectedAccounts(){
           <label>Follow-ups <input className="ml-1 w-16 rounded-lg border px-2 py-1" type="number" min="0" max="1000" defaultValue={account.daily_followup_cap} onBlur={(e)=>update.mutate({id:account.id,action:'caps',daily_followup_cap:Number(e.target.value)})}/></label>
           <label className="flex items-center gap-1"><input type="checkbox" checked={account.warmup_enabled} onChange={(e)=>update.mutate({id:account.id,action:'caps',warmup_enabled:e.target.checked})}/> Warmup</label>
           {account.platform==='facebook'&&account.connection_mode==='api'&&account.status!=='disconnected'&&<button className="text-primary hover:underline disabled:opacity-50" disabled={action.isPending} onClick={()=>action.mutate({action:'repair_page_webhook',account_id:account.id})}>Repair webhooks</button>}
+          {account.connection_mode==='unipile'&&<button className="text-primary hover:underline disabled:opacity-50" disabled={unipileAction.isPending} onClick={()=>unipileAction.mutate({action:'reconnect',account_id:account.id})}>Reconnect</button>}
           {account.status!=='disconnected'&&<button className="text-red-700 hover:underline" onClick={()=>update.mutate({id:account.id,action:'disconnect'})}>Disconnect</button>}</div>
       </div>)}</div>
       {!accounts.isLoading&&!accounts.data?.accounts.length&&<div className="mt-5 rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">No accounts connected yet. Add a public profile below or connect Meta.</div>}
     </div>
-    <div className={panel}><h3 className="font-semibold">Add any social profile</h3><p className="mt-1 text-sm text-muted-foreground">Use a profile for manual-assisted publishing and outreach on platforms without an approved API connection. Victory Sync will schedule work and track completed posts; it will never log in to a personal account or automate a browser.</p>
-      <div className="mt-4 grid gap-3 sm:grid-cols-3"><label className="text-xs font-medium">Platform<select className={input} value={manualPlatform} onChange={e=>setManualPlatform(e.target.value)}>{['linkedin','x','tiktok','threads','youtube','pinterest','bluesky','mastodon','nextdoor','yelp','instagram','facebook','other'].map(value=><option key={value} value={value}>{value}</option>)}</select></label>
-        <label className="text-xs font-medium">Account label<input className={input} value={manualLabel} onChange={e=>setManualLabel(e.target.value)} placeholder="Victory Sync"/></label>
-        <label className="text-xs font-medium">Public profile URL<input className={input} type="url" value={manualUrl} onChange={e=>setManualUrl(e.target.value)} placeholder="https://..."/></label></div>
-      {manual.isError&&<p role="alert" className="mt-3 text-sm text-red-700">{String(manual.error)}</p>}
-      <button className="mt-4 rounded-xl border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50" disabled={!manualLabel||!manualUrl||manual.isPending} onClick={()=>manual.mutate()}>Add profile</button>
-    </div>
+    <div className="px-1"><h2 className="text-lg font-semibold">API connections</h2><p className="mt-1 text-sm text-muted-foreground">Connect supported business publishing and messaging accounts. Personal Instagram and LinkedIn connections use a separate consent flow.</p></div>
     <div className={panel}><h3 className="font-semibold">Threads API</h3><p className="mt-1 text-sm text-muted-foreground">Authorize your Threads account to schedule text, image, or video posts and read supported post insights. Enter your Threads app credentials here once; no server environment variables are needed.</p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-xs font-medium">Threads App ID<input className={input} value={threadsAppId} onChange={e=>setThreadsAppId(e.target.value)} inputMode="numeric"/></label><label className="text-xs font-medium">Threads App Secret<input className={input} type="password" autoComplete="new-password" value={threadsAppSecret} onChange={e=>setThreadsAppSecret(e.target.value)} placeholder={threadsConfig.data?.configured?'Enter to rotate secret':'Paste app secret'}/></label></div>
       <div className="mt-3 rounded-lg bg-muted/50 p-3 text-xs"><strong>OAuth callback</strong><div className="mt-1 flex items-center gap-2 break-all text-muted-foreground">{threadsConfig.data?.callback_url||'Loading…'}<button type="button" title="Copy Threads callback" onClick={()=>void navigator.clipboard.writeText(threadsConfig.data?.callback_url||'')}><Copy className="h-4 w-4"/></button></div></div>
@@ -95,5 +98,23 @@ export function ConnectedAccounts(){
           <label className="block text-xs font-medium">Cloud API access token<input className={input} type="password" autoComplete="new-password" value={waToken} onChange={(e)=>setWaToken(e.target.value)}/></label></div>
         <button className="mt-4 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50" disabled={!config.data?.configured||!wabaId||!phoneId||!waToken||action.isPending} onClick={()=>action.mutate({action:'whatsapp',waba_id:wabaId,phone_number_id:phoneId,access_token:waToken})}>Connect WhatsApp Business</button>
       </div></div>}
+    <div className={panel}><h3 className="font-semibold">Personal Instagram and LinkedIn · Unipile</h3><p className="mt-1 text-sm text-muted-foreground">Each teammate authorizes their own account through Unipile hosted authentication. Victory Sync can sync messages and allow a human reply after an inbound message. First contact, follows, likes, and connection requests stay manual.</p>
+      <label className="mt-4 block text-xs font-medium">Unipile API key (workspace owner)<input className={input} type="password" autoComplete="new-password" value={unipileKey} onChange={e=>setUnipileKey(e.target.value)} placeholder={unipileConfig.data?.configured?'Enter to rotate key':'Paste Unipile API key'}/></label>
+      <div className="mt-3 space-y-3 rounded-xl bg-muted/50 p-3 text-xs">{[['Hosted auth callback',unipileConfig.data?.callback_url],['Signed webhook endpoint',unipileConfig.data?.webhook_url]].map(([label,url])=><div key={label}><strong>{label}</strong><div className="mt-1 flex items-center gap-2 break-all text-muted-foreground">{url||'Loading'}<button type="button" title={`Copy ${label}`} onClick={()=>void navigator.clipboard.writeText(url||'')}><Copy className="h-4 w-4"/></button></div></div>)}</div>
+      <button className="mt-3 rounded-xl border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50" disabled={!unipileKey||unipileAction.isPending} onClick={()=>unipileAction.mutate({action:'configure',api_key:unipileKey})}>Save API key</button>
+      <label className="mt-4 block text-xs font-medium">Webhook signing secret<input className={input} type="password" autoComplete="new-password" value={unipileWebhookSecret} onChange={e=>setUnipileWebhookSecret(e.target.value)} placeholder={unipileConfig.data?.webhook_configured?'Enter to rotate secret':'Paste from Unipile webhook endpoint'}/></label>
+      <button className="mt-3 rounded-xl border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50" disabled={!unipileConfig.data?.configured||!unipileWebhookSecret||unipileAction.isPending} onClick={()=>unipileAction.mutate({action:'webhook_secret',secret:unipileWebhookSecret})}>Save webhook secret</button>
+      <label className="mt-5 flex items-start gap-2 text-sm"><input className="mt-1" type="checkbox" checked={unipileConsent} onChange={e=>setUnipileConsent(e.target.checked)}/><span>I own or am authorized to connect this account and consent to message synchronization.</span></label>
+      <div className="mt-3 flex flex-wrap gap-2">{(['instagram','linkedin'] as const).map(platform=><button key={platform} className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50" disabled={!unipileConfig.data?.configured||!unipileConfig.data?.webhook_configured||!unipileConsent||unipileAction.isPending} onClick={()=>unipileAction.mutate({action:'start',platform,consent:true})}>Connect personal {platform==='instagram'?'Instagram':'LinkedIn'} <ExternalLink className="ml-1 inline h-4 w-4"/></button>)}</div>
+      {unipileAction.isError&&<p role="alert" className="mt-3 text-sm text-destructive">{String(unipileAction.error)}</p>}
+    </div>
+    <div className="px-1"><h2 className="text-lg font-semibold">Manual profiles</h2><p className="mt-1 text-sm text-muted-foreground">For platforms without a supported API connection, schedule work and record outcomes from your own device.</p></div>
+    <div className={panel}><h3 className="font-semibold">Add a manual profile</h3><p className="mt-1 text-sm text-muted-foreground">Victory Sync opens the public profile and keeps your queue and reports organized.</p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-3"><label className="text-xs font-medium">Platform<select className={input} value={manualPlatform} onChange={e=>setManualPlatform(e.target.value)}>{['linkedin','x','tiktok','threads','youtube','pinterest','bluesky','mastodon','nextdoor','yelp','instagram','facebook','other'].map(value=><option key={value} value={value}>{value}</option>)}</select></label>
+        <label className="text-xs font-medium">Account label<input className={input} value={manualLabel} onChange={e=>setManualLabel(e.target.value)} placeholder="Victory Sync"/></label>
+        <label className="text-xs font-medium">Public profile URL<input className={input} type="url" value={manualUrl} onChange={e=>setManualUrl(e.target.value)} placeholder="https://..."/></label></div>
+      {manual.isError&&<p role="alert" className="mt-3 text-sm text-red-700">{String(manual.error)}</p>}
+      <button className="mt-4 rounded-xl border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50" disabled={!manualLabel||!manualUrl||manual.isPending} onClick={()=>manual.mutate()}>Add profile</button>
+    </div>
   </section>;
 }

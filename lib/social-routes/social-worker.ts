@@ -6,12 +6,69 @@ import { syncLegacyInbound } from '../social-legacy-sync.js';
 import { classifyIntent } from '../social-intent.js';
 
 export const config = { maxDuration: 60 };
-type Job = { id: string; provider: string; payload: InboundEvent | MessageStatusEvent; attempts: number };
+type Job = { id: string; provider: string; payload: InboundEvent | MessageStatusEvent | Record<string,unknown>; attempts: number };
 type Account = { id: string; organization_id: string };
 type Profile = { entity_type: string; entity_id: string };
 
+async function processUnipileEvent(raw:Record<string,unknown>){
+  const accountId=String(raw.account_id||''),type=String(raw.type||'');
+  const accounts=await socialRest<Array<{id:string;organization_id:string;platform:string;owner_user_id:string|null}>>(
+    `connected_accounts?provider=eq.unipile&external_account_id=eq.${encodeURIComponent(accountId)}&select=id,organization_id,platform,owner_user_id&limit=2`);
+  if(accounts.length!==1)throw new Error('No unique Unipile account for event');
+  const account=accounts[0],payload=(raw.payload||{}) as Record<string,unknown>;
+  if(type.startsWith('account.status.')){
+    const state=type.slice('account.status.'.length);
+    const status=state==='running'?'active':state==='disconnected'?'disconnected':'error';
+    await socialRest(`connected_accounts?id=eq.${account.id}`,{method:'PATCH',body:JSON.stringify({status,health:status==='active'?'healthy':'warning',
+      last_error:status==='active'?null:String(payload.reason||state),last_webhook_at:new Date().toISOString()})});
+    return;
+  }
+  if(type!=='message.new')return;
+  const messageId=String(payload.id||''),chatId=String(payload.chat_id||''),senderId=String(payload.sender_id||'');
+  if(!messageId||!chatId||!senderId)throw new Error('Incomplete Unipile message');
+  const outbound=payload.is_sender===true;
+  type Conversation={id:string;company_id:string|null;contact_id:string|null;lead_id:string|null};
+  let threads=await socialRest<Conversation[]>(`conversations?connected_account_id=eq.${account.id}&external_thread_id=eq.${encodeURIComponent(chatId)}&select=id,company_id,contact_id,lead_id&limit=1`);
+  if(!threads.length&&outbound)return; // The chat needs a verified participant before attributing a phone echo.
+  if(!threads.length){
+    const matches=await socialRest<Profile[]>(`social_profiles?organization_id=eq.${account.organization_id}&platform=eq.${account.platform==='linkedin'?'linkedin_person':account.platform}&platform_user_id=eq.${encodeURIComponent(senderId)}&select=entity_type,entity_id&limit=2`);
+    const matched=matches.length===1?matches[0]:undefined;
+    threads=await socialRest<Conversation[]>('conversations?on_conflict=organization_id,channel,connected_account_id,external_thread_id',{
+      method:'POST',headers:{prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({organization_id:account.organization_id,channel:account.platform,
+        connected_account_id:account.id,external_thread_id:chatId,participant_platform_id:senderId,assigned_to:account.owner_user_id,
+        match_status:matched?'matched':'unmatched',contact_id:matched?.entity_type==='contact'?matched.entity_id:null,
+        company_id:matched?.entity_type==='company'?matched.entity_id:null,lead_id:matched?.entity_type==='lead'?matched.entity_id:null})});
+  }
+  const thread=threads[0];if(!thread)throw new Error('Unipile conversation could not be created');
+  const now=String(payload.timestamp||raw.created_at||new Date().toISOString()),body=String(payload.text||'').slice(0,50000);
+  if(outbound&&body){
+    const manual=await socialRest<Array<{id:string}>>(`messages?conversation_id=eq.${thread.id}&direction=eq.outbound&sent_via=eq.manual_assisted&external_message_id=is.null&body=eq.${encodeURIComponent(body)}&created_at=gte.${encodeURIComponent(new Date(Date.now()-10*60*1000).toISOString())}&select=id&order=created_at.desc&limit=2`);
+    if(manual.length===1){await socialRest(`messages?id=eq.${manual[0].id}`,{method:'PATCH',body:JSON.stringify({external_message_id:messageId,status:'sent'})});return;}
+  }
+  const inserted=await socialRest<Array<{id:string}>>('messages?on_conflict=conversation_id,external_message_id',{
+    method:'POST',headers:{prefer:'resolution=ignore-duplicates,return=representation'},body:JSON.stringify({organization_id:account.organization_id,
+      conversation_id:thread.id,direction:outbound?'outbound':'inbound',body,attachments:payload.attachments||[],
+      external_message_id:messageId,sender_provider_id:senderId,sent_via:outbound?'echo':null,status:'sent',created_at:now})});
+  if(!inserted.length)return;
+  await socialRest(`conversations?id=eq.${thread.id}`,{method:'PATCH',body:JSON.stringify(outbound?
+    {last_outbound_at:now,last_message_at:now}:{last_inbound_at:now,last_message_at:now,unread_count:1,
+      reply_window_expires_at:new Date(new Date(now).getTime()+24*3600000).toISOString()})});
+  if(!outbound){
+    const entity=thread.lead_id?{type:'lead',id:thread.lead_id}:thread.contact_id?{type:'contact',id:thread.contact_id}:thread.company_id?{type:'company',id:thread.company_id}:null;
+    if(entity)await socialRest(`dm_enrollments?organization_id=eq.${account.organization_id}&state=in.(queued,step_due,sent)&entity_type=eq.${entity.type}&entity_id=eq.${entity.id}`,
+      {method:'PATCH',body:JSON.stringify({state:'replied',stopped_at:new Date().toISOString(),stop_reason:'inbound_reply'})});
+    const intent=await classifyIntent(body).catch(()=> 'unknown' as const);
+    await socialRest(`conversations?id=eq.${thread.id}`,{method:'PATCH',body:JSON.stringify({intent})});
+  }
+  if(thread.company_id)await socialRest('crm_activities',{method:'POST',body:JSON.stringify({organization_id:account.organization_id,
+    company_id:thread.company_id,contact_id:thread.contact_id,type:outbound?'dm_sent':'dm_reply',body,occurred_at:now,
+    metadata:{channel:account.platform,external_message_id:messageId,conversation_id:thread.id}})});
+  await socialRest(`connected_accounts?id=eq.${account.id}`,{method:'PATCH',body:JSON.stringify({last_webhook_at:new Date().toISOString(),last_sync_at:new Date().toISOString()})});
+}
+
 async function processEvent(job: Job) {
-  const event = job.payload;
+  if(job.provider==='unipile')return processUnipileEvent(job.payload as Record<string,unknown>);
+  const event = job.payload as InboundEvent | MessageStatusEvent;
   if('kind' in event){
     const accounts=await socialRest<Account[]>(`connected_accounts?platform=eq.${event.channel}&external_account_id=eq.${encodeURIComponent(event.accountId)}&select=id,organization_id&limit=2`);
     if(accounts.length!==1)throw new Error('No unique connected account for message status');

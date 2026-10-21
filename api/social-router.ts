@@ -17,6 +17,7 @@ import oauth from '../lib/social-routes/social-oauth.js';
 import posts from '../lib/social-routes/social-posts.js';
 import reports from '../lib/social-routes/social-reports.js';
 import threadsOauth from '../lib/social-routes/social-threads-oauth.js';
+import unipile from '../lib/social-routes/social-unipile.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const handlers: Record<string, (req: IncomingMessage, res: ServerResponse) => Promise<void>> = {
@@ -27,6 +28,7 @@ const handlers: Record<string, (req: IncomingMessage, res: ServerResponse) => Pr
   'social-access': access, 'social-oauth': oauth,
   'social-posts': posts, 'social-reports': reports,
   'social-threads-oauth': threadsOauth,
+  'social-unipile': unipile,
 };
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {

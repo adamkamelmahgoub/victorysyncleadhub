@@ -10,5 +10,5 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
     const user=await socialActor(req);
     let raw='';for await(const part of req){raw+=part;if(raw.length>10000)throw new Error('Request too large');}
     const data=JSON.parse(raw||'{}');return reply(res,200,await sendSocialReply(user.id,String(data.conversation_id||''),String(data.body||''),user));
-  }catch(error){return reply(res,400,{error:error instanceof Error?error.message:'Reply failed'});}
+  }catch(error){const message=error instanceof Error?error.message:'Reply failed';return reply(res,message.includes('requires an inbound message')?403:400,{error:message});}
 }

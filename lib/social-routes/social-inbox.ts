@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { socialActor, socialActorOrganizations } from '../social-workspace-auth.js';
+import { socialActor, socialActorOrganizations,isSocialOwner } from '../social-workspace-auth.js';
 import { providerAdapters, replyAllowed, type Channel } from '../social-providers.js';
 import { socialRest } from '../social-service.js';
 
@@ -22,6 +22,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
       if(!rows.length)return reply(res,404,{error:'Conversation not found'});
       const thread=rows[0];
       if(!organizations.includes(thread.organization_id))throw new Error('Organization access denied');
+      if(!isSocialOwner(user,thread.organization_id)&&thread.assigned_to!==user.id)throw new Error('Conversation is assigned to another teammate');
       const [messages,profiles]=await Promise.all([
         socialRest<any[]>(`messages?conversation_id=eq.${id}&select=*&order=created_at.asc&limit=500`),
         thread.lead_id||thread.contact_id||thread.company_id||thread.legacy_company_id
@@ -35,14 +36,18 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
       const relatedMessages=related.length?await socialRest<Array<{id:string;conversation_id:string;direction:string;body:string;created_at:string}>>(
         `messages?conversation_id=in.(${related.map((item)=>item.id).join(',')})&select=id,conversation_id,direction,body,created_at&order=created_at.desc&limit=200`):[];
       const channelById=new Map(related.map((item)=>[item.id,item.channel]));
+      const [account]=thread.connected_account_id?await socialRest<Array<{provider:string|null;status:string}>>(`connected_accounts?id=eq.${thread.connected_account_id}&select=provider,status&limit=1`):[];
+      const inbound=messages.some(message=>message.direction==='inbound');
+      const withinWindow=Boolean(thread.last_inbound_at)&&Date.now()-new Date(thread.last_inbound_at!).getTime()<24*3600000;
       return reply(res,200,{conversation:thread,messages,profiles,relatedMessages:relatedMessages.map((message)=>({...message,channel:channelById.get(message.conversation_id)})),
-        canReply:Boolean(providerAdapters[thread.channel as Channel]?.capabilities.canReply)&&Boolean(thread.connected_account_id)&&
-          replyAllowed(thread.channel as any,thread.last_inbound_at?new Date(thread.last_inbound_at):null)});
+        canReply:inbound&&withinWindow&&Boolean(thread.lead_id||thread.contact_id||thread.company_id||thread.legacy_company_id)&&account?.status==='active'&&Boolean(account?.provider==='unipile'||
+          (providerAdapters[thread.channel as Channel]?.capabilities.canReply&&replyAllowed(thread.channel as Channel,new Date(thread.last_inbound_at!))))});
     }
     if(req.method==='GET') {
       if(!organizations.length)return reply(res,200,{conversations:[]});
       const filters=['select=*','order=last_message_at.desc.nullslast','limit=100'];
       filters.push(`organization_id=in.(${organizations.join(',')})`);
+      if(!isSocialOwner(user,LEGACY_ORG))filters.push(`assigned_to=eq.${user.id}`);
       for(const name of ['channel','status','intent','connected_account_id','assigned_to']) {
         const value=url.searchParams.get(name);if(value)filters.push(`${name}=eq.${encodeURIComponent(value)}`);
       }
@@ -58,6 +63,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
     if(!rows.length)return reply(res,404,{error:'Conversation not found'});
     const thread=rows[0];
     if(!organizations.includes(thread.organization_id))throw new Error('Organization access denied');
+    if(!isSocialOwner(user,thread.organization_id)&&thread.assigned_to!==user.id)throw new Error('Conversation is assigned to another teammate');
     const update:Record<string,unknown>={updated_at:new Date().toISOString()};
     if(data.action==='link') {
       const type=String(data.entity_type||'');const entityId=String(data.entity_id||'');

@@ -1,6 +1,6 @@
 import type { IncomingMessage,ServerResponse } from 'node:http';
 import { socialRest } from '../social-service.js';
-import { socialActor,socialActorOrganizations,assertSocialPermission,SOCIAL_WORKSPACE_ORG_ID } from '../social-workspace-auth.js';
+import { socialActor,socialActorOrganizations,assertSocialPermission,isSocialOwner,SOCIAL_WORKSPACE_ORG_ID } from '../social-workspace-auth.js';
 import {socialVaultWrite} from '../social-vault.js';
 import {mcpPool} from '../mcp-auth.js';
 export const config={api:{bodyParser:false},maxDuration:30};
@@ -8,7 +8,8 @@ function reply(res:ServerResponse,status:number,data:unknown){res.statusCode=sta
 export default async function handler(req:IncomingMessage,res:ServerResponse){try{const user=await socialActor(req);
   const orgs=[...new Set([...socialActorOrganizations(user,'accounts_manage'),...socialActorOrganizations(user,'inbox_view')])];
   if(req.method==='GET'){if(!orgs.length)return reply(res,200,{accounts:[]});
-    const accounts=await socialRest<any[]>(`connected_accounts?organization_id=in.(${orgs.join(',')})&select=id,organization_id,platform,display_platform,profile_url,connection_mode,label,external_account_id,username,scopes,status,token_expires_at,daily_new_dm_cap,daily_followup_cap,warmup_enabled,warmup_start_at,warmup_daily_increment,last_webhook_at,last_error,created_at&order=platform.asc,label.asc`);return reply(res,200,{accounts});}
+    const accounts=await socialRest<any[]>(`connected_accounts?organization_id=in.(${orgs.join(',')})&select=id,organization_id,platform,display_platform,profile_url,connection_mode,label,external_account_id,username,scopes,status,token_expires_at,daily_new_dm_cap,daily_followup_cap,warmup_enabled,warmup_start_at,warmup_daily_increment,last_webhook_at,last_error,created_at,owner_user_id,health,last_sync_at&order=platform.asc,label.asc`);
+    return reply(res,200,{accounts:isSocialOwner(user,SOCIAL_WORKSPACE_ORG_ID)?accounts:accounts.filter(account=>account.owner_user_id===user.id||!account.owner_user_id)});}
   if(!['PATCH','POST'].includes(req.method||''))return reply(res,405,{error:'Method not allowed'});
   let raw='';for await(const part of req){raw+=part;if(raw.length>10000)throw new Error('Request too large');}
   const data=JSON.parse(raw||'{}');
@@ -44,9 +45,10 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
   }
   const id=String(data.id||'');
   if(!/^[0-9a-f-]{36}$/i.test(id))throw new Error('Invalid account ID');
-  const target=await socialRest<Array<{organization_id:string}>>(`connected_accounts?id=eq.${id}&select=organization_id&limit=1`);
+  const target=await socialRest<Array<{organization_id:string;owner_user_id:string|null}>>(`connected_accounts?id=eq.${id}&select=organization_id,owner_user_id&limit=1`);
   if(!target.length)throw new Error('Account not found');
   assertSocialPermission(user,target[0].organization_id,'accounts_manage');
+  if(target[0].owner_user_id&&target[0].owner_user_id!==user.id&&!isSocialOwner(user,target[0].organization_id))throw new Error('Account owner access required');
   const update:Record<string,unknown>={updated_at:new Date().toISOString()};
   if(data.action==='disconnect')update.status='disconnected';
   else if(data.action==='caps'){
