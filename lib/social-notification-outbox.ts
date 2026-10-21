@@ -17,6 +17,10 @@ export function renderSocialAlert(payload:Record<string,unknown>):string{
     const amount=Number.isFinite(cents)?`$${(Math.abs(cents)/100).toFixed(2)}`:'a payment';
     return `${event==='refund'?'Refund recorded':'Payment received'}: ${amount}.${link}`;
   }
+  if(event==='webhook_silence'){
+    const account=String(payload.account_label||'Social account').slice(0,100);
+    return `No social message webhook received for 24 hours: ${account}. Reconciliation has been queued.\nhttps://app.victorysync.com/settings`;
+  }
   throw new Error('Unsupported social alert');
 }
 

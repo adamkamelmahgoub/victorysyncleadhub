@@ -14,3 +14,6 @@ test('payment and refund values are formatted from cents',()=>{
 test('unsupported alerts never produce a Slack message',()=>{
   assert.throws(()=>renderSocialAlert({event:'unknown'}));
 });
+test('webhook silence alert points to account health',()=>{
+  assert.match(renderSocialAlert({event:'webhook_silence',account_label:'Rep Instagram'}),/Rep Instagram/);
+});

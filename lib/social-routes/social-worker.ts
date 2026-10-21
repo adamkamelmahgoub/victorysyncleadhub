@@ -90,7 +90,9 @@ async function processUnipileEvent(raw:Record<string,unknown>){
   if(thread.company_id)await socialRest('crm_activities',{method:'POST',body:JSON.stringify({organization_id:account.organization_id,
     company_id:thread.company_id,contact_id:thread.contact_id,type:outbound?'dm_sent':'dm_reply',body,occurred_at:now,
     metadata:{channel:account.platform,external_message_id:messageId,conversation_id:thread.id}})});
-  await socialRest(`connected_accounts?id=eq.${account.id}`,{method:'PATCH',body:JSON.stringify({last_webhook_at:new Date().toISOString(),last_sync_at:new Date().toISOString()})});
+  await socialRest(`connected_accounts?id=eq.${account.id}`,{method:'PATCH',body:JSON.stringify(raw.source==='reconciliation'
+    ?{last_sync_at:new Date().toISOString()}
+    :{last_webhook_at:new Date().toISOString(),last_sync_at:new Date().toISOString(),health:'healthy',last_error:null})});
 }
 
 async function reconcileUnipile(){
@@ -121,7 +123,7 @@ async function reconcileUnipile(){
         if(!state.initial_sync_complete&&(!Number.isFinite(timestamp)||timestamp<Date.now()-30*86400000))continue;
         if(!message.id)continue;
         jobs.push({provider:'unipile',event_key:`sync:${state.external_account_id}:${String(message.id)}`,
-          payload:{account_id:state.external_account_id,type:'message.new',payload:{...message,chat_id:chatId}},status:'queued'});
+          payload:{account_id:state.external_account_id,type:'message.new',source:'reconciliation',payload:{...message,chat_id:chatId}},status:'queued'});
         messages++;
       }
       if(jobs.length)await socialRest('social_webhook_events?on_conflict=provider,event_key',{
