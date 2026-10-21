@@ -4,7 +4,7 @@ This feature is scoped to Victory Sync's internal organization. It uses the exis
 
 ## Deploy
 
-1. Apply `supabase/migrations/20261105_marketing_forms_landing_pages.sql` after the existing social workspace migrations. `node scripts/apply-marketing-migration.mjs` reads `DATABASE_URL` or `SOCIAL_DB_ENV_FILE` and uses the Supabase transaction pooler when the supplied URL is a shared session pooler URL.
+1. Apply `supabase/migrations/20261105_marketing_forms_landing_pages.sql`, then `supabase/migrations/20261106_marketing_internal_boundary.sql`, after the existing social workspace migrations. `node scripts/apply-marketing-migration.mjs` applies the first file; pass the second filename as an argument to apply its org boundary. The script reads `DATABASE_URL` or `SOCIAL_DB_ENV_FILE` and uses the Supabase transaction pooler when the supplied URL is a shared session pooler URL.
 2. Deploy the Vercel app. The `vercel.json` routes direct `/api/forms`, `/api/landing-pages`, `/f/{slug}`, and `/p/{slug}` to the marketing API.
 3. Confirm **Forms** and **Landing pages** appear in the Marketing navigation. The existing database URL, Supabase URL, and Supabase anon key are required. No new provider environment variable is needed.
 
