@@ -31,6 +31,14 @@ async function run(who:McpIdentity,name:string,args:unknown,write:boolean,fn:(db
   }finally{db.release();}
 }
 function allowed(orgs:string[],org:string){if(org!==SOCIAL_WORKSPACE_ORG_ID||!orgs.includes(org))throw new Error('Internal social workspace access denied');}
+async function requireInboxView(db:PoolClient,userId:string){
+  const access=await db.query(`select 1 from public.profiles where id=$1 and global_role='platform_admin'
+    union all select 1 from public.team_members m left join public.social_team_permissions p on p.team_member_id=m.id
+    where m.auth_user_id=$1 and m.org_id=$2 and m.status='active' and m.client_account_id is null
+      and (m.role in ('owner','admin') or 'inbox_view'=any(coalesce(p.permissions,'{}'::text[]))) limit 1`,
+    [userId,SOCIAL_WORKSPACE_ORG_ID]);
+  if(!access.rowCount)throw new Error('Inbox access required');
+}
 function tool(server:McpServer,who:McpIdentity,name:string,description:string,shape:z.ZodRawShape,write:boolean,
   fn:(db:PoolClient,args:any,orgs:string[])=>Promise<unknown>){
   const inputSchema='organization_id' in shape?{...shape,organization_id:id.optional()}:shape;
@@ -138,12 +146,20 @@ export function registerSocialMcpTools(server:McpServer,who:McpIdentity){
       return found;});
   tool(server,who,'list_conversations','List CRM conversations by organization and optional channel.',
     {organization_id:id,channel:z.string().optional(),limit:z.number().int().min(1).max(100).optional()},false,
-    async(db,a,orgs)=>{allowed(orgs,a.organization_id);return(await db.query(`select * from public.conversations
+    async(db,a,orgs)=>{allowed(orgs,a.organization_id);await requireInboxView(db,who.userId);return(await db.query(`select * from public.conversations
       where organization_id=$1 and ($2::text is null or channel=$2) order by last_message_at desc nulls last limit $3`,
       [a.organization_id,a.channel||null,a.limit||50])).rows;});
+  tool(server,who,'refresh_social_inbox','Queue a fresh Unipile DM sync for all connected accounts or one account.',
+    {connected_account_id:id.optional()},true,
+    async(db,a,orgs)=>{allowed(orgs,SOCIAL_WORKSPACE_ORG_ID);await requireInboxView(db,who.userId);
+      const queued=await db.query(`update public.social_unipile_sync_state s set next_sync_at=now(),updated_at=now()
+        from public.connected_accounts a where a.id=s.connected_account_id and a.organization_id=$1
+        and a.provider='unipile' and a.status in ('active','error') and a.external_account_id is not null
+        and ($2::uuid is null or a.id=$2) returning a.id`,[SOCIAL_WORKSPACE_ORG_ID,a.connected_account_id||null]);
+      return {queued_accounts:queued.rowCount,account_ids:queued.rows.map(row=>row.id)};});
   tool(server,who,'get_conversation','Get a thread and its messages.',{conversation_id:id},false,
     async(db,a,orgs)=>{const q=await db.query(`select * from public.conversations where id=$1`,[a.conversation_id]);if(!q.rows.length)throw new Error('Conversation not found');
-      allowed(orgs,q.rows[0].organization_id);const messages=await db.query(`select * from public.messages where conversation_id=$1 order by created_at limit 500`,[a.conversation_id]);
+      allowed(orgs,q.rows[0].organization_id);await requireInboxView(db,who.userId);const messages=await db.query(`select * from public.messages where conversation_id=$1 order by created_at limit 500`,[a.conversation_id]);
       return {conversation:q.rows[0],messages:messages.rows};});
   tool(server,who,'draft_dm','Render a campaign template as a draft without sending it.',
     {organization_id:id,template_id:id,first_name:z.string().optional(),company:z.string().optional(),city:z.string().optional(),industry:z.string().optional(),google_rating:z.string().optional(),review_count:z.string().optional()},false,
@@ -166,7 +182,7 @@ export function registerSocialMcpTools(server:McpServer,who:McpIdentity){
       where t.organization_id=$1 and t.status='due' and t.due_at<=now() and ($2::uuid is null or t.connected_account_id=$2)
       order by t.due_at limit 100`,[a.organization_id,a.connected_account_id||null])).rows;});
   tool(server,who,'list_connected_accounts','List account health without tokens.',{organization_id:id},false,
-    async(db,a,orgs)=>{allowed(orgs,a.organization_id);return(await db.query(`select id,platform,label,username,status,token_expires_at,
+    async(db,a,orgs)=>{allowed(orgs,a.organization_id);await requireInboxView(db,who.userId);return(await db.query(`select id,platform,label,username,status,token_expires_at,
       daily_new_dm_cap,daily_followup_cap,warmup_enabled,last_webhook_at,last_error from public.connected_accounts
       where organization_id=$1 order by platform,label`,[a.organization_id])).rows;});
   tool(server,who,'log_dm_sent','Record a DM already sent manually; does not send a message.',

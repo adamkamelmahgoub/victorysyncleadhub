@@ -33,14 +33,21 @@ export function chooseSocialMatch(candidates:Candidate[],input:MatchInput):Match
 }
 
 export async function matchSocialLead(input:MatchInput):Promise<MatchResult>{
-  if(!input.repUserId)return {leadId:null,status:'unmatched',confidence:0,method:'none'};
   const platform=input.platform==='linkedin'?'linkedin_person':'instagram';
   const exact=await mcpPool.query<{lead_id:string;owner_rep_id:string|null}>(`select p.entity_id lead_id,l.owner_rep_id
     from public.social_profiles p join public.leads l on l.id=p.entity_id and l.organization_id=p.organization_id
     where p.organization_id=$1 and p.platform=$2 and p.entity_type='lead' and p.platform_user_id=$3 limit 3`,
     [input.organizationId,platform,input.providerUserId]);
-  if(exact.rows.length===1&&exact.rows[0].owner_rep_id===input.repUserId)return {leadId:exact.rows[0].lead_id,status:'matched',confidence:1,method:'provider_id'};
+  if(exact.rows.length===1)return {leadId:exact.rows[0].lead_id,status:'matched',confidence:1,method:'provider_id'};
   let normalized='';try{if(input.publicIdentifier)normalized=normalizeSocial(platform as SocialPlatform,input.publicIdentifier).normalizedHandle;}catch{}
+  if(normalized){
+    const byUsername=await mcpPool.query<{lead_id:string}>(`select p.entity_id lead_id from public.social_profiles p
+      join public.leads l on l.id=p.entity_id and l.organization_id=p.organization_id
+      where p.organization_id=$1 and p.platform=$2 and p.entity_type='lead' and p.normalized_handle=$3 limit 2`,
+      [input.organizationId,platform,normalized]);
+    if(byUsername.rows.length===1)return {leadId:byUsername.rows[0].lead_id,status:'matched',confidence:.95,method:'handle'};
+  }
+  if(!input.repUserId)return {leadId:null,status:'unmatched',confidence:0,method:'none'};
   const candidateRows=await mcpPool.query<Candidate>(`select p.entity_id lead_id,l.owner_rep_id,p.normalized_handle,p.profile_url,l.first_name,l.last_name,l.company
     from public.social_profiles p join public.leads l on l.id=p.entity_id and l.organization_id=p.organization_id
     where p.organization_id=$1 and p.platform=$2 and p.entity_type='lead'

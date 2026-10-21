@@ -18,6 +18,23 @@ test('V1 webhook marks phone sent messages as echoes and finds the other partici
   assert.equal(event?.payload.participant_id,'other');
   assert.equal(normalizeV1UnipileMessage({event:'message_read'}),null);
 });
+test('V1 explicit sender flag wins over mismatched account IDs and keeps recipient identity',()=>{
+  const event=normalizeV1UnipileMessage({event:'message_received',is_sender:true,account_id:'account',message_id:'message',chat_id:'chat',
+    account_info:{user_id:'opaque-account-id'},sender:{attendee_provider_id:'sender'},attendees:[
+      {attendee_provider_id:'sender'},
+      {attendee_provider_id:'recipient',attendee_public_identifier:'target.user',attendee_name:'Target User',attendee_profile_url:'https://www.instagram.com/target.user/'}]});
+  assert.equal(event?.payload.is_sender,true);
+  assert.equal(event?.payload.participant_id,'recipient');
+  assert.equal(event?.payload.participant_handle,'target.user');
+  assert.equal(event?.payload.participant_name,'Target User');
+});
+test('V1 recipient username is recovered from profile URL when Unipile omits its identifier',()=>{
+  const event=normalizeV1UnipileMessage({event:'message_received',is_sender:true,account_type:'instagram',
+    sender:{attendee_provider_id:'owner'},attendees:[{attendee_provider_id:'recipient',attendee_name:'Recipient',
+      attendee_profile_url:'https://www.instagram.com/recipient.name/?igsh=tracking'}]});
+  assert.equal(event?.payload.participant_handle,'recipient.name');
+  assert.equal(event?.payload.participant_name,'Recipient');
+});
 test('V1 access token is validated against its DSN, and failure reveals no key',async()=>{
   const original=globalThis.fetch;
   let requested='';

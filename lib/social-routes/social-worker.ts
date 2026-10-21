@@ -10,6 +10,7 @@ import {socialVaultRead} from '../social-vault.js';
 import {matchSocialLead} from '../social-matching.js';
 import {dispatchSocialNotifications} from '../social-notification-outbox.js';
 import {getUnipileConfig,unipileRequest} from '../social-unipile-client.js';
+import {normalizeSocial} from '../social-handles.js';
 
 export const config = { maxDuration: 60 };
 type Job = { id: string; provider: string; payload: InboundEvent | MessageStatusEvent | Record<string,unknown>; attempts: number };
@@ -37,35 +38,78 @@ async function processUnipileEvent(raw:Record<string,unknown>){
   if(type!=='message.new')return;
   const messageId=String(payload.id||''),chatId=String(payload.chat_id||''),senderId=String(payload.sender_id||'');
   if(!messageId||!chatId||!senderId)throw new Error('Incomplete Unipile message');
-  const outbound=payload.is_sender===true;
-  type Conversation={id:string;company_id:string|null;contact_id:string|null;lead_id:string|null};
-  let threads=await socialRest<Conversation[]>(`conversations?connected_account_id=eq.${account.id}&external_thread_id=eq.${encodeURIComponent(chatId)}&select=id,company_id,contact_id,lead_id&limit=1`);
+  if(typeof payload.is_sender!=='boolean')throw new Error('Unipile message direction is missing');
+  const outbound=payload.is_sender;
+  type Conversation={id:string;company_id:string|null;contact_id:string|null;lead_id:string|null;match_status:string;participant_platform_id:string|null};
+  let threads=await socialRest<Conversation[]>(`conversations?connected_account_id=eq.${account.id}&external_thread_id=eq.${encodeURIComponent(chatId)}&select=id,company_id,contact_id,lead_id,match_status,participant_platform_id&limit=1`);
   if(!threads.length){
-    const chatResponse=outbound?await unipileGet(account.organization_id,accountId,`/chats/${encodeURIComponent(chatId)}`):null;
+    const chatResponse=outbound&&!payload.participant_id?await unipileGet(account.organization_id,accountId,`/chats/${encodeURIComponent(chatId)}`):null;
     const chat=(chatResponse?.data&&typeof chatResponse.data==='object'?chatResponse.data:chatResponse) as Record<string,unknown>|null;
     if(chat&&chat.is_1to1===false)return;
-    const participantId=outbound?String(payload.participant_id||chat?.user_id||chat?.participant_id||''):senderId;
+    const participantId=outbound?String(payload.participant_id||chat?.user_id||chat?.participant_id||''):String(payload.participant_id||senderId);
     if(!participantId)throw new Error('Unipile chat participant is missing');
     const profileResponse:Record<string,unknown>=await unipileGet(account.organization_id,accountId,`/users/${encodeURIComponent(participantId)}`).catch(()=>({}));
     const profile=(profileResponse.data&&typeof profileResponse.data==='object'?profileResponse.data:profileResponse) as Record<string,unknown>;
-    const handle=String(profile.public_identifier||''),displayName=String(profile.display_name||profile.name||'');
+    const handle=String(profile.public_identifier||payload.participant_handle||''),displayName=String(profile.display_name||profile.name||payload.participant_name||'');
+    const profileUrl=String(profile.profile_url||payload.participant_profile_url||'');
     const match=await matchSocialLead({organizationId:account.organization_id,repUserId:account.owner_user_id,
       platform:account.platform as 'instagram'|'linkedin',providerUserId:participantId,
-      publicIdentifier:handle||null,profileUrl:String(profile.profile_url||'')||null,displayName:displayName||null});
+      publicIdentifier:handle||null,profileUrl:profileUrl||null,displayName:displayName||null});
+    let crmMatch:{entity_type:string;entity_id:string}|undefined;
+    if(match.status==='unmatched'){
+      let normalized='';try{if(handle)normalized=normalizeSocial(account.platform==='linkedin'?'linkedin_person':'instagram',handle).normalizedHandle;}catch{}
+      if(normalized){const rows=await mcpPool.query<{entity_type:string;entity_id:string}>(`select p.entity_type,p.entity_id
+        from public.social_profiles p where p.organization_id=$1 and p.platform=$2 and p.entity_type in ('contact','company')
+        and p.normalized_handle=$3 limit 2`,[account.organization_id,account.platform==='linkedin'?'linkedin_person':'instagram',normalized]);
+        if(rows.rows.length===1)crmMatch=rows.rows[0];}
+    }
+    const matched=match.status==='matched'||Boolean(crmMatch);
     threads=await socialRest<Conversation[]>('conversations?on_conflict=organization_id,channel,connected_account_id,external_thread_id',{
       method:'POST',headers:{prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({organization_id:account.organization_id,channel:account.platform,
-        connected_account_id:account.id,external_thread_id:chatId,participant_platform_id:participantId,participant_handle:handle||displayName||null,
-        assigned_to:account.owner_user_id,match_status:match.status,match_confidence:match.confidence,
-        matched_at:match.status==='matched'?new Date().toISOString():null,lead_id:match.status==='matched'?match.leadId:null,
+        connected_account_id:account.id,external_thread_id:chatId,participant_platform_id:participantId,participant_handle:handle||null,
+        participant_name:displayName||null,participant_profile_url:profileUrl||null,
+        assigned_to:account.owner_user_id,match_status:matched?'matched':match.status,match_confidence:crmMatch?.entity_id?.length?0.95:match.confidence,
+        matched_at:matched?new Date().toISOString():null,lead_id:match.status==='matched'?match.leadId:null,
+        contact_id:crmMatch?.entity_type==='contact'?crmMatch.entity_id:null,company_id:crmMatch?.entity_type==='company'?crmMatch.entity_id:null,
         suggested_lead_id:match.status==='suggested'&&match.method!=='other_rep'?match.leadId:null})});
     if(match.status==='matched'&&match.leadId)await socialRest(`social_profiles?organization_id=eq.${account.organization_id}&entity_type=eq.lead&entity_id=eq.${match.leadId}&platform=eq.${account.platform==='linkedin'?'linkedin_person':'instagram'}&platform_user_id=is.null`,{
       method:'PATCH',body:JSON.stringify({platform_user_id:participantId,provider_resolved_at:new Date().toISOString()})});
   }
   const thread=threads[0];if(!thread)throw new Error('Unipile conversation could not be created');
+  if(thread.match_status==='unmatched'&&!thread.lead_id&&!thread.contact_id&&!thread.company_id&&payload.participant_handle){
+    const handle=String(payload.participant_handle),participantId=String(payload.participant_id||thread.participant_platform_id||'');
+    const match=await matchSocialLead({organizationId:account.organization_id,repUserId:account.owner_user_id,
+      platform:account.platform as 'instagram'|'linkedin',providerUserId:participantId,publicIdentifier:handle,
+      profileUrl:String(payload.participant_profile_url||'')||null,displayName:String(payload.participant_name||'')||null});
+    if(match.status==='matched'&&match.leadId){await mcpPool.query(`update public.conversations set lead_id=$2,match_status='matched',
+      match_confidence=$3,matched_at=now(),updated_at=now() where id=$1 and match_status='unmatched'`,[thread.id,match.leadId,match.confidence]);
+      thread.lead_id=match.leadId;}
+  }
+  if(payload.participant_handle||payload.participant_name||payload.participant_profile_url){
+    await mcpPool.query(`update public.conversations set participant_handle=coalesce(nullif($2,''),participant_handle),
+      participant_name=coalesce(nullif($3,''),participant_name),participant_profile_url=coalesce(nullif($4,''),participant_profile_url),updated_at=now()
+      where id=$1`,[thread.id,String(payload.participant_handle||''),String(payload.participant_name||''),String(payload.participant_profile_url||'')]);
+  }
   const now=String(payload.timestamp||raw.created_at||new Date().toISOString()),body=String(payload.text||'').slice(0,50000);
   if(outbound&&body){
     const manual=await socialRest<Array<{id:string}>>(`messages?conversation_id=eq.${thread.id}&direction=eq.outbound&sent_via=eq.manual_assisted&external_message_id=is.null&body=eq.${encodeURIComponent(body)}&created_at=gte.${encodeURIComponent(new Date(Date.now()-10*60*1000).toISOString())}&select=id&order=created_at.desc&limit=2`);
     if(manual.length===1){await socialRest(`messages?id=eq.${manual[0].id}`,{method:'PATCH',body:JSON.stringify({external_message_id:messageId,status:'sent'})});return;}
+  }
+  const existing=await mcpPool.query<{id:string;direction:string}>(`select id,direction from public.messages where conversation_id=$1 and external_message_id=$2 limit 1`,[thread.id,messageId]);
+  if(existing.rows[0]){
+    if(existing.rows[0].direction!==(outbound?'outbound':'inbound')){
+      await mcpPool.query(`update public.messages set direction=$2,sent_via=$3 where id=$1`,[existing.rows[0].id,outbound?'outbound':'inbound',outbound?'echo':null]);
+      await mcpPool.query(`update public.conversations c set unread_count=(select count(*)::integer from public.messages m
+        where m.conversation_id=c.id and m.direction='inbound'),
+        last_inbound_at=(select max(created_at) from public.messages m where m.conversation_id=c.id and m.direction='inbound'),
+        last_outbound_at=(select max(created_at) from public.messages m where m.conversation_id=c.id and m.direction='outbound'),
+        reply_window_expires_at=(select max(created_at)+interval '24 hours' from public.messages m where m.conversation_id=c.id and m.direction='inbound'),
+        intent=case when not exists(select 1 from public.messages m where m.conversation_id=c.id and m.direction='inbound') then 'unknown' else intent end
+        where c.id=$1`,[thread.id]);
+      await mcpPool.query(`update public.social_reply_obligations set completed_at=now() where conversation_id=$1
+        and not exists(select 1 from public.messages where conversation_id=$1 and direction='inbound')`,[thread.id]);
+    }
+    return;
   }
   const inserted=await socialRest<Array<{id:string}>>('messages?on_conflict=conversation_id,external_message_id',{
     method:'POST',headers:{prefer:'resolution=ignore-duplicates,return=representation'},body:JSON.stringify({organization_id:account.organization_id,
@@ -90,20 +134,21 @@ async function processUnipileEvent(raw:Record<string,unknown>){
     :{last_webhook_at:new Date().toISOString(),last_sync_at:new Date().toISOString(),health:'healthy',last_error:null})});
 }
 
-async function reconcileUnipile(){
+export async function reconcileUnipile(accountFilter?:string){
   const due=await mcpPool.query<{connected_account_id:string;organization_id:string;chat_cursor:string|null;initial_sync_complete:boolean;
     external_account_id:string}>(`select s.connected_account_id,s.organization_id,s.chat_cursor,s.initial_sync_complete,a.external_account_id
       from public.social_unipile_sync_state s join public.connected_accounts a on a.id=s.connected_account_id
-      where s.next_sync_at<=now() and a.provider='unipile' and a.status='active' and a.external_account_id is not null
-      order by s.next_sync_at limit 1`);
+      where ($1::uuid is null or s.connected_account_id=$1) and (s.next_sync_at<=now() or $1::uuid is not null)
+        and a.provider='unipile' and a.status in ('active','error') and a.external_account_id is not null
+      order by s.next_sync_at limit 1`,[accountFilter||null]);
   const state=due.rows[0];if(!state)return 0;
   // A short lease keeps concurrent cron invocations from processing the same page.
   const claim=await mcpPool.query(`update public.social_unipile_sync_state set next_sync_at=now()+interval '5 minutes',updated_at=now()
-    where connected_account_id=$1 and next_sync_at<=now() returning connected_account_id`,[state.connected_account_id]);
+    where connected_account_id=$1 and (next_sync_at<=now() or $2::boolean) returning connected_account_id`,[state.connected_account_id,Boolean(accountFilter)]);
   if(!claim.rowCount)return 0;
   try{
     const config=await getUnipileConfig(state.organization_id);
-    const query=new URLSearchParams(config.api_version==='v1'?{account_id:state.external_account_id,limit:'2'}:{type:'1to1',limit:'2'});
+    const query=new URLSearchParams(config.api_version==='v1'?{account_id:state.external_account_id,limit:accountFilter?'5':'2'}:{type:'1to1',limit:accountFilter?'5':'2'});
     if(state.chat_cursor)query.set('cursor',state.chat_cursor);
     const response=await unipileGet(state.organization_id,state.external_account_id,`/chats?${query}`);
     const chats=Array.isArray(response.data)?response.data as Record<string,unknown>[]:Array.isArray(response.items)?response.items as Record<string,unknown>[]:[];
@@ -114,28 +159,27 @@ async function reconcileUnipile(){
         `/chats/${encodeURIComponent(chatId)}/attendees`).catch(()=>({} as Record<string,unknown>)):null;
       const attendees=Array.isArray(attendeesPage?.items)?attendeesPage.items as Record<string,unknown>[]:[];
       const page=await unipileGet(state.organization_id,state.external_account_id,
-        `/chats/${encodeURIComponent(chatId)}/messages?limit=50`);
+        `/chats/${encodeURIComponent(chatId)}/messages?limit=30`);
       const items=Array.isArray(page.data)?page.data as Record<string,unknown>[]:Array.isArray(page.items)?page.items as Record<string,unknown>[]:[];
-      const jobs=[];
       for(const message of items.reverse()){
         const timestamp=Date.parse(String(message.timestamp||''));
-        if(!state.initial_sync_complete&&(!Number.isFinite(timestamp)||timestamp<Date.now()-30*86400000))continue;
+        if(!accountFilter&&!state.initial_sync_complete&&(!Number.isFinite(timestamp)||timestamp<Date.now()-30*86400000))continue;
         const messageId=String(message.id||message.message_id||'');if(!messageId)continue;
         const other=message.is_sender===true?attendees.find(value=>String(value.provider_id||value.id||'')!==String(message.sender_id||'')):null;
-        jobs.push({provider:'unipile',event_key:`sync:${state.external_account_id}:${messageId}`,
-          payload:{account_id:state.external_account_id,type:'message.new',source:'reconciliation',payload:{...message,id:messageId,chat_id:chatId,
+        await processUnipileEvent({account_id:state.external_account_id,type:'message.new',source:'reconciliation',payload:{...message,id:messageId,chat_id:chatId,
             sender_id:message.sender_id||message.sender_provider_id,participant_id:other?.provider_id||other?.id,
-            text:message.text||message.message}},status:'queued'});
+            participant_handle:other?.public_identifier||other?.username,
+            participant_name:other?.name||other?.display_name,
+            participant_profile_url:other?.profile_url,
+            text:message.text||message.message}});
         messages++;
       }
-      if(jobs.length)await socialRest('social_webhook_events?on_conflict=provider,event_key',{
-        method:'POST',headers:{prefer:'resolution=ignore-duplicates,return=minimal'},body:JSON.stringify(jobs)});
     }
     const next=typeof response.next_cursor==='string'&&response.next_cursor?response.next_cursor:null;
     await mcpPool.query(`update public.social_unipile_sync_state set chat_cursor=$2,initial_sync_complete=$3,
       last_sync_at=now(),next_sync_at=now()+($4::integer * interval '1 minute'),last_error=null,updated_at=now()
-      where connected_account_id=$1`,[state.connected_account_id,next,!next,next?1:360+Math.floor(Math.random()*120)]);
-    await mcpPool.query(`update public.connected_accounts set last_sync_at=now() where id=$1`,[state.connected_account_id]);
+      where connected_account_id=$1`,[state.connected_account_id,next,!next,next?1:15]);
+    await mcpPool.query(`update public.connected_accounts set last_sync_at=now(),status='active',health='healthy',last_error=null where id=$1`,[state.connected_account_id]);
     return messages;
   }catch(error){
     await mcpPool.query(`update public.social_unipile_sync_state set next_sync_at=now()+interval '30 minutes',

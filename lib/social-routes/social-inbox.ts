@@ -3,6 +3,8 @@ import { socialActor, socialActorOrganizations,isSocialOwner } from '../social-w
 import { providerAdapters, replyAllowed, type Channel } from '../social-providers.js';
 import { socialRest } from '../social-service.js';
 import {mcpPool} from '../mcp-auth.js';
+import {reconcileUnipile} from './social-worker.js';
+import {syncLegacyInbound} from '../social-legacy-sync.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 30 };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -23,7 +25,6 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
       if(!rows.length)return reply(res,404,{error:'Conversation not found'});
       const thread=rows[0];
       if(!organizations.includes(thread.organization_id))throw new Error('Organization access denied');
-      if(!isSocialOwner(user,thread.organization_id)&&thread.assigned_to!==user.id)throw new Error('Conversation is assigned to another teammate');
       const [messages,profiles]=await Promise.all([
         socialRest<any[]>(`messages?conversation_id=eq.${id}&select=*&order=created_at.asc&limit=500`),
         thread.lead_id||thread.contact_id||thread.company_id||thread.legacy_company_id
@@ -33,7 +34,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
       const entityFilter=thread.lead_id?`lead_id=eq.${thread.lead_id}`:thread.contact_id?`contact_id=eq.${thread.contact_id}`:
         thread.company_id?`company_id=eq.${thread.company_id}`:thread.legacy_company_id?`legacy_company_id=eq.${thread.legacy_company_id}`:null;
       const related=entityFilter?await socialRest<Array<{id:string;channel:string}>>(
-        `conversations?organization_id=eq.${thread.organization_id}&${entityFilter}&id=neq.${id}${isSocialOwner(user,thread.organization_id)?'':`&assigned_to=eq.${user.id}`}&select=id,channel&limit=30`):[];
+        `conversations?organization_id=eq.${thread.organization_id}&${entityFilter}&id=neq.${id}&select=id,channel&limit=30`):[];
       const relatedMessages=related.length?await socialRest<Array<{id:string;conversation_id:string;direction:string;body:string;created_at:string}>>(
         `messages?conversation_id=in.(${related.map((item)=>item.id).join(',')})&select=id,conversation_id,direction,body,created_at&order=created_at.desc&limit=200`):[];
       const channelById=new Map(related.map((item)=>[item.id,item.channel]));
@@ -53,7 +54,6 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
       if(!organizations.length)return reply(res,200,{conversations:[]});
       const filters=['select=*','order=last_message_at.desc.nullslast','limit=100'];
       filters.push(`organization_id=in.(${organizations.join(',')})`);
-      if(!isSocialOwner(user,LEGACY_ORG))filters.push(`assigned_to=eq.${user.id}`);
       for(const name of ['channel','status','intent','connected_account_id','assigned_to']) {
         const value=url.searchParams.get(name);if(value)filters.push(`${name}=eq.${encodeURIComponent(value)}`);
       }
@@ -74,6 +74,20 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
     }
     if(req.method!=='POST')return reply(res,405,{error:'Method not allowed'});
     const data=await input(req);
+    if(data.action==='refresh'){
+      const viewable=socialActorOrganizations(user,'inbox_view');
+      if(!viewable.includes(LEGACY_ORG))throw new Error('Inbox access required');
+      const requested=String(data.connected_account_id||'');
+      if(requested&&!uuid.test(requested))throw new Error('Invalid connected account ID');
+      const accounts=await mcpPool.query<{id:string}>(`select id from public.connected_accounts where organization_id=$1
+        and provider='unipile' and status in ('active','error') and external_account_id is not null
+        and ($2::uuid is null or id=$2) order by created_at desc limit 20`,[LEGACY_ORG,requested||null]);
+      if(requested&&!accounts.rowCount)throw new Error('Account is unavailable for refresh');
+      let messages=0;const errors:string[]=[];
+      for(const account of accounts.rows){try{messages+=await reconcileUnipile(account.id);}catch(error){errors.push(error instanceof Error?error.message:'Account refresh failed');}}
+      const legacy=await syncLegacyInbound();
+      return reply(res,errors.length?207:200,{refreshed_accounts:accounts.rowCount,messages,legacy,errors});
+    }
     if(!uuid.test(String(data.id||'')))throw new Error('Invalid conversation ID');
     const rows=await socialRest<Conversation[]>(`conversations?id=eq.${data.id}&select=*&limit=1`);
     if(!rows.length)return reply(res,404,{error:'Conversation not found'});

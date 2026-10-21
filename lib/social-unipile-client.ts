@@ -1,5 +1,6 @@
 import {mcpPool} from './mcp-auth.js';
 import {socialVaultRead} from './social-vault.js';
+import {normalizeSocial} from './social-handles.js';
 
 export type UnipileConfig={api_key_vault_id:string;api_base_url:string|null;api_version:'v1'|'v2'};
 export function normalizeUnipileDsn(value:string):string{
@@ -28,11 +29,20 @@ export function normalizeV1UnipileMessage(event:Record<string,unknown>){
   const accountInfo=event.account_info as Record<string,unknown>|undefined;
   const attendees=Array.isArray(event.attendees)?event.attendees as Record<string,unknown>[]:[];
   const ownerId=String(accountInfo?.user_id||'');
-  const participant=attendees.find(value=>String(value.attendee_provider_id||'')!==ownerId);
+  const outbound=typeof event.is_sender==='boolean'?event.is_sender:Boolean(ownerId)&&sender?.attendee_provider_id===ownerId;
+  const participant=attendees.find(value=>String(value.attendee_provider_id||'')!==ownerId && (!outbound||String(value.attendee_provider_id||'')!==String(sender?.attendee_provider_id||'')))
+    ||attendees.find(value=>String(value.attendee_provider_id||'')!==String(sender?.attendee_provider_id||''));
+  let handle=String(participant?.attendee_public_identifier||'');
+  const profileUrl=String(participant?.attendee_profile_url||'');
+  if(!handle&&profileUrl){try{const platform=String(event.account_type||'').toLowerCase()==='linkedin'?'linkedin_person':'instagram';
+    handle=normalizeSocial(platform,profileUrl).handle;}catch{}}
   return {account_id:event.account_id,type:'message.new',payload:{id:event.message_id,chat_id:event.chat_id,
     sender_id:sender?.attendee_provider_id||sender?.attendee_id,
     participant_id:participant?.attendee_provider_id||participant?.attendee_id,
-    is_sender:Boolean(ownerId)&&sender?.attendee_provider_id===ownerId,
+    participant_handle:handle||null,
+    participant_name:participant?.attendee_name||null,
+    participant_profile_url:participant?.attendee_profile_url||null,
+    is_sender:outbound,
     text:event.message,timestamp:event.timestamp,attachments:event.attachments||[]}};
 }
 export async function getUnipileConfig(organizationId:string):Promise<UnipileConfig>{
