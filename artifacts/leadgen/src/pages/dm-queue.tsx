@@ -7,10 +7,11 @@ import {Badge} from '@/components/ui/badge';
 import {apiFetch} from '@/lib/api';
 
 type Task={id:string;account_label:string|null;step_type:string;channel:string;first_name:string|null;company:string|null;handle:string|null;profile_url:string|null;rendered_message:string|null;due_at:string};
+type Target={account_id:string;label:string;daily_new_dm_cap:number;daily_followup_cap:number;new_sent:number;followups_sent:number};
 const actions:[string,string][]=[['sent','Sent'],['followed','Followed'],['engaged','Engaged'],['skipped','Skipped'],['profile_not_found','Profile not found'],['wrong_person','Wrong person']];
 export default function DmQueue(){
   const qc=useQueryClient(),[account,setAccount]=useState('all'),[active,setActive]=useState<string|null>(null),[copied,setCopied]=useState<string|null>(null);
-  const tasks=useQuery<{tasks:Task[]}>({queryKey:['dm-queue'],queryFn:()=>apiFetch('/api/dm-queue'),refetchInterval:30000});
+  const tasks=useQuery<{tasks:Task[];targets:Target[]}>({queryKey:['dm-queue'],queryFn:()=>apiFetch('/api/dm-queue'),refetchInterval:30000});
   const filtered=useMemo(()=>tasks.data?.tasks.filter(task=>account==='all'||task.account_label===account)||[],[tasks.data,account]);
   const accounts=useMemo(()=>[...new Set(tasks.data?.tasks.map(task=>task.account_label||'Unassigned')||[])],[tasks.data]);
   const act=useMutation({mutationFn:({id,action}:{id:string;action:string})=>apiFetch('/api/dm-queue',{method:'POST',body:JSON.stringify({task_id:id,action})}),onSuccess:()=>void qc.invalidateQueries({queryKey:['dm-queue']})});
@@ -20,6 +21,7 @@ export default function DmQueue(){
   async function copy(task:Task){if(!task.rendered_message)return;await navigator.clipboard.writeText(task.rendered_message);setCopied(task.id);window.setTimeout(()=>setCopied(null),1500);}
   return <div className="page-stack space-y-5"><PageHeader title="DM queue" description="Work through today's social actions. Messages are sent only when your team sends them."/>
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4 shadow-sm"><div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary"><Inbox className="h-5 w-5"/></span><div><strong className="text-sm">{filtered.length} due {filtered.length===1?'action':'actions'}</strong><p className="text-xs text-muted-foreground">Desktop shortcuts 1–6 act on the selected card.</p></div></div><label className="text-xs font-medium text-muted-foreground">Account<select className="ml-2 rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground" value={account} onChange={event=>setAccount(event.target.value)}><option value="all">All accounts</option>{accounts.map(item=><option key={item}>{item}</option>)}</select></label></div>
+    {!!tasks.data?.targets.length&&<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{tasks.data.targets.filter(item=>account==='all'||item.label===account).map(item=><div key={item.account_id} className="rounded-xl border border-border bg-card p-4 shadow-sm"><strong className="text-sm">{item.label}</strong><div className="mt-2 text-xs text-muted-foreground">First DMs {item.new_sent}/{item.daily_new_dm_cap} target · Follow-ups {item.followups_sent}/{item.daily_followup_cap} target</div><div className="mt-2 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{width:`${Math.min(100,item.daily_new_dm_cap?item.new_sent/item.daily_new_dm_cap*100:100)}%`}}/></div>{(item.new_sent>item.daily_new_dm_cap||item.followups_sent>item.daily_followup_cap)&&<p className="mt-2 text-xs text-amber-700">Above today's target. You can still record work you completed.</p>}</div>)}</div>}
     {tasks.isLoading&&<p className="text-sm text-muted-foreground">Loading today's tasks…</p>}
     {tasks.isError&&<p role="alert" className="text-sm text-destructive">Could not load the DM queue.</p>}
     {act.isError&&<p role="alert" className="text-sm text-destructive">{String(act.error)}</p>}

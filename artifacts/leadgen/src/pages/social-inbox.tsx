@@ -6,7 +6,7 @@ import { apiFetch } from '@/lib/api';
 type Conversation = {id:string;channel:string;connected_account_id:string|null;assigned_to:string|null;participant_handle:string|null;participant_platform_id:string|null;lead_id:string|null;contact_id:string|null;company_id:string|null;legacy_company_id:string|null;status:string;intent:string;unread_count:number;last_message_at:string|null;reply_window_expires_at:string|null};
 type Message = {id:string;direction:'inbound'|'outbound';body:string;created_at:string;sent_via:string|null};
 type Profile = {id:string;platform:string;handle:string;profile_url:string|null};
-type Thread = {conversation:Conversation;messages:Message[];profiles:Profile[];relatedMessages:Array<Message & {channel:string}>;canReply:boolean};
+type Thread = {conversation:Conversation;messages:Message[];profiles:Profile[];relatedMessages:Array<Message & {channel:string}>;canReply:boolean;manualReply:boolean};
 const channels=['all','instagram','facebook','whatsapp','email','sms','x','linkedin','other'];
 const field='rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary';
 const panel='rounded-xl border border-border bg-card shadow-sm';
@@ -16,6 +16,7 @@ export default function SocialInbox() {
   const [unmatched,setUnmatched]=useState(false),[unread,setUnread]=useState(false),[selected,setSelected]=useState<string|null>(null);
   const [linkId,setLinkId]=useState(''),[linkType,setLinkType]=useState<'lead'|'contact'|'company'>('lead'),[error,setError]=useState('');
   const [draft,setDraft]=useState('');
+  const [manualIntent,setManualIntent]=useState('unknown');
   const [account,setAccount]=useState(''),[assignee,setAssignee]=useState(''),[taskTitle,setTaskTitle]=useState('');
   const accounts=useQuery<{accounts:Array<{id:string;label:string}>}>({queryKey:['social-accounts'],queryFn:()=>apiFetch('/api/social-accounts')});
   const params=new URLSearchParams();
@@ -36,6 +37,9 @@ export default function SocialInbox() {
     onError:(reason)=>setError(String(reason))});
   const suggest=useMutation({mutationFn:()=>apiFetch('/api/social-draft',{method:'POST',body:JSON.stringify({conversation_id:selected})}) as Promise<{draft:string}>,
     onSuccess:(result)=>{setDraft(result.draft);setError('');},onError:(reason)=>setError(String(reason))});
+  const logReply=useMutation({mutationFn:()=>apiFetch('/api/social-inbox',{method:'POST',body:JSON.stringify({id:selected,action:'log_reply',body:draft.trim(),intent:manualIntent})}),
+    onSuccess:()=>{setDraft('');setError('');void qc.invalidateQueries({queryKey:['social-thread',selected]});void qc.invalidateQueries({queryKey:['social-inbox']});},
+    onError:(reason)=>setError(String(reason))});
   const updateLead=useMutation({mutationFn:(value:Record<string,unknown>)=>apiFetch(`/api/leads/${leadId}`,{method:'PATCH',body:JSON.stringify(value)}),
     onSuccess:()=>{setError('');void qc.invalidateQueries({queryKey:['social-lead-context',leadId]});},onError:(reason)=>setError(String(reason))});
   const current=thread.data?.conversation;
@@ -72,6 +76,11 @@ export default function SocialInbox() {
             <textarea aria-label="Reply text" className="min-h-24 w-full rounded border p-2" maxLength={2000} value={draft} onChange={(e)=>setDraft(e.target.value)} placeholder="Write a reply for review…"/>
             <div className="flex flex-wrap gap-2"><button className="rounded border px-3 py-2 disabled:opacity-50" disabled={suggest.isPending} onClick={()=>suggest.mutate()}>{suggest.isPending?'Drafting…':'Suggest reply'}</button>
             <button className="rounded bg-primary px-3 py-2 text-primary-foreground disabled:opacity-50" disabled={!draft.trim()||send.isPending} onClick={()=>send.mutate()}>{send.isPending?'Sending…':'Send reply'}</button></div>
+          </>:thread.data?.manualReply?<>
+            <p className="text-muted-foreground">Reply in the social app, then record the response here. The CRM will stop the campaign for this lead.</p>
+            <textarea aria-label="Manual reply text" className="min-h-24 w-full rounded border border-input bg-background p-2" maxLength={2000} value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Paste the reply, or leave blank if you only know its intent"/>
+            <div className="flex flex-wrap gap-2"><select aria-label="Manual reply intent" className={field} value={manualIntent} onChange={e=>setManualIntent(e.target.value)}>{['unknown','interested','not_now','not_interested','wrong_person','ooo','unsubscribe'].map(value=><option key={value} value={value}>{value.replaceAll('_',' ')}</option>)}</select>
+              <button className="rounded-lg bg-primary px-3 py-2 text-primary-foreground disabled:opacity-50" disabled={logReply.isPending||(!draft.trim()&&manualIntent==='unknown')} onClick={()=>logReply.mutate()}>Log reply</button></div>
           </>:<p className="text-muted-foreground">API reply is unavailable for this channel or the reply window is closed.</p>}</div>
         </>}
       </div>

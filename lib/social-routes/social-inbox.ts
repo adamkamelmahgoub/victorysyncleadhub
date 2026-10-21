@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { socialActor, socialActorOrganizations,isSocialOwner } from '../social-workspace-auth.js';
 import { providerAdapters, replyAllowed, type Channel } from '../social-providers.js';
 import { socialRest } from '../social-service.js';
+import {mcpPool} from '../mcp-auth.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 30 };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -36,10 +37,10 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
       const relatedMessages=related.length?await socialRest<Array<{id:string;conversation_id:string;direction:string;body:string;created_at:string}>>(
         `messages?conversation_id=in.(${related.map((item)=>item.id).join(',')})&select=id,conversation_id,direction,body,created_at&order=created_at.desc&limit=200`):[];
       const channelById=new Map(related.map((item)=>[item.id,item.channel]));
-      const [account]=thread.connected_account_id?await socialRest<Array<{provider:string|null;status:string}>>(`connected_accounts?id=eq.${thread.connected_account_id}&select=provider,status&limit=1`):[];
+      const [account]=thread.connected_account_id?await socialRest<Array<{provider:string|null;status:string;connection_mode:string}>>(`connected_accounts?id=eq.${thread.connected_account_id}&select=provider,status,connection_mode&limit=1`):[];
       const inbound=messages.some(message=>message.direction==='inbound');
       const withinWindow=Boolean(thread.last_inbound_at)&&Date.now()-new Date(thread.last_inbound_at!).getTime()<24*3600000;
-      return reply(res,200,{conversation:thread,messages,profiles,relatedMessages:relatedMessages.map((message)=>({...message,channel:channelById.get(message.conversation_id)})),
+      return reply(res,200,{conversation:thread,messages,profiles,relatedMessages:relatedMessages.map((message)=>({...message,channel:channelById.get(message.conversation_id)})),manualReply:account?.connection_mode==='manual',
         canReply:inbound&&withinWindow&&Boolean(thread.lead_id||thread.contact_id||thread.company_id||thread.legacy_company_id)&&account?.status==='active'&&Boolean(account?.provider==='unipile'||
           (providerAdapters[thread.channel as Channel]?.capabilities.canReply&&replyAllowed(thread.channel as Channel,new Date(thread.last_inbound_at!))))});
     }
@@ -64,6 +65,29 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
     const thread=rows[0];
     if(!organizations.includes(thread.organization_id))throw new Error('Organization access denied');
     if(!isSocialOwner(user,thread.organization_id)&&thread.assigned_to!==user.id)throw new Error('Conversation is assigned to another teammate');
+    if(data.action==='log_reply'){
+      const body=String(data.body||'').trim().slice(0,2000),intent=String(data.intent||'unknown');
+      if(!['interested','not_now','not_interested','wrong_person','ooo','unsubscribe','unknown'].includes(intent))throw new Error('Choose a valid intent');
+      if(!thread.connected_account_id)throw new Error('Manual account is missing');
+      const db=await mcpPool.connect();
+      try{
+        await db.query('begin');
+        const account=await db.query<{connection_mode:string}>(`select connection_mode from public.connected_accounts where id=$1 and organization_id=$2 for update`,[thread.connected_account_id,thread.organization_id]);
+        if(account.rows[0]?.connection_mode!=='manual')throw new Error('Use the signed webhook for API connected accounts');
+        await db.query(`insert into public.messages(organization_id,conversation_id,direction,body,status,sent_by)
+          values($1,$2,'inbound',$3,'sent',$4)`,[thread.organization_id,thread.id,body,user.id]);
+        await db.query(`update public.conversations set last_inbound_at=now(),last_message_at=now(),intent=$2,unread_count=1,updated_at=now()
+          where id=$1`,[thread.id,intent]);
+        if(thread.lead_id){
+          await db.query(`update public.leads set first_reply_at=coalesce(first_reply_at,now()),dnc=case when $2 in ('unsubscribe','not_interested') then true else dnc end where id=$1`,[thread.lead_id,intent]);
+          await db.query(`update public.dm_enrollments set state='replied',stopped_at=now(),stop_reason='manual_reply'
+            where organization_id=$1 and entity_type='lead' and entity_id=$2 and state in ('queued','step_due','sent')`,[thread.organization_id,thread.lead_id]);
+        }
+        await db.query(`insert into public.social_workspace_audit(organization_id,actor_id,action,target_type,target_id,metadata)
+          values($1,$2,'manual_reply_logged','conversation',$3,jsonb_build_object('intent',$4))`,[thread.organization_id,user.id,thread.id,intent]);
+        await db.query('commit');return reply(res,200,{logged:true});
+      }catch(error){await db.query('rollback');throw error;}finally{db.release();}
+    }
     const update:Record<string,unknown>={updated_at:new Date().toISOString()};
     if(data.action==='link') {
       const type=String(data.entity_type||'');const entityId=String(data.entity_id||'');

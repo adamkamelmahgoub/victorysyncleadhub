@@ -30,6 +30,8 @@ alter table public.conversations add column if not exists matched_at timestamptz
 alter table public.conversations add column if not exists matched_by_user_id uuid;
 update public.conversations set match_status='matched' where match_status='unmatched'
   and (lead_id is not null or contact_id is not null or company_id is not null or legacy_company_id is not null);
+update public.conversations c set assigned_to=a.owner_user_id from public.connected_accounts a
+  where c.connected_account_id=a.id and c.assigned_to is null and a.owner_user_id is not null and a.connection_mode='manual';
 create index if not exists conversations_match_idx on public.conversations(organization_id,match_status,last_message_at desc);
 
 alter table public.messages add column if not exists sender_provider_id text;
