@@ -94,11 +94,18 @@ async function callback(res:ServerResponse,url:URL){
 }
 async function registerV1Webhook(webhookUrl:string){
   const secret=randomBytes(32).toString('base64url');
-  await unipileRequest(org,'/webhooks',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
-    request_url:webhookUrl,source:'messaging',headers:[{key:'Content-Type',value:'application/json'},{key:'Unipile-Auth',value:secret}],
-  })});
-  const vaultId=await socialVaultWrite(`victorysync_unipile_webhook_${org}`,secret,'Unipile V1 webhook authentication header');
+  const previous=await mcpPool.query<{webhook_secret_vault_id:string|null}>(`select webhook_secret_vault_id from public.social_unipile_config where organization_id=$1`,[org]);
+  const vaultId=await socialVaultWrite(`victorysync_unipile_webhook_${org}_${randomBytes(8).toString('hex')}`,secret,'Unipile V1 webhook authentication header');
   await mcpPool.query(`update public.social_unipile_config set webhook_secret_vault_id=$1,updated_at=now() where organization_id=$2`,[vaultId,org]);
+  try{
+    await unipileRequest(org,'/webhooks',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
+      request_url:webhookUrl,source:'messaging',headers:[{key:'Content-Type',value:'application/json'},{key:'Unipile-Auth',value:secret}],
+    })});
+  }catch(error){
+    await mcpPool.query(`update public.social_unipile_config set webhook_secret_vault_id=$3,updated_at=now()
+      where organization_id=$1 and webhook_secret_vault_id=$2`,[org,vaultId,previous.rows[0]?.webhook_secret_vault_id||null]);
+    throw error;
+  }
 }
 export default async function handler(req:IncomingMessage,res:ServerResponse){
   try{
