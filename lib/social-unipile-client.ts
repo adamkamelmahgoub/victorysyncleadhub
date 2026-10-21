@@ -23,13 +23,18 @@ export function unipilePortFallback(url:string):string{
   const port=parsed.port;parsed.port='';parsed.searchParams.set('port',port);
   return parsed.toString();
 }
+export function unipileSenderFlag(value:unknown):boolean|null{
+  if(value===true||value===1||value==='1')return true;
+  if(value===false||value===0||value==='0')return false;
+  return null;
+}
 export function normalizeV1UnipileMessage(event:Record<string,unknown>){
   if(event.event!=='message_received')return null;
   const sender=event.sender as Record<string,unknown>|undefined;
   const accountInfo=event.account_info as Record<string,unknown>|undefined;
   const attendees=Array.isArray(event.attendees)?event.attendees as Record<string,unknown>[]:[];
   const ownerId=String(accountInfo?.user_id||'');
-  const outbound=typeof event.is_sender==='boolean'?event.is_sender:Boolean(ownerId)&&sender?.attendee_provider_id===ownerId;
+  const outbound=unipileSenderFlag(event.is_sender)??(Boolean(ownerId)&&sender?.attendee_provider_id===ownerId);
   const participant=attendees.find(value=>String(value.attendee_provider_id||'')!==ownerId && (!outbound||String(value.attendee_provider_id||'')!==String(sender?.attendee_provider_id||'')))
     ||attendees.find(value=>String(value.attendee_provider_id||'')!==String(sender?.attendee_provider_id||''));
   let handle=String(participant?.attendee_public_identifier||'');

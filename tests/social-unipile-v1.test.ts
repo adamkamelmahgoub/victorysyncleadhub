@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizeUnipileDsn,normalizeV1UnipileMessage,requestUnipile,unipilePortFallback,unipileUrl} from '../lib/social-unipile-client.js';
+import {normalizeUnipileDsn,normalizeV1UnipileMessage,requestUnipile,unipilePortFallback,unipileUrl,unipileSenderFlag} from '../lib/social-unipile-client.js';
 
 const config={api_key_vault_id:'',api_base_url:'https://api74.unipile.com:20433',api_version:'v1' as const};
 test('DSN validation allows the dashboard host and rejects non-Unipile destinations',()=>{
@@ -34,6 +34,11 @@ test('V1 recipient username is recovered from profile URL when Unipile omits its
       attendee_profile_url:'https://www.instagram.com/recipient.name/?igsh=tracking'}]});
   assert.equal(event?.payload.participant_handle,'recipient.name');
   assert.equal(event?.payload.participant_name,'Recipient');
+});
+test('V1 history direction accepts numeric sender flags without treating unknown as inbound',()=>{
+  assert.equal(unipileSenderFlag(1),true);
+  assert.equal(unipileSenderFlag(0),false);
+  assert.equal(unipileSenderFlag(undefined),null);
 });
 test('V1 access token is validated against its DSN, and failure reveals no key',async()=>{
   const original=globalThis.fetch;

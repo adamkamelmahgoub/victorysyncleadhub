@@ -9,7 +9,7 @@ import {mcpPool} from '../mcp-auth.js';
 import {socialVaultRead} from '../social-vault.js';
 import {matchSocialLead} from '../social-matching.js';
 import {dispatchSocialNotifications} from '../social-notification-outbox.js';
-import {getUnipileConfig,unipileRequest} from '../social-unipile-client.js';
+import {getUnipileConfig,unipileRequest,unipileSenderFlag} from '../social-unipile-client.js';
 import {normalizeSocial} from '../social-handles.js';
 
 export const config = { maxDuration: 60 };
@@ -38,8 +38,8 @@ async function processUnipileEvent(raw:Record<string,unknown>){
   if(type!=='message.new')return;
   const messageId=String(payload.id||''),chatId=String(payload.chat_id||''),senderId=String(payload.sender_id||'');
   if(!messageId||!chatId||!senderId)throw new Error('Incomplete Unipile message');
-  if(typeof payload.is_sender!=='boolean')throw new Error('Unipile message direction is missing');
-  const outbound=payload.is_sender;
+  const outbound=unipileSenderFlag(payload.is_sender);
+  if(outbound===null)throw new Error('Unipile message direction is missing');
   type Conversation={id:string;company_id:string|null;contact_id:string|null;lead_id:string|null;match_status:string;participant_platform_id:string|null};
   let threads=await socialRest<Conversation[]>(`conversations?connected_account_id=eq.${account.id}&external_thread_id=eq.${encodeURIComponent(chatId)}&select=id,company_id,contact_id,lead_id,match_status,participant_platform_id&limit=1`);
   if(!threads.length){
@@ -136,7 +136,7 @@ async function processUnipileEvent(raw:Record<string,unknown>){
 
 export async function reconcileUnipile(accountFilter?:string){
   const due=await mcpPool.query<{connected_account_id:string;organization_id:string;chat_cursor:string|null;initial_sync_complete:boolean;
-    external_account_id:string}>(`select s.connected_account_id,s.organization_id,s.chat_cursor,s.initial_sync_complete,a.external_account_id
+    external_account_id:string;platform:string}>(`select s.connected_account_id,s.organization_id,s.chat_cursor,s.initial_sync_complete,a.external_account_id,a.platform
       from public.social_unipile_sync_state s join public.connected_accounts a on a.id=s.connected_account_id
       where ($1::uuid is null or s.connected_account_id=$1) and (s.next_sync_at<=now() or $1::uuid is not null)
         and a.provider='unipile' and a.status in ('active','error') and a.external_account_id is not null
@@ -165,17 +165,21 @@ export async function reconcileUnipile(accountFilter?:string){
         const timestamp=Date.parse(String(message.timestamp||''));
         if(!accountFilter&&!state.initial_sync_complete&&(!Number.isFinite(timestamp)||timestamp<Date.now()-30*86400000))continue;
         const messageId=String(message.id||message.message_id||'');if(!messageId)continue;
-        const other=message.is_sender===true?attendees.find(value=>String(value.provider_id||value.id||'')!==String(message.sender_id||'')):null;
+        const other=attendees.find(value=>unipileSenderFlag(value.is_self)===false)||attendees.find(value=>String(value.provider_id||value.id||'')!==String(message.sender_id||''));
+        const specifics=other?.specifics&&typeof other.specifics==='object'?other.specifics as Record<string,unknown>:{};
+        let handle=String(specifics.public_identifier||other?.public_identifier||'');
+        if(!handle&&other?.profile_url){try{handle=normalizeSocial(state.platform==='linkedin'?'linkedin_person':'instagram',String(other.profile_url)).handle;}catch{}}
         await processUnipileEvent({account_id:state.external_account_id,type:'message.new',source:'reconciliation',payload:{...message,id:messageId,chat_id:chatId,
             sender_id:message.sender_id||message.sender_provider_id,participant_id:other?.provider_id||other?.id,
-            participant_handle:other?.public_identifier||other?.username,
+            participant_handle:handle||null,
             participant_name:other?.name||other?.display_name,
             participant_profile_url:other?.profile_url,
             text:message.text||message.message}});
         messages++;
       }
     }
-    const next=typeof response.next_cursor==='string'&&response.next_cursor?response.next_cursor:null;
+    const cursor=response.next_cursor||response.cursor;
+    const next=typeof cursor==='string'&&cursor?cursor:null;
     await mcpPool.query(`update public.social_unipile_sync_state set chat_cursor=$2,initial_sync_complete=$3,
       last_sync_at=now(),next_sync_at=now()+($4::integer * interval '1 minute'),last_error=null,updated_at=now()
       where connected_account_id=$1`,[state.connected_account_id,next,!next,next?1:15]);
