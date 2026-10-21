@@ -49,7 +49,7 @@ export async function sendSocialReply(userId:string,conversationId:string,body:s
       body:JSON.stringify({organization_id:thread.organization_id,conversation_id:thread.id,direction:'outbound',body:text,
         external_message_id:externalId,sent_via:'api',sent_by:userId,status:'sent'}),
     });
-    await socialRest(`conversations?id=eq.${thread.id}`,{method:'PATCH',body:JSON.stringify({last_outbound_at:new Date().toISOString(),last_message_at:new Date().toISOString()})});
+    await socialRest(`conversations?id=eq.${thread.id}`,{method:'PATCH',body:JSON.stringify({last_outbound_at:new Date().toISOString(),last_message_at:new Date().toISOString(),unread_count:0})});
     if(created.length&&thread.company_id)await socialRest('crm_activities',{method:'POST',body:JSON.stringify({
       organization_id:thread.organization_id,company_id:thread.company_id,contact_id:thread.contact_id,
       type:'dm_sent',body:text,occurred_at:new Date().toISOString(),created_by:userId,

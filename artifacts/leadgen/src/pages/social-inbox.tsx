@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/page-layout';
 import { apiFetch } from '@/lib/api';
 
-type Conversation = {id:string;channel:string;connected_account_id:string|null;assigned_to:string|null;participant_handle:string|null;participant_name:string|null;participant_profile_url:string|null;participant_platform_id:string|null;lead_id:string|null;suggested_lead_id:string|null;contact_id:string|null;company_id:string|null;legacy_company_id:string|null;match_status:string;match_confidence:number|null;status:string;intent:string;unread_count:number;last_message_at:string|null;reply_window_expires_at:string|null};
+type Conversation = {id:string;channel:string;connected_account_id:string|null;assigned_to:string|null;participant_handle:string|null;participant_name:string|null;participant_profile_url:string|null;participant_platform_id:string|null;lead_id:string|null;suggested_lead_id:string|null;contact_id:string|null;company_id:string|null;legacy_company_id:string|null;match_status:string;match_confidence:number|null;status:string;intent:string;unread_count:number;last_message_at:string|null;last_message_direction:'inbound'|'outbound'|null;last_message_preview:string|null;reply_window_expires_at:string|null};
 type Message = {id:string;direction:'inbound'|'outbound';body:string;created_at:string;sent_via:string|null};
 type Profile = {id:string;platform:string;handle:string;profile_url:string|null};
 type Thread = {conversation:Conversation;messages:Message[];profiles:Profile[];relatedMessages:Array<Message & {channel:string}>;canReply:boolean;manualReply:boolean;replyOwedDueAt:string|null};
@@ -66,6 +66,7 @@ export default function SocialInbox() {
         {list.data?.conversations.map((item)=><button key={item.id} onClick={()=>{setSelected(item.id);setError('');}} className={`w-full border-b p-3 text-left hover:bg-muted ${selected===item.id?'bg-muted':''}`}>
           <div className="flex items-center justify-between gap-2"><strong className="truncate text-sm">{item.participant_name||item.participant_handle||item.participant_platform_id||'Unknown sender'}</strong>{item.unread_count>0&&<span className="rounded-full bg-primary px-2 text-xs text-primary-foreground">{item.unread_count}</span>}</div>
           {item.participant_handle&&item.participant_name&&<p className="truncate text-xs text-muted-foreground">@{item.participant_handle.replace(/^@/,'')}</p>}
+          {item.last_message_direction&&<p className="mt-1 truncate text-xs text-foreground"><span className="font-medium">{item.last_message_direction==='outbound'?'You sent:':'They replied:'}</span> {item.last_message_preview||'(attachment)'}</p>}
           <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground"><span className="capitalize">{item.channel} · {item.intent}</span><span>{item.last_message_at?new Date(item.last_message_at).toLocaleDateString():''}</span></div>
           {item.match_status!=='matched'&&<span className="mt-1 inline-block rounded-full bg-amber-50 px-2 py-0.5 text-xs capitalize text-amber-700">{item.match_status}</span>}
         </button>)}

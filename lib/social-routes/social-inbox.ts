@@ -70,6 +70,15 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
       if(url.searchParams.get('unmatched')==='true')filters.push('match_status=in.(unmatched,suggested)');
       if(matchStatus!=='ignored')filters.push('match_status=neq.ignored');
       const conversations=await socialRest<Conversation[]>(`conversations?${filters.join('&')}`);
+      if(conversations.length){
+        const latest=await mcpPool.query<{conversation_id:string;direction:string;body:string}>(`select distinct on(m.conversation_id)
+          m.conversation_id,m.direction,left(m.body,140) body from public.messages m
+          where m.conversation_id=any($1::uuid[]) order by m.conversation_id,m.created_at desc,m.id desc`,
+          [conversations.map(row=>row.id)]);
+        const byId=new Map(latest.rows.map(row=>[row.conversation_id,row]));
+        for(const thread of conversations){const message=byId.get(thread.id);
+          thread.last_message_direction=message?.direction||null;thread.last_message_preview=message?.body||null;}
+      }
       return reply(res,200,{conversations});
     }
     if(req.method!=='POST')return reply(res,405,{error:'Method not allowed'});

@@ -99,15 +99,29 @@ async function processUnipileEvent(raw:Record<string,unknown>){
   if(existing.rows[0]){
     if(existing.rows[0].direction!==(outbound?'outbound':'inbound')){
       await mcpPool.query(`update public.messages set direction=$2,sent_via=$3 where id=$1`,[existing.rows[0].id,outbound?'outbound':'inbound',outbound?'echo':null]);
-      await mcpPool.query(`update public.conversations c set unread_count=(select count(*)::integer from public.messages m
-        where m.conversation_id=c.id and m.direction='inbound'),
+      await mcpPool.query(`update public.outreach_events e set event_type=case when $2::boolean then
+          case when exists(select 1 from public.messages x where x.conversation_id=$3 and x.direction='inbound' and x.created_at<=m.created_at)
+            then 'device_reply_sent' when exists(select 1 from public.messages x where x.conversation_id=$3
+              and x.direction='outbound' and x.id<>m.id and x.created_at<m.created_at) then 'followup_sent'
+            else 'first_dm_sent' end else 'reply_received' end,
+          metadata=coalesce(e.metadata,'{}'::jsonb)||jsonb_build_object('direction',case when $2::boolean then 'outbound' else 'inbound' end,
+            'direction_corrected_at',now()),updated_at=now()
+        from public.messages m where e.source_key='message:'||m.id::text and m.id=$1`,[existing.rows[0].id,outbound,thread.id]);
+      await mcpPool.query(`update public.conversations c set unread_count=least(c.unread_count,(select count(*)::integer from public.messages m
+        where m.conversation_id=c.id and m.direction='inbound' and m.created_at>
+          coalesce((select max(x.created_at) from public.messages x where x.conversation_id=c.id and x.direction='outbound'),'epoch'::timestamptz))),
         last_inbound_at=(select max(created_at) from public.messages m where m.conversation_id=c.id and m.direction='inbound'),
         last_outbound_at=(select max(created_at) from public.messages m where m.conversation_id=c.id and m.direction='outbound'),
         reply_window_expires_at=(select max(created_at)+interval '24 hours' from public.messages m where m.conversation_id=c.id and m.direction='inbound'),
         intent=case when not exists(select 1 from public.messages m where m.conversation_id=c.id and m.direction='inbound') then 'unknown' else intent end
         where c.id=$1`,[thread.id]);
-      await mcpPool.query(`update public.social_reply_obligations set completed_at=now() where conversation_id=$1
-        and not exists(select 1 from public.messages where conversation_id=$1 and direction='inbound')`,[thread.id]);
+      await mcpPool.query(`update public.social_reply_obligations o set completed_at=coalesce((select min(x.created_at)
+        from public.messages x where x.conversation_id=o.conversation_id and x.direction='outbound' and x.created_at>=m.created_at),now()),
+        completed_message_id=(select x.id from public.messages x where x.conversation_id=o.conversation_id
+          and x.direction='outbound' and x.created_at>=m.created_at order by x.created_at,x.id limit 1),updated_at=now()
+        from public.messages m where m.id=o.inbound_message_id and o.conversation_id=$1 and o.completed_at is null
+          and (m.direction<>'inbound' or exists(select 1 from public.messages x where x.conversation_id=o.conversation_id
+            and x.direction='outbound' and x.created_at>=m.created_at))`,[thread.id]);
     }
     return;
   }
@@ -117,7 +131,7 @@ async function processUnipileEvent(raw:Record<string,unknown>){
       external_message_id:messageId,sender_provider_id:senderId,sent_via:outbound?'echo':null,status:'sent',created_at:now})});
   if(!inserted.length)return;
   await socialRest(`conversations?id=eq.${thread.id}`,{method:'PATCH',body:JSON.stringify(outbound?
-    {last_outbound_at:now,last_message_at:now}:{last_inbound_at:now,last_message_at:now,unread_count:1,
+    {last_outbound_at:now,last_message_at:now,unread_count:0}:{last_inbound_at:now,last_message_at:now,unread_count:1,
       reply_window_expires_at:new Date(new Date(now).getTime()+24*3600000).toISOString()})});
   if(!outbound){
     const entity=thread.lead_id?{type:'lead',id:thread.lead_id}:thread.contact_id?{type:'contact',id:thread.contact_id}:thread.company_id?{type:'company',id:thread.company_id}:null;
@@ -272,7 +286,7 @@ async function processEvent(job: Job) {
   if (!inserted.length) return;
   const timestamp = new Date(event.timestamp);
   const update: Record<string, unknown> = { last_message_at: timestamp.toISOString(), updated_at: new Date().toISOString() };
-  if (event.isEcho) update.last_outbound_at = timestamp.toISOString();
+  if (event.isEcho) {update.last_outbound_at = timestamp.toISOString();update.unread_count=0;}
   else {
     update.last_inbound_at = timestamp.toISOString();
     update.reply_window_expires_at = new Date(timestamp.getTime() + 24*3600000).toISOString();
