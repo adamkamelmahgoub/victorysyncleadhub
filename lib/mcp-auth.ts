@@ -2,9 +2,18 @@ import crypto from "node:crypto";
 import pg from "pg";
 
 const { Pool } = pg;
+const databaseUrl = (() => {
+  const raw = process.env.DATABASE_URL;
+  if (!raw) return raw;
+  const url = new URL(raw);
+  if (url.hostname.endsWith(".pooler.supabase.com") && url.port === "5432") url.port = "6543";
+  return url.toString();
+})();
 export const mcpPool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  max: 5,
+  connectionString: databaseUrl,
+  max: 2,
+  idleTimeoutMillis: 10000,
+  connectionTimeoutMillis: 8000,
 });
 export const hashSecret = (value: string) =>
   crypto.createHash("sha256").update(value).digest("hex");
@@ -20,7 +29,11 @@ export const issuerUrl = () =>
 export const allowedRedirects = new Set([
   "https://claude.ai/api/mcp/auth_callback",
   "https://claude.com/api/mcp/auth_callback",
+  "https://chatgpt.com/connector_platform_oauth_redirect",
 ]);
+export function allowedMcpRedirect(value:string):boolean{
+  return allowedRedirects.has(value)||/^https:\/\/chatgpt\.com\/connector\/oauth\/[A-Za-z0-9_-]{8,160}$/.test(value);
+}
 
 export type McpIdentity = {
   tokenId: string;

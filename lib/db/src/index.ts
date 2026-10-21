@@ -10,7 +10,9 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const databaseUrl = new URL(process.env.DATABASE_URL);
+if (databaseUrl.hostname.endsWith(".pooler.supabase.com") && databaseUrl.port === "5432") databaseUrl.port = "6543";
+export const pool = new Pool({ connectionString: databaseUrl.toString(), max: 1, idleTimeoutMillis: 10000, connectionTimeoutMillis: 8000 });
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";

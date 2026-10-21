@@ -20,7 +20,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
         from public.connected_accounts a left join public.conversations c on c.connected_account_id=a.id
           and c.last_message_at>=now()-($3::int*interval '1 day')
         left join public.messages m on m.conversation_id=c.id and m.created_at>=now()-($3::int*interval '1 day')
-        where a.organization_id=$1 and a.owner_user_id=$2 group by a.id order by sent desc,a.label`,args),
+        where a.organization_id=$1 and a.owner_user_id=$2 and a.external_account_id is not null and a.status<>'disconnected' group by a.id order by sent desc,a.label`,args),
       mcpPool.query(`select count(*) filter(where m.direction='outbound')::int outbound,
         count(*) filter(where m.direction='inbound')::int inbound,
         count(distinct c.id) filter(where c.intent='interested')::int interested

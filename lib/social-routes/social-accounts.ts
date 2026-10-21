@@ -8,7 +8,7 @@ function reply(res:ServerResponse,status:number,data:unknown){res.statusCode=sta
 export default async function handler(req:IncomingMessage,res:ServerResponse){try{const user=await socialActor(req);
   const orgs=[...new Set([...socialActorOrganizations(user,'accounts_manage'),...socialActorOrganizations(user,'inbox_view')])];
   if(req.method==='GET'){if(!orgs.length)return reply(res,200,{accounts:[]});
-    const accounts=await socialRest<any[]>(`connected_accounts?organization_id=in.(${orgs.join(',')})&select=id,organization_id,platform,display_platform,profile_url,connection_mode,label,external_account_id,username,scopes,status,token_expires_at,daily_new_dm_cap,daily_followup_cap,warmup_enabled,warmup_start_at,warmup_daily_increment,last_webhook_at,last_error,created_at,owner_user_id,health,last_sync_at&order=platform.asc,label.asc`);
+    const accounts=await socialRest<any[]>(`connected_accounts?organization_id=in.(${orgs.join(',')})&external_account_id=not.is.null&status=neq.disconnected&select=id,organization_id,platform,display_platform,profile_url,connection_mode,label,external_account_id,username,scopes,status,token_expires_at,daily_new_dm_cap,daily_followup_cap,warmup_enabled,warmup_start_at,warmup_daily_increment,last_webhook_at,last_error,created_at,owner_user_id,health,last_sync_at&order=platform.asc,label.asc`);
     return reply(res,200,{accounts});}
   if(!['PATCH','POST'].includes(req.method||''))return reply(res,405,{error:'Method not allowed'});
   let raw='';for await(const part of req){raw+=part;if(raw.length>10000)throw new Error('Request too large');}

@@ -138,7 +138,7 @@ async function execute<T>(
   } catch (e) {
     await db.query("rollback").catch(() => {});
     if (write)
-      await mcpPool
+      await db
         .query(
           `insert into public.mcp_audit_log(user_id,email,client_id,tool,arguments,result_status,error_message) values($1,$2,$3,$4,$5,'error',$6)`,
           [

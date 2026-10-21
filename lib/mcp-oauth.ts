@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
-  allowedRedirects,
+  allowedMcpRedirect,
   hashSecret,
   issuerUrl,
   mcpPool,
@@ -35,7 +35,7 @@ async function body(req: IncomingMessage): Promise<Record<string, string>> {
   return Object.fromEntries(new URLSearchParams(raw));
 }
 async function clientFor(id: string, redirect: string) {
-  if (!allowedRedirects.has(redirect))
+  if (!allowedMcpRedirect(redirect))
     throw Object.assign(new Error("Redirect URI is not allowed"), {
       status: 400,
     });
@@ -93,7 +93,7 @@ function renderAuthorizeForm(
     "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://claude.ai https://claude.com; base-uri 'none'; frame-ancestors 'none'",
   );
   res.end(
-    `<!doctype html><html><meta charset="utf-8"><title>Authorize Victory Sync</title><style>body{font:16px system-ui;max-width:420px;margin:8vh auto;padding:20px}label{display:block;margin:14px 0}input{display:block;width:100%;padding:10px;box-sizing:border-box}button{padding:12px 20px}.error{color:#a00}</style><h1>Connect Claude to Victory Sync</h1><p>This grants full CRM read and write access, including SQL. Sign in with your Victory Sync account to authorize.</p>${error ? `<p class="error" role="alert">${html(error)}</p>` : ""}<form method="post" action="/authorize">${fields}<label>Email<input name="email" type="email" value="${html(p.email || "")}" required autocomplete="username"></label><label>Password<input name="password" type="password" required autocomplete="current-password"></label><button type="submit">Authorize Claude</button></form></html>`,
+    `<!doctype html><html><meta charset="utf-8"><title>Authorize Victory Sync</title><style>body{font:16px system-ui;max-width:420px;margin:8vh auto;padding:20px}label{display:block;margin:14px 0}input{display:block;width:100%;padding:10px;box-sizing:border-box}button{padding:12px 20px}.error{color:#a00}</style><h1>Connect Victory Sync CRM</h1><p>This grants CRM read and write access to the selected MCP client. Sign in with your Victory Sync account to authorize.</p>${error ? `<p class="error" role="alert">${html(error)}</p>` : ""}<form method="post" action="/authorize">${fields}<label>Email<input name="email" type="email" value="${html(p.email || "")}" required autocomplete="username"></label><label>Password<input name="password" type="password" required autocomplete="current-password"></label><button type="submit">Authorize</button></form></html>`,
   );
 }
 export async function handleMcpOAuth(
@@ -144,21 +144,21 @@ export async function handleMcpOAuth(
     if (
       !Array.isArray(p.redirect_uris) ||
       !p.redirect_uris.length ||
-      p.redirect_uris.some((x: string) => !allowedRedirects.has(x)) ||
+      p.redirect_uris.some((x: string) => !allowedMcpRedirect(x)) ||
       (p.token_endpoint_auth_method && p.token_endpoint_auth_method !== "none")
     )
       throw Object.assign(
-        new Error("Only Claude callback URIs and public clients are accepted"),
+        new Error("Only approved Claude or ChatGPT callback URIs and public clients are accepted"),
         { status: 400 },
       );
     const id = newSecret();
     await mcpPool.query(
       "insert into public.mcp_oauth_clients(client_id,client_name,redirect_uris) values($1,$2,$3)",
-      [id, String(p.client_name || "Claude").slice(0, 100), p.redirect_uris],
+      [id, String(p.client_name || "MCP client").slice(0, 100), p.redirect_uris],
     );
     send(res, 201, {
       client_id: id,
-      client_name: p.client_name || "Claude",
+      client_name: p.client_name || "MCP client",
       redirect_uris: p.redirect_uris,
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
