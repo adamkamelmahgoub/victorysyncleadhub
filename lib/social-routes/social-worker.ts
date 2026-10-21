@@ -19,7 +19,7 @@ async function processUnipileEvent(raw:Record<string,unknown>){
   if(type.startsWith('account.status.')){
     const state=type.slice('account.status.'.length);
     const status=state==='running'?'active':state==='disconnected'?'disconnected':'error';
-    await socialRest(`connected_accounts?id=eq.${account.id}`,{method:'PATCH',body:JSON.stringify({status,health:status==='active'?'healthy':'warning',
+    await socialRest(`connected_accounts?id=eq.${account.id}`,{method:'PATCH',body:JSON.stringify({status,health:status==='active'?'healthy':status==='disconnected'?'disconnected':'warning',
       last_error:status==='active'?null:String(payload.reason||state),last_webhook_at:new Date().toISOString()})});
     return;
   }

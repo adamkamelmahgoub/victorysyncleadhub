@@ -88,6 +88,44 @@ do $$ begin
 end $$;
 grant select,insert,update,delete on public.rep_territories to authenticated;
 
+create or replace function public.has_social_perm(p_organization_id uuid,p_permission text) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select p_organization_id='cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1'::uuid and (
+    public.wf_role()='admin' or exists(select 1 from public.team_members m
+      left join public.social_team_permissions p on p.team_member_id=m.id
+      where m.org_id=p_organization_id and m.auth_user_id=auth.uid()::text and m.status='active'
+        and m.role not in ('client','viewer') and m.client_account_id is null
+        and (m.role='owner' or p_permission=any(coalesce(p.permissions,'{}'::text[])))));
+$$;
+revoke all on function public.has_social_perm(uuid,text) from public,anon;
+grant execute on function public.has_social_perm(uuid,text) to authenticated;
+
+do $$ begin
+  if not exists(select 1 from pg_policies where schemaname='public' and tablename='connected_accounts' and policyname='connected_accounts_rep_read') then
+    create policy connected_accounts_rep_read on public.connected_accounts for select to authenticated
+      using(owner_user_id=auth.uid() and (public.has_social_perm(organization_id,'accounts_manage') or public.has_social_perm(organization_id,'inbox_view')));
+  end if;
+  if not exists(select 1 from pg_policies where schemaname='public' and tablename='conversations' and policyname='conversations_rep_read') then
+    create policy conversations_rep_read on public.conversations for select to authenticated
+      using(public.has_social_perm(organization_id,'inbox_view') and exists(select 1 from public.connected_accounts a
+        where a.id=connected_account_id and a.owner_user_id=auth.uid()));
+  end if;
+  if not exists(select 1 from pg_policies where schemaname='public' and tablename='messages' and policyname='messages_rep_read') then
+    create policy messages_rep_read on public.messages for select to authenticated
+      using(public.has_social_perm(organization_id,'inbox_view') and exists(select 1 from public.conversations c
+        join public.connected_accounts a on a.id=c.connected_account_id
+        where c.id=public.messages.conversation_id and c.organization_id=public.messages.organization_id and a.owner_user_id=auth.uid()));
+  end if;
+  if not exists(select 1 from pg_policies where schemaname='public' and tablename='dm_tasks' and policyname='dm_tasks_rep_read') then
+    create policy dm_tasks_rep_read on public.dm_tasks for select to authenticated
+      using(public.has_social_perm(organization_id,'queue_work') and exists(select 1 from public.connected_accounts a
+        where a.id=connected_account_id and a.owner_user_id=auth.uid()));
+  end if;
+end $$;
+
+alter policy connected_accounts_rep_read on public.connected_accounts
+  using(owner_user_id=auth.uid() and (public.has_social_perm(organization_id,'accounts_manage') or public.has_social_perm(organization_id,'inbox_view')));
+
 create or replace function public.social_reserve_reply(p_conversation_id uuid,p_sent_by uuid) returns uuid
 language plpgsql security definer set search_path = '' as $$
 declare v_thread public.conversations%rowtype; v_account public.connected_accounts%rowtype; v_count integer; v_attempt uuid;

@@ -38,9 +38,12 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
     let url:URL;try{url=new URL(profile);}catch{throw new Error('Enter a public HTTPS profile URL');}
     if(url.protocol!=='https:'||!url.hostname||url.username||url.password||profile.length>1000)throw new Error('Enter a public HTTPS profile URL');
     const native=['instagram','facebook','whatsapp','x','linkedin','tiktok','nextdoor','yelp','threads'].includes(display)?display:'other';
-    const accounts=await socialRest<Array<{id:string}>>('connected_accounts?on_conflict=organization_id,platform,external_account_id',{
-      method:'POST',headers:{prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({organization_id:SOCIAL_WORKSPACE_ORG_ID,platform:native,display_platform:display,
-        external_account_id:url.toString(),profile_url:url.toString(),connection_mode:'manual',label,status:'active',created_by:user.id})});
+    const existing=await socialRest<Array<{id:string;owner_user_id:string|null}>>(`connected_accounts?organization_id=eq.${SOCIAL_WORKSPACE_ORG_ID}&platform=eq.${native}&external_account_id=eq.${encodeURIComponent(url.toString())}&select=id,owner_user_id&limit=1`);
+    if(existing.length){if(existing[0].owner_user_id===user.id)return reply(res,200,{id:existing[0].id,connection_mode:'manual'});
+      throw new Error('This profile is already connected by another teammate');}
+    const accounts=await socialRest<Array<{id:string}>>('connected_accounts',{
+      method:'POST',headers:{prefer:'return=representation'},body:JSON.stringify({organization_id:SOCIAL_WORKSPACE_ORG_ID,platform:native,display_platform:display,
+        external_account_id:url.toString(),profile_url:url.toString(),connection_mode:'manual',provider:'manual',label,status:'active',created_by:user.id,owner_user_id:user.id})});
     return reply(res,201,{id:accounts[0]?.id,connection_mode:'manual'});
   }
   const id=String(data.id||'');
