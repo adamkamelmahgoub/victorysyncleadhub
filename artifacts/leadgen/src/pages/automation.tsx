@@ -11,7 +11,8 @@ import { apiFetch } from "@/lib/api";
 import { asArray } from "@/lib/data-shape";
 
 type TriggerType = "contact_created" | "tag_added" | "status_changed" |
-  "opportunity_stage_changed" | "email_replied" | "call_logged" | "disposition_changed" | "manual";
+  "opportunity_stage_changed" | "email_replied" | "call_logged" | "disposition_changed" | "manual" |
+  "social_reply_received" | "social_dm_sent" | "social_intent_changed";
 
 type ActionType = "send_email" | "wait" | "add_tag" | "remove_tag" | "update_status" |
   "enroll_sequence" | "condition" | "move_pipeline_stage" | "create_call_task" | "add_note" | "webhook" | "stop_workflow";
@@ -41,6 +42,9 @@ const TRIGGER_LABELS: Record<TriggerType, string> = {
   email_replied: "Email Replied",
   call_logged: "Call Logged",
   disposition_changed: "Call Disposition Changed",
+  social_reply_received: "Social Reply Received",
+  social_dm_sent: "Social DM Sent",
+  social_intent_changed: "Social Intent Changed",
   manual: "Manual Run",
 };
 
@@ -52,6 +56,9 @@ const TRIGGER_CONFIG: Record<TriggerType, { label: string; fields: { key: string
   email_replied: { label: "Email Replied", fields: [] },
   call_logged: { label: "Call Logged", fields: [] },
   disposition_changed: { label: "Disposition Changed", fields: [{ key: "disposition", label: "Disposition (optional)", placeholder: "meeting_booked" }] },
+  social_reply_received: { label: "Social Reply Received", fields: [] },
+  social_dm_sent: { label: "Social DM Sent", fields: [] },
+  social_intent_changed: { label: "Social Intent Changed", fields: [] },
   manual: { label: "Manual Run", fields: [] },
 };
 

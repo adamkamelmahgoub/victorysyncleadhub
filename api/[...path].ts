@@ -1061,7 +1061,7 @@ function stripUndefined(value: Record<string, unknown>) {
   );
 }
 
-const nativeWorkflowTriggers = new Set(['contact_created','tag_added','status_changed','opportunity_stage_changed','email_replied','call_logged','disposition_changed','manual']);
+const nativeWorkflowTriggers = new Set(['contact_created','tag_added','status_changed','opportunity_stage_changed','email_replied','call_logged','disposition_changed','manual','social_reply_received','social_dm_sent','social_intent_changed']);
 const nativeWorkflowNodes = new Set(['send_email','wait','condition','add_tag','remove_tag','update_status','move_pipeline_stage','enroll_sequence','create_call_task','add_note','webhook','stop_workflow']);
 function validateNativeWorkflow(payload:Record<string,any>) {
   if(!payload.is_active)return;

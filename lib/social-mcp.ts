@@ -18,7 +18,8 @@ async function run(who:McpIdentity,name:string,args:unknown,write:boolean,fn:(db
     await db.query('begin');await db.query(`select set_config('statement_timeout','15s',true)`);
     const admin=await db.query(`select 1 from public.profiles where id=$1 and global_role='platform_admin'`,[who.userId]);
     const orgs=admin.rowCount?(await db.query<{id:string}>(`select id from public.organizations`)).rows.map(x=>x.id)
-      :(await db.query<{org_id:string}>(`select org_id from public.org_users where user_id=$1`,[who.userId])).rows.map(x=>x.org_id);
+      :(await db.query<{org_id:string}>(`select org_id from public.team_members where auth_user_id=$1 and status='active'
+        and client_account_id is null and role in ('owner','admin','member')`,[who.userId])).rows.map(x=>x.org_id);
     const value=await fn(db,orgs);
     if(write)await db.query(`insert into public.mcp_audit_log(user_id,email,client_id,tool,arguments,result_status)
       values($1,$2,$3,$4,$5,'ok')`,[who.userId,who.email,who.clientId,name,JSON.stringify(args)]);
@@ -38,6 +39,23 @@ function tool(server:McpServer,who:McpIdentity,name:string,description:string,sh
       return run(who,name,scoped,write,(db,orgs)=>fn(db,scoped,orgs));});
 }
 export function registerSocialMcpTools(server:McpServer,who:McpIdentity){
+  tool(server,who,'list_social_workflows','List internal social workflows and recent execution counts.',{},false,
+    async(db,_a,orgs)=>{allowed(orgs,SOCIAL_WORKSPACE_ORG_ID);return(await db.query(`select w.id,w.name,w.trigger_type,w.trigger_config,w.actions,w.is_active,
+      w.enrolled_count,w.completed_count,w.created_at from public.automation_workflows w
+      where w.trigger_type in ('social_reply_received','social_dm_sent','social_intent_changed') order by w.created_at desc limit 100`)).rows;});
+  tool(server,who,'create_social_workflow','Create an inactive social workflow for linked leads; activate after reviewing its actions.',
+    {name:z.string().min(1).max(160),trigger_type:z.enum(['social_reply_received','social_dm_sent','social_intent_changed']),
+      actions:z.array(z.object({type:z.string(),config:z.record(z.string(),z.unknown())})).min(1).max(30)},true,
+    async(db,a,orgs)=>{allowed(orgs,SOCIAL_WORKSPACE_ORG_ID);
+      const types=new Set(['wait','condition','add_tag','remove_tag','update_status','move_pipeline_stage','create_call_task','add_note','stop_workflow']);
+      if(a.actions.some((node:{type:string})=>!types.has(node.type)))throw new Error('Unsupported social workflow action');
+      const q=await db.query(`insert into public.automation_workflows(name,trigger_type,actions,is_active) values($1,$2,$3::jsonb,false) returning id,name,trigger_type,is_active`,
+        [a.name,a.trigger_type,JSON.stringify(a.actions)]);return q.rows[0];});
+  tool(server,who,'set_social_workflow_active','Activate or pause an internal social workflow.',
+    {workflow_id:id,active:z.boolean()},true,async(db,a,orgs)=>{allowed(orgs,SOCIAL_WORKSPACE_ORG_ID);
+      const q=await db.query(`update public.automation_workflows set is_active=$2,updated_at=now() where id=$1
+        and trigger_type in ('social_reply_received','social_dm_sent','social_intent_changed') returning id,is_active`,[a.workflow_id,a.active]);
+      if(!q.rows.length)throw new Error('Social workflow not found');return q.rows[0];});
   tool(server,who,'list_social_team_access','List internal team social permissions. Client accounts are excluded.',{organization_id:id},false,
     async(db,a,orgs)=>{allowed(orgs,a.organization_id);return(await db.query(`select m.id,m.name,m.email,m.role,m.status,coalesce(p.permissions,'{}'::text[]) permissions
       from public.team_members m left join public.social_team_permissions p on p.team_member_id=m.id
