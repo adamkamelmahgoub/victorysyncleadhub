@@ -108,6 +108,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
       update.company_id=type==='company'&&target[0].organization_id?entityId:null;
       update.legacy_company_id=type==='company'&&!target[0].organization_id?entityId:null;
       update.match_status='matched';update.match_confidence=1;update.matched_at=new Date().toISOString();update.matched_by_user_id=user.id;
+      update.suggested_lead_id=null;
       const profilePlatform=thread.channel==='linkedin'?'linkedin_person':thread.channel;
       const profiles=await socialRest<any[]>(`social_profiles?organization_id=eq.${thread.organization_id}&entity_type=eq.${type}&entity_id=eq.${entityId}&platform=eq.${profilePlatform}&select=id,platform_user_id&order=is_primary.desc&limit=1`);
       if(profiles.length&&thread.participant_platform_id&&!profiles[0].platform_user_id)
@@ -116,7 +117,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
         values($1,$2,'conversation_linked','conversation',$3,jsonb_build_object('entity_type',$4,'entity_id',$5))`,
         [thread.organization_id,user.id,thread.id,type,entityId]);
     } else if(data.action==='ignore') {
-      update.match_status='ignored';update.status='closed';update.unread_count=0;
+      update.match_status='ignored';update.status='closed';update.unread_count=0;update.suggested_lead_id=null;
       await mcpPool.query(`insert into public.social_workspace_audit(organization_id,actor_id,action,target_type,target_id)
         values($1,$2,'conversation_ignored','conversation',$3)`,[thread.organization_id,user.id,thread.id]);
     } else if(data.action==='status') {

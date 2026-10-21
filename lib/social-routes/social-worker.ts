@@ -60,7 +60,8 @@ async function processUnipileEvent(raw:Record<string,unknown>){
       method:'POST',headers:{prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({organization_id:account.organization_id,channel:account.platform,
         connected_account_id:account.id,external_thread_id:chatId,participant_platform_id:participantId,participant_handle:handle||displayName||null,
         assigned_to:account.owner_user_id,match_status:match.status,match_confidence:match.confidence,
-        matched_at:match.status==='matched'?new Date().toISOString():null,lead_id:match.status==='matched'?match.leadId:null})});
+        matched_at:match.status==='matched'?new Date().toISOString():null,lead_id:match.status==='matched'?match.leadId:null,
+        suggested_lead_id:match.status==='suggested'&&match.method!=='other_rep'?match.leadId:null})});
     if(match.status==='matched'&&match.leadId)await socialRest(`social_profiles?organization_id=eq.${account.organization_id}&entity_type=eq.lead&entity_id=eq.${match.leadId}&platform=eq.${account.platform==='linkedin'?'linkedin_person':'instagram'}&platform_user_id=is.null`,{
       method:'PATCH',body:JSON.stringify({platform_user_id:participantId,provider_resolved_at:new Date().toISOString()})});
   }
