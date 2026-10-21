@@ -8,6 +8,7 @@
     { "src": "^/leadgen/api/assistant$", "dest": "/api/assistant.ts" },
     { "src": "^/api/enrichment$", "dest": "/api/enrichment.ts" },
     { "src": "^/api/enrichment-worker$", "dest": "/api/enrichment-worker.ts" },
+    { "src": "^/(?:api/(?:forms|landing-pages)(?:/.*)?|f/[a-z0-9-]+|p/[a-z0-9-]+)$", "dest": "/api/marketing.ts" },
     { "src": "^/(?:leadgen/)?api/(?:social(?:-[a-z]+)*|dm-(?:queue|campaigns))$", "dest": "/api/social-router.ts" },
     { "src": "^/api/mcp$", "dest": "/api/mcp.ts" },
     { "src": "^/\\.well-known/oauth-(protected-resource|authorization-server)$", "dest": "/api/mcp.ts" },

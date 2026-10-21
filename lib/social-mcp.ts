@@ -1,4 +1,5 @@
 import type {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
+import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
 import type {PoolClient} from 'pg';
 import {mcpPool,type McpIdentity} from './mcp-auth.js';
@@ -7,6 +8,7 @@ import {discoverWebsiteSocials,resolveAmbiguousSocials} from './social-discovery
 import {renderDmTemplate} from './dm-template.js';
 import {sendSocialReply} from './social-reply-service.js';
 import {SOCIAL_WORKSPACE_ORG_ID} from './social-workspace-auth.js';
+import {validatedFields,validatedSections} from './marketing-routes/marketing.js';
 
 const id=z.string().uuid();
 const entity=z.enum(['lead','contact','company']);
@@ -25,12 +27,19 @@ async function run(who:McpIdentity,name:string,args:unknown,write:boolean,fn:(db
       values($1,$2,$3,$4,$5,'ok')`,[who.userId,who.email,who.clientId,name,JSON.stringify(args)]);
     await db.query('commit');return result(value);
   }catch(error){await db.query('rollback').catch(()=>{});
-    if(write)await mcpPool.query(`insert into public.mcp_audit_log(user_id,email,client_id,tool,arguments,result_status,error_message)
+    if(write)await db.query(`insert into public.mcp_audit_log(user_id,email,client_id,tool,arguments,result_status,error_message)
       values($1,$2,$3,$4,$5,'error',$6)`,[who.userId,who.email,who.clientId,name,JSON.stringify(args),String(error).slice(0,500)]).catch(()=>{});
     return {isError:true,content:[{type:'text' as const,text:error instanceof Error?error.message:'Social tool failed'}]};
   }finally{db.release();}
 }
 function allowed(orgs:string[],org:string){if(org!==SOCIAL_WORKSPACE_ORG_ID||!orgs.includes(org))throw new Error('Internal social workspace access denied');}
+async function requireFormsAccess(db:PoolClient,userId:string){
+  const access=await db.query(`select 1 from public.profiles where id=$1 and global_role='platform_admin'
+    union all select 1 from public.team_members where auth_user_id=$1 and org_id=$2 and status='active'
+      and client_account_id is null and role in ('owner','admin','member')
+      and (role in ('owner','admin') or page_permissions is null or 'forms'=any(page_permissions)) limit 1`,[userId,SOCIAL_WORKSPACE_ORG_ID]);
+  if(!access.rowCount)throw new Error('Forms and sites access required');
+}
 async function requireInboxView(db:PoolClient,userId:string){
   const access=await db.query(`select 1 from public.profiles where id=$1 and global_role='platform_admin'
     union all select 1 from public.team_members m left join public.social_team_permissions p on p.team_member_id=m.id
@@ -47,6 +56,73 @@ function tool(server:McpServer,who:McpIdentity,name:string,description:string,sh
       return run(who,name,scoped,write,(db,orgs)=>fn(db,scoped,orgs));});
 }
 export function registerSocialMcpTools(server:McpServer,who:McpIdentity){
+  tool(server,who,'list_forms','List internal lead capture forms and their submission counts.',{},false,async(db,_a,orgs)=>{
+    allowed(orgs,SOCIAL_WORKSPACE_ORG_ID);await requireFormsAccess(db,who.userId);
+    return(await db.query(`select f.id,f.name,f.slug,f.status,f.fields,f.created_at,
+      (select count(*)::integer from public.form_submissions s where s.form_id=f.id) submissions
+      from public.forms f where f.organization_id=$1 order by f.created_at desc limit 100`,[SOCIAL_WORKSPACE_ORG_ID])).rows;});
+  tool(server,who,'create_form','Create an inactive lead capture form. Add fields and publish after review.',
+    {name:z.string().min(1).max(150),fields:z.array(z.record(z.string(),z.unknown())).max(50).optional()},true,async(db,a,orgs)=>{
+      allowed(orgs,SOCIAL_WORKSPACE_ORG_ID);await requireFormsAccess(db,who.userId);
+      const fields=validatedFields(a.fields||[]),slug=`${a.name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,55)||'form'}-${randomUUID().slice(0,8)}`;
+      return(await db.query(`insert into public.forms(organization_id,name,slug,status,fields) values($1,$2,$3,'inactive',$4) returning id,name,slug,status`,
+        [SOCIAL_WORKSPACE_ORG_ID,a.name,slug,JSON.stringify(fields)])).rows[0];});
+  tool(server,who,'update_form','Update form fields, thank you message, or active status.',
+    {form_id:id,name:z.string().min(1).max(150).optional(),fields:z.array(z.record(z.string(),z.unknown())).max(50).optional(),status:z.enum(['active','inactive']).optional(),success_message:z.string().max(1000).optional()},true,async(db,a,orgs)=>{
+      allowed(orgs,SOCIAL_WORKSPACE_ORG_ID);await requireFormsAccess(db,who.userId);
+      const old=await db.query<{fields:unknown}>(`select fields from public.forms where id=$1 and organization_id=$2`,[a.form_id,SOCIAL_WORKSPACE_ORG_ID]);
+      if(!old.rows[0])throw new Error('Form not found');const fields=a.fields?validatedFields(a.fields):validatedFields(old.rows[0].fields);
+      if(a.status==='active'&&!fields.length)throw new Error('Add a field before publishing');
+      return(await db.query(`update public.forms set name=coalesce($3,name),fields=$4::jsonb,status=coalesce($5,status),
+        success_message=coalesce($6,success_message),updated_at=now() where id=$1 and organization_id=$2
+        returning id,name,slug,status,fields`,[a.form_id,SOCIAL_WORKSPACE_ORG_ID,a.name||null,JSON.stringify(fields),a.status||null,a.success_message||null])).rows[0];});
+  tool(server,who,'list_form_submissions','List recent submissions for an internal form.',
+    {form_id:id,limit:z.number().int().min(1).max(100).optional()},false,async(db,a,orgs)=>{
+      allowed(orgs,SOCIAL_WORKSPACE_ORG_ID);await requireFormsAccess(db,who.userId);
+      return(await db.query(`select s.id,s.created_at,s.lead_id,s.data,s.utm,s.landing_page_id from public.form_submissions s
+        join public.forms f on f.id=s.form_id where f.id=$1 and f.organization_id=$2 order by s.created_at desc limit $3`,
+        [a.form_id,SOCIAL_WORKSPACE_ORG_ID,a.limit||50])).rows;});
+  tool(server,who,'list_landing_pages','List internal landing pages and publishing status.',{},false,async(db,_a,orgs)=>{
+    allowed(orgs,SOCIAL_WORKSPACE_ORG_ID);await requireFormsAccess(db,who.userId);
+    return(await db.query(`select id,name,slug,status,visits,form_id,published_at,updated_at from public.landing_pages
+      where organization_id=$1 order by updated_at desc limit 100`,[SOCIAL_WORKSPACE_ORG_ID])).rows;});
+  tool(server,who,'create_landing_page','Create a draft landing page with editable sections.',
+    {name:z.string().min(1).max(150),sections:z.array(z.record(z.string(),z.unknown())).max(60).optional()},true,async(db,a,orgs)=>{
+      allowed(orgs,SOCIAL_WORKSPACE_ORG_ID);await requireFormsAccess(db,who.userId);
+      const sections=validatedSections(a.sections||[{type:'hero',heading:a.name,body:'Tell visitors how you can help.'}]);
+      const slug=`${a.name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,55)||'page'}-${randomUUID().slice(0,8)}`;
+      return(await db.query(`insert into public.landing_pages(organization_id,name,slug,sections,created_by,seo_title)
+        values($1,$2,$3,$4,$5,$2) returning id,name,slug,status`,[SOCIAL_WORKSPACE_ORG_ID,a.name,slug,JSON.stringify(sections),who.userId])).rows[0];});
+  tool(server,who,'update_landing_page','Edit a draft or published landing page.',
+    {page_id:id,name:z.string().min(1).max(150).optional(),sections:z.array(z.record(z.string(),z.unknown())).max(60).optional(),seo_title:z.string().max(160).optional(),seo_description:z.string().max(300).optional(),form_id:id.nullable().optional()},true,async(db,a,orgs)=>{
+      allowed(orgs,SOCIAL_WORKSPACE_ORG_ID);await requireFormsAccess(db,who.userId);
+      if(a.form_id){const form=await db.query(`select 1 from public.forms where id=$1 and organization_id=$2`,[a.form_id,SOCIAL_WORKSPACE_ORG_ID]);if(!form.rowCount)throw new Error('Form not found');}
+      const sections=a.sections?JSON.stringify(validatedSections(a.sections)):null;
+      const updated=await db.query(`update public.landing_pages set name=coalesce($3,name),sections=coalesce($4::jsonb,sections),
+        seo_title=coalesce($5,seo_title),seo_description=coalesce($6,seo_description),
+        form_id=case when $7::boolean then $8::uuid else form_id end,updated_at=now()
+        where id=$1 and organization_id=$2 returning id,name,slug,status,sections,form_id`,
+        [a.page_id,SOCIAL_WORKSPACE_ORG_ID,a.name||null,sections,a.seo_title||null,a.seo_description||null,a.form_id!==undefined,a.form_id??null]);
+      if(!updated.rows[0])throw new Error('Page not found');return updated.rows[0];});
+  tool(server,who,'publish_landing_page','Publish or unpublish an internal landing page.',
+    {page_id:id,publish:z.boolean()},true,async(db,a,orgs)=>{
+      allowed(orgs,SOCIAL_WORKSPACE_ORG_ID);await requireFormsAccess(db,who.userId);
+      const found=await db.query<{sections:Array<{type:string}>;form_id:string|null}>(`select sections,form_id from public.landing_pages where id=$1 and organization_id=$2`,[a.page_id,SOCIAL_WORKSPACE_ORG_ID]);
+      const page=found.rows[0];if(!page)throw new Error('Page not found');
+      if(a.publish){if(!page.sections.length)throw new Error('Add at least one section');
+        if(page.sections.some(section=>section.type==='form')&&!page.form_id)throw new Error('Choose a form before publishing');
+        if(page.form_id){const form=await db.query(`select 1 from public.forms where id=$1 and organization_id=$2 and status='active'`,[page.form_id,SOCIAL_WORKSPACE_ORG_ID]);if(!form.rowCount)throw new Error('Linked form is inactive');}}
+      return(await db.query(`update public.landing_pages set status=$3,published_at=case when $4 then now() else published_at end,updated_at=now()
+        where id=$1 and organization_id=$2 returning id,name,slug,status,published_at`,
+        [a.page_id,SOCIAL_WORKSPACE_ORG_ID,a.publish?'published':'draft',a.publish])).rows[0];});
+  tool(server,who,'get_landing_page_report','Return views, submissions, conversion rate, and referrer counts for a page.',
+    {page_id:id},false,async(db,a,orgs)=>{
+      allowed(orgs,SOCIAL_WORKSPACE_ORG_ID);await requireFormsAccess(db,who.userId);
+      const report=await db.query<{views:number;submissions:number;referring_domains:number}>(`select count(*) filter(where event_type='view')::integer views,
+        count(*) filter(where event_type='form_submit')::integer submissions,
+        count(distinct referrer_domain) filter(where referrer_domain is not null)::integer referring_domains
+        from public.landing_page_events where landing_page_id=$1 and organization_id=$2`,[a.page_id,SOCIAL_WORKSPACE_ORG_ID]);
+      const row=report.rows[0];return {...row,conversion_rate:row.views?Number((row.submissions/row.views*100).toFixed(2)):0};});
   tool(server,who,'list_social_workflows','List internal social workflows and recent execution counts.',{},false,
     async(db,_a,orgs)=>{allowed(orgs,SOCIAL_WORKSPACE_ORG_ID);return(await db.query(`select w.id,w.name,w.trigger_type,w.trigger_config,w.actions,w.is_active,
       w.enrolled_count,w.completed_count,w.created_at from public.automation_workflows w
@@ -184,7 +260,7 @@ export function registerSocialMcpTools(server:McpServer,who:McpIdentity){
   tool(server,who,'list_connected_accounts','List account health without tokens.',{organization_id:id},false,
     async(db,a,orgs)=>{allowed(orgs,a.organization_id);await requireInboxView(db,who.userId);return(await db.query(`select id,platform,label,username,status,token_expires_at,
       daily_new_dm_cap,daily_followup_cap,warmup_enabled,last_webhook_at,last_error from public.connected_accounts
-      where organization_id=$1 order by platform,label`,[a.organization_id])).rows;});
+      where organization_id=$1 and external_account_id is not null and status<>'disconnected' order by platform,label`,[a.organization_id])).rows;});
   tool(server,who,'log_dm_sent','Record a DM already sent manually; does not send a message.',
     {conversation_id:id,body:z.string().min(1).max(2000)},true,
     async(db,a,orgs)=>{const q=await db.query(`select * from public.conversations where id=$1 for update`,[a.conversation_id]);
