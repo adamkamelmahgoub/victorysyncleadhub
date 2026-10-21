@@ -9,19 +9,14 @@ import {mcpPool} from '../mcp-auth.js';
 import {socialVaultRead} from '../social-vault.js';
 import {matchSocialLead} from '../social-matching.js';
 import {dispatchSocialNotifications} from '../social-notification-outbox.js';
+import {getUnipileConfig,unipileRequest} from '../social-unipile-client.js';
 
 export const config = { maxDuration: 60 };
 type Job = { id: string; provider: string; payload: InboundEvent | MessageStatusEvent | Record<string,unknown>; attempts: number };
 type Account = { id: string; organization_id: string };
 type Profile = { entity_type: string; entity_id: string };
 async function unipileGet(organizationId:string,accountId:string,path:string){
-  const configured=await mcpPool.query<{api_key_vault_id:string}>(`select api_key_vault_id from public.social_unipile_config where organization_id=$1 limit 1`,[organizationId]);
-  if(!configured.rows[0])throw new Error('Unipile API key is missing');
-  const key=await socialVaultRead(configured.rows[0].api_key_vault_id);
-  const response=await fetch(`https://api.unipile.com/v2/${encodeURIComponent(accountId)}${path}`,{
-    headers:{'X-API-KEY':key},signal:AbortSignal.timeout(15000)});
-  if(!response.ok)throw new Error(`Unipile lookup failed (${response.status})`);
-  return response.json() as Promise<Record<string,unknown>>;
+  return unipileRequest(organizationId,path,undefined,accountId);
 }
 
 async function processUnipileEvent(raw:Record<string,unknown>){
@@ -49,11 +44,11 @@ async function processUnipileEvent(raw:Record<string,unknown>){
     const chatResponse=outbound?await unipileGet(account.organization_id,accountId,`/chats/${encodeURIComponent(chatId)}`):null;
     const chat=(chatResponse?.data&&typeof chatResponse.data==='object'?chatResponse.data:chatResponse) as Record<string,unknown>|null;
     if(chat&&chat.is_1to1===false)return;
-    const participantId=outbound?String(chat?.user_id||''):senderId;
+    const participantId=outbound?String(payload.participant_id||chat?.user_id||chat?.participant_id||''):senderId;
     if(!participantId)throw new Error('Unipile chat participant is missing');
     const profileResponse:Record<string,unknown>=await unipileGet(account.organization_id,accountId,`/users/${encodeURIComponent(participantId)}`).catch(()=>({}));
     const profile=(profileResponse.data&&typeof profileResponse.data==='object'?profileResponse.data:profileResponse) as Record<string,unknown>;
-    const handle=String(profile.public_identifier||''),displayName=String(profile.display_name||'');
+    const handle=String(profile.public_identifier||''),displayName=String(profile.display_name||profile.name||'');
     const match=await matchSocialLead({organizationId:account.organization_id,repUserId:account.owner_user_id,
       platform:account.platform as 'instagram'|'linkedin',providerUserId:participantId,
       publicIdentifier:handle||null,profileUrl:String(profile.profile_url||'')||null,displayName:displayName||null});
@@ -107,23 +102,30 @@ async function reconcileUnipile(){
     where connected_account_id=$1 and next_sync_at<=now() returning connected_account_id`,[state.connected_account_id]);
   if(!claim.rowCount)return 0;
   try{
-    const query=new URLSearchParams({type:'1to1',limit:'2'});
+    const config=await getUnipileConfig(state.organization_id);
+    const query=new URLSearchParams(config.api_version==='v1'?{account_id:state.external_account_id,limit:'2'}:{type:'1to1',limit:'2'});
     if(state.chat_cursor)query.set('cursor',state.chat_cursor);
     const response=await unipileGet(state.organization_id,state.external_account_id,`/chats?${query}`);
-    const chats=Array.isArray(response.data)?response.data as Record<string,unknown>[]:[];
+    const chats=Array.isArray(response.data)?response.data as Record<string,unknown>[]:Array.isArray(response.items)?response.items as Record<string,unknown>[]:[];
     let messages=0;
     for(const chat of chats){
       const chatId=String(chat.id||'');if(!chatId||chat.is_1to1===false)continue;
+      const attendeesPage=config.api_version==='v1'?await unipileGet(state.organization_id,state.external_account_id,
+        `/chats/${encodeURIComponent(chatId)}/attendees`).catch(()=>({} as Record<string,unknown>)):null;
+      const attendees=Array.isArray(attendeesPage?.items)?attendeesPage.items as Record<string,unknown>[]:[];
       const page=await unipileGet(state.organization_id,state.external_account_id,
         `/chats/${encodeURIComponent(chatId)}/messages?limit=50`);
-      const items=Array.isArray(page.data)?page.data as Record<string,unknown>[]:[];
+      const items=Array.isArray(page.data)?page.data as Record<string,unknown>[]:Array.isArray(page.items)?page.items as Record<string,unknown>[]:[];
       const jobs=[];
       for(const message of items.reverse()){
         const timestamp=Date.parse(String(message.timestamp||''));
         if(!state.initial_sync_complete&&(!Number.isFinite(timestamp)||timestamp<Date.now()-30*86400000))continue;
-        if(!message.id)continue;
-        jobs.push({provider:'unipile',event_key:`sync:${state.external_account_id}:${String(message.id)}`,
-          payload:{account_id:state.external_account_id,type:'message.new',source:'reconciliation',payload:{...message,chat_id:chatId}},status:'queued'});
+        const messageId=String(message.id||message.message_id||'');if(!messageId)continue;
+        const other=message.is_sender===true?attendees.find(value=>String(value.provider_id||value.id||'')!==String(message.sender_id||'')):null;
+        jobs.push({provider:'unipile',event_key:`sync:${state.external_account_id}:${messageId}`,
+          payload:{account_id:state.external_account_id,type:'message.new',source:'reconciliation',payload:{...message,id:messageId,chat_id:chatId,
+            sender_id:message.sender_id||message.sender_provider_id,participant_id:other?.provider_id||other?.id,
+            text:message.text||message.message}},status:'queued'});
         messages++;
       }
       if(jobs.length)await socialRest('social_webhook_events?on_conflict=provider,event_key',{

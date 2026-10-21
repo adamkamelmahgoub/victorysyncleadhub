@@ -6,6 +6,7 @@ import {providerAdapters,type Channel} from './social-providers.js';
 import {mcpPool} from './mcp-auth.js';
 import {socialVaultRead} from './social-vault.js';
 import {isSocialOwner} from './social-workspace-auth.js';
+import {getUnipileConfig,unipileRequest} from './social-unipile-client.js';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Thread={id:string;organization_id:string;channel:string;connected_account_id:string;participant_platform_id:string;
@@ -31,14 +32,13 @@ export async function sendSocialReply(userId:string,conversationId:string,body:s
     let externalId:string;
     if(account.provider==='unipile'){
       if(!thread.external_thread_id)throw new Error('Unipile chat is missing');
-      const configured=await mcpPool.query<{api_key_vault_id:string}>(`select api_key_vault_id from public.social_unipile_config where organization_id=$1`,[thread.organization_id]);
-      if(!configured.rows[0])throw new Error('Unipile is not configured');
-      const key=await socialVaultRead(configured.rows[0].api_key_vault_id);
-      const response=await fetch(`https://api.unipile.com/v2/${encodeURIComponent(account.external_account_id)}/chats/${encodeURIComponent(thread.external_thread_id)}/messages/send`,{
-        method:'POST',headers:{'X-API-KEY':key,'content-type':'application/json'},body:JSON.stringify({text}),signal:AbortSignal.timeout(15000)});
-      if(!response.ok)throw new Error(`Unipile reply failed (${response.status})`);
-      const result=await response.json() as{message_id?:string;data?:{message_id?:string}};
-      externalId=String(result.message_id||result.data?.message_id||'');
+      const config=await getUnipileConfig(thread.organization_id);
+      const result=await unipileRequest(thread.organization_id,config.api_version==='v1'
+        ?`/chats/${encodeURIComponent(thread.external_thread_id)}/messages`
+        :`/chats/${encodeURIComponent(thread.external_thread_id)}/messages/send`,
+        config.api_version==='v1'?{method:'POST',body:(()=>{const data=new FormData();data.set('text',text);data.set('account_id',account.external_account_id);return data;})()}
+          :{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text})},account.external_account_id);
+      externalId=String(result.message_id||(result.data as Record<string,unknown>|undefined)?.message_id||'');
       if(!externalId)throw new Error('Unipile sent a reply without a message ID');
     }else externalId=await adapter.sendReply({accountExternalId:account.external_account_id,recipientId:thread.participant_platform_id,
       body:text,accessToken:await socialAccountToken(account.id),graphVersion:await socialGraphVersion(thread.organization_id)});
