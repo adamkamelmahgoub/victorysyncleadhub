@@ -6,14 +6,14 @@ import { apiFetch } from '@/lib/api';
 type Conversation = {id:string;channel:string;connected_account_id:string|null;assigned_to:string|null;participant_handle:string|null;participant_platform_id:string|null;lead_id:string|null;suggested_lead_id:string|null;contact_id:string|null;company_id:string|null;legacy_company_id:string|null;match_status:string;match_confidence:number|null;status:string;intent:string;unread_count:number;last_message_at:string|null;reply_window_expires_at:string|null};
 type Message = {id:string;direction:'inbound'|'outbound';body:string;created_at:string;sent_via:string|null};
 type Profile = {id:string;platform:string;handle:string;profile_url:string|null};
-type Thread = {conversation:Conversation;messages:Message[];profiles:Profile[];relatedMessages:Array<Message & {channel:string}>;canReply:boolean;manualReply:boolean};
+type Thread = {conversation:Conversation;messages:Message[];profiles:Profile[];relatedMessages:Array<Message & {channel:string}>;canReply:boolean;manualReply:boolean;replyOwedDueAt:string|null};
 const channels=['all','instagram','facebook','whatsapp','email','sms','x','linkedin','other'];
 const field='rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary';
 const panel='rounded-xl border border-border bg-card shadow-sm';
 export default function SocialInbox() {
   const qc=useQueryClient();
   const [channel,setChannel]=useState('all'),[status,setStatus]=useState('open'),[intent,setIntent]=useState('all');
-  const [matchFilter,setMatchFilter]=useState('all'),[unread,setUnread]=useState(false),[selected,setSelected]=useState<string|null>(null);
+  const [matchFilter,setMatchFilter]=useState('all'),[unread,setUnread]=useState(false),[replyOwed,setReplyOwed]=useState(false),[selected,setSelected]=useState<string|null>(null);
   const [linkId,setLinkId]=useState(''),[linkType,setLinkType]=useState<'lead'|'contact'|'company'>('lead'),[error,setError]=useState('');
   const [draft,setDraft]=useState('');
   const [manualIntent,setManualIntent]=useState('unknown');
@@ -21,7 +21,7 @@ export default function SocialInbox() {
   const accounts=useQuery<{accounts:Array<{id:string;label:string}>}>({queryKey:['social-accounts'],queryFn:()=>apiFetch('/api/social-accounts')});
   const params=new URLSearchParams();
   if(channel!=='all')params.set('channel',channel);if(status!=='all')params.set('status',status);if(intent!=='all')params.set('intent',intent);
-  if(matchFilter!=='all')params.set('match_status',matchFilter);if(unread)params.set('unread','true');
+  if(matchFilter!=='all')params.set('match_status',matchFilter);if(unread)params.set('unread','true');if(replyOwed)params.set('reply_owed','true');
   if(account)params.set('connected_account_id',account);if(assignee)params.set('assigned_to',assignee);
   const list=useQuery<{conversations:Conversation[]}>({queryKey:['social-inbox',params.toString()],queryFn:()=>apiFetch(`/api/social-inbox?${params}`),refetchInterval:30000});
   const thread=useQuery<Thread>({queryKey:['social-thread',selected],queryFn:()=>apiFetch(`/api/social-inbox?id=${selected}`),enabled:!!selected,refetchInterval:30000});
@@ -51,6 +51,7 @@ export default function SocialInbox() {
       <select aria-label="Connected account" className={field} value={account} onChange={(e)=>setAccount(e.target.value)}><option value="">All accounts</option>{accounts.data?.accounts.map((item)=><option key={item.id} value={item.id}>{item.label}</option>)}</select>
       <input aria-label="Assignee ID filter" className={field+' w-40'} value={assignee} onChange={(e)=>setAssignee(e.target.value)} placeholder="Assignee UUID" />
       <label className="flex items-center gap-1 text-sm"><input type="checkbox" checked={unread} onChange={(e)=>setUnread(e.target.checked)}/> Unread</label>
+      <label className="flex items-center gap-1 text-sm"><input type="checkbox" checked={replyOwed} onChange={(e)=>setReplyOwed(e.target.checked)}/> Reply owed</label>
       <select aria-label="Match status" className={field} value={matchFilter} onChange={e=>setMatchFilter(e.target.value)}>{['all','matched','suggested','unmatched','ignored'].map(value=><option key={value} value={value}>{value==='all'?'All matches':value[0].toUpperCase()+value.slice(1)}</option>)}</select>
     </div>
     <div className="grid min-h-[560px] gap-3 lg:grid-cols-[280px_minmax(0,1fr)_250px]">
@@ -66,7 +67,7 @@ export default function SocialInbox() {
       </div>
       <div className={panel+' flex min-h-[540px] flex-col'}>
         {!current?<p className="m-auto text-sm text-muted-foreground">Select a conversation</p>:<>
-          <div className="flex flex-wrap items-center gap-2 border-b border-border p-4"><strong className="text-sm">{current.participant_handle||current.participant_platform_id||'Unknown sender'}</strong><span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs capitalize text-primary">{current.channel}</span><button className="ml-auto rounded-lg border border-border px-2 py-1 text-xs hover:bg-muted" onClick={()=>change.mutate({action:'read'})}>Mark read</button></div>
+          <div className="flex flex-wrap items-center gap-2 border-b border-border p-4"><strong className="text-sm">{current.participant_handle||current.participant_platform_id||'Unknown sender'}</strong><span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs capitalize text-primary">{current.channel}</span>{thread.data?.replyOwedDueAt&&<span className={`rounded-full px-2 py-0.5 text-xs ${new Date(thread.data.replyOwedDueAt).getTime()<Date.now()?'bg-red-100 text-red-700':'bg-amber-100 text-amber-800'}`}>Reply due {new Date(thread.data.replyOwedDueAt).toLocaleString()}</span>}<button className="ml-auto rounded-lg border border-border px-2 py-1 text-xs hover:bg-muted" onClick={()=>change.mutate({action:'read'})}>Mark read</button></div>
           <div className="flex-1 space-y-3 overflow-y-auto p-4">{thread.data?.messages.map((message)=><div key={message.id} className={`max-w-[85%] rounded-xl p-3 text-sm ${message.direction==='outbound'?'ml-auto bg-primary text-primary-foreground':'bg-muted'}`}>
             <p className="whitespace-pre-wrap break-words">{message.body||'(attachment)'}</p><div className="mt-1 text-[11px] opacity-70">{new Date(message.created_at).toLocaleString()} · {message.direction}{message.sent_via?` via ${message.sent_via}`:''}</div>
           </div>)}</div>

@@ -11,7 +11,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
     const days=Number(new URL(req.url||'/','https://local.invalid').searchParams.get('days')||30);
     if(![7,30,90,365].includes(days))throw new Error('Choose a 7, 30, 90, or 365 day period');
     const args=[org,actor.id,days];
-    const [accounts,messages,tasks,daily,campaigns,response]=await Promise.all([
+    const [accounts,messages,tasks,daily,campaigns,response,obligations]=await Promise.all([
       mcpPool.query(`select a.id,a.label,a.platform,a.status,a.health,a.last_webhook_at,a.last_sync_at,
         count(distinct c.id)::int conversations,count(m.id) filter(where m.direction='outbound')::int sent,
         count(m.id) filter(where m.direction='inbound')::int replies,
@@ -54,8 +54,14 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
         join public.messages m on m.conversation_id=f.id and m.direction='inbound' and m.created_at>f.sent_at group by f.id,f.sent_at)
         select (select count(*)::int from first_out) contacted,(select count(*)::int from first_reply) replied,
         (select round((percentile_cont(0.5) within group(order by extract(epoch from replied_at-sent_at)/3600))::numeric,2) from first_reply) median_reply_hours`,args),
+      mcpPool.query(`select count(*) filter(where completed_at is null)::int reply_owed,
+        count(*) filter(where completed_at is null and due_at<now())::int overdue,
+        count(*) filter(where completed_at>due_at and completed_at>=now()-($3::int*interval '1 day'))::int late_completed,
+        round((percentile_cont(0.5) within group(order by extract(epoch from completed_at-created_at)/60)
+          filter(where completed_at is not null and completed_at>=now()-($3::int*interval '1 day')))::numeric,1) median_reply_minutes
+        from public.social_reply_obligations where organization_id=$1 and rep_user_id=$2`,args),
     ]);
     return send(res,200,{days,generated_at:new Date().toISOString(),timezone:'America/New_York',accounts:accounts.rows,messages:messages.rows[0],
-      tasks:tasks.rows[0],daily:daily.rows,campaigns:campaigns.rows,response:response.rows[0]});
+      tasks:tasks.rows[0],daily:daily.rows,campaigns:campaigns.rows,response:response.rows[0],obligations:obligations.rows[0]});
   }catch(error){return send(res,400,{error:error instanceof Error?error.message:'Stats unavailable'});}
 }

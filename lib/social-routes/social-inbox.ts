@@ -38,10 +38,13 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
         `messages?conversation_id=in.(${related.map((item)=>item.id).join(',')})&select=id,conversation_id,direction,body,created_at&order=created_at.desc&limit=200`):[];
       const channelById=new Map(related.map((item)=>[item.id,item.channel]));
       const [account]=thread.connected_account_id?await socialRest<Array<{provider:string|null;status:string;connection_mode:string}>>(`connected_accounts?id=eq.${thread.connected_account_id}&select=provider,status,connection_mode&limit=1`):[];
+      const owed=await mcpPool.query<{due_at:Date}>(`select min(due_at) due_at from public.social_reply_obligations
+        where conversation_id=$1 and completed_at is null`,[thread.id]);
       const inbound=messages.some(message=>message.direction==='inbound');
       const withinWindow=Boolean(thread.last_inbound_at)&&Date.now()-new Date(thread.last_inbound_at!).getTime()<24*3600000;
       const privateThread=thread.match_status==='ignored'&&isSocialOwner(user,thread.organization_id)&&thread.assigned_to!==user.id;
-      return reply(res,200,{conversation:thread,messages:privateThread?messages.map(({body,...message})=>({...message,body:''})):messages,
+      return reply(res,200,{conversation:thread,replyOwedDueAt:owed.rows[0]?.due_at||null,
+        messages:privateThread?messages.map(({body,...message})=>({...message,body:''})):messages,
         profiles,relatedMessages:relatedMessages.map((message)=>({...message,channel:channelById.get(message.conversation_id)})),manualReply:account?.connection_mode==='manual',
         canReply:inbound&&withinWindow&&Boolean(thread.lead_id||thread.contact_id||thread.company_id||thread.legacy_company_id)&&account?.status==='active'&&Boolean(account?.provider==='unipile'||
           (providerAdapters[thread.channel as Channel]?.capabilities.canReply&&replyAllowed(thread.channel as Channel,new Date(thread.last_inbound_at!))))});
@@ -55,6 +58,13 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
         const value=url.searchParams.get(name);if(value)filters.push(`${name}=eq.${encodeURIComponent(value)}`);
       }
       if(url.searchParams.get('unread')==='true')filters.push('unread_count=gt.0');
+      if(url.searchParams.get('reply_owed')==='true'){
+        const owed=await mcpPool.query<{conversation_id:string}>(`select distinct o.conversation_id
+          from public.social_reply_obligations o where o.organization_id=any($1::uuid[]) and o.completed_at is null
+          order by o.conversation_id limit 500`,[organizations]);
+        if(!owed.rows.length)return reply(res,200,{conversations:[]});
+        filters.push(`id=in.(${owed.rows.map(row=>row.conversation_id).join(',')})`);
+      }
       const matchStatus=url.searchParams.get('match_status');
       if(matchStatus&&['matched','suggested','unmatched','ignored'].includes(matchStatus))filters.push(`match_status=eq.${matchStatus}`);
       if(url.searchParams.get('unmatched')==='true')filters.push('match_status=in.(unmatched,suggested)');
