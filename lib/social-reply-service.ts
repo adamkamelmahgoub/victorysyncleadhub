@@ -7,7 +7,7 @@ import {mcpPool} from './mcp-auth.js';
 import {socialVaultRead} from './social-vault.js';
 import {isSocialOwner} from './social-workspace-auth.js';
 
-const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Thread={id:string;organization_id:string;channel:string;connected_account_id:string;participant_platform_id:string;
   company_id:string|null;contact_id:string|null;lead_id:string|null;external_thread_id:string|null;last_inbound_at:string|null};
 type Account={id:string;platform:string;external_account_id:string;provider:string|null;owner_user_id:string|null;status:string};

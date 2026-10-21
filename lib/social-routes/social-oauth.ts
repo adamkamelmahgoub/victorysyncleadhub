@@ -3,8 +3,9 @@ import {createHash,randomBytes} from 'node:crypto';
 import {mcpPool} from '../mcp-auth.js';
 import {socialActor,isSocialOwner,SOCIAL_WORKSPACE_ORG_ID} from '../social-workspace-auth.js';
 import {socialAccountToken,socialVaultRead,socialVaultWrite} from '../social-vault.js';
+import {readSocialJsonBody} from '../social-request-body.js';
 
-const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const scopes=['pages_show_list','pages_manage_metadata','pages_read_engagement','pages_messaging',
   'pages_manage_posts','instagram_basic','instagram_manage_messages','instagram_content_publish'];
 type App={organization_id:string;app_id:string;app_secret_vault_id:string;verify_token_vault_id:string;graph_version:string};
@@ -110,8 +111,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
         callback_url:`${base}/api/social-oauth?action=callback`,webhook_url:`${base}/api/social-webhook`});
     }
     if(req.method!=='POST')return json(res,405,{error:'Method not allowed'});
-    let raw='';for await(const part of req){raw+=part;if(raw.length>12000)throw new Error('Request too large');}
-    const input=JSON.parse(raw||'{}') as Record<string,unknown>;
+    const input=await readSocialJsonBody(req,12000);
     const orgId=String(input.organization_id||SOCIAL_WORKSPACE_ORG_ID);
     if(!uuid.test(orgId)||!isSocialOwner(actor,orgId))throw new Error('Owner access required');
     if(input.action==='configure'){

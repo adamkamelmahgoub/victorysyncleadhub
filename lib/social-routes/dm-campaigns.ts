@@ -1,13 +1,13 @@
 import type {IncomingMessage,ServerResponse} from 'node:http';
 import {mcpPool} from '../mcp-auth.js';
 import {socialActor,socialActorOrganizations,internalSocialOrganization} from '../social-workspace-auth.js';
+import {readSocialJsonBody} from '../social-request-body.js';
 
 export const config={api:{bodyParser:false},maxDuration:30};
-const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const channels=new Set(['instagram','facebook','linkedin','x','tiktok','threads','whatsapp','email','sms','other']);
 const stepTypes=new Set(['follow','engage_post','dm','followup_dm','email','call_task']);
 function send(res:ServerResponse,status:number,data:unknown){res.statusCode=status;res.setHeader('content-type','application/json');res.end(JSON.stringify(data));}
-async function body(req:IncomingMessage){let raw='';for await(const part of req){raw+=part;if(raw.length>100000)throw new Error('Request too large');}return JSON.parse(raw||'{}');}
 export default async function handler(req:IncomingMessage,res:ServerResponse){let db;
   try{const user=await socialActor(req);const orgs=socialActorOrganizations(user,'campaign_manage');db=await mcpPool.connect();
     if(req.method==='GET'){
@@ -23,7 +23,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){le
       return send(res,200,{campaigns:campaigns.rows,templates:templates.rows,organizations:organizations.rows});
     }
     if(req.method!=='POST')return send(res,405,{error:'Method not allowed'});
-    const data=await body(req);const action=String(data.action||'');const org=internalSocialOrganization(user,'campaign_manage');
+    const data=await readSocialJsonBody(req);const action=String(data.action||'');const org=internalSocialOrganization(user,'campaign_manage');
     if(data.organization_id&&data.organization_id!==org)throw new Error('Social campaigns are internal to Victory Sync');
     await db.query('begin');
     if(action==='create_template'){
@@ -49,7 +49,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){le
       }
       await db.query('commit');return send(res,200,{id:campaignId,status:'draft'});
     }
-    const campaignId=String(data.campaign_id||'');if(!uuid.test(campaignId))throw new Error('Invalid campaign ID');
+    const campaignId=String(data.campaign_id||data.campaignId||'');if(!uuid.test(campaignId))throw new Error('Invalid campaign ID; refresh the campaign list and try again');
     const campaign=await db.query(`select status from public.dm_campaigns where id=$1 and organization_id=$2 for update`,[campaignId,org]);
     if(!campaign.rowCount)throw new Error('Campaign not found');
     if(action==='status'){
@@ -60,7 +60,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){le
     if(action!=='enroll'||campaign.rows[0].status!=='active')throw new Error('Active campaign required');
     const type=String(data.entity_type||'');const ids:string[]=Array.isArray(data.entity_ids)
       ?[...new Set<string>(data.entity_ids.map((value:unknown)=>String(value)))]:[];
-    const accountId=data.connected_account_id||null;
+    const accountId=data.connected_account_id?String(data.connected_account_id):null;
     if(!['lead','contact','company'].includes(type)||!ids.length||ids.length>200||ids.some(id=>!uuid.test(id)))throw new Error('Invalid enrollment selection');
     if(accountId){if(!uuid.test(accountId))throw new Error('Invalid account ID');
       const account=await db.query(`select 1 from public.connected_accounts where id=$1 and organization_id=$2 and status='active'`,[accountId,org]);

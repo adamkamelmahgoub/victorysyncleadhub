@@ -20,7 +20,7 @@ async function config(){
 }
 async function unipile(path:string,key:string,init?:RequestInit){
   const response=await fetch(`https://api.unipile.com/v2${path}`,{...init,headers:{'X-API-KEY':key,'content-type':'application/json',...init?.headers},signal:AbortSignal.timeout(15000)});
-  if(!response.ok)throw new Error(`Unipile request failed (${response.status})`);
+  if(!response.ok){const detail=await response.text().catch(()=> '');throw new Error(`Unipile request failed (${response.status})${detail?`: ${detail.slice(0,300)}`:''}`);}
   return response.json() as Promise<Record<string,unknown>>;
 }
 export function verifyUnipileSignature(raw:Buffer,header:string|undefined,secret:string,now=Date.now()){
@@ -129,8 +129,6 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
       const platform=String(input.platform||'');
       if(!['instagram','linkedin'].includes(platform))throw new Error('Choose Instagram or LinkedIn');
       if(input.consent!==true)throw new Error('Account owner consent is required');
-      const signed=await mcpPool.query(`select 1 from public.social_unipile_config where organization_id=$1 and webhook_secret_vault_id is not null`,[org]);
-      if(!signed.rowCount)throw new Error('Configure the signed webhook first');
       const key=await socialVaultRead((await config()).api_key_vault_id);
       const state=randomBytes(32).toString('base64url');
       const account=await mcpPool.query<{id:string}>(`insert into public.connected_accounts

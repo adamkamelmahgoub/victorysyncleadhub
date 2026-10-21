@@ -3,7 +3,7 @@ import { socialActor, socialActorOrganizations } from '../social-workspace-auth.
 import { socialRest } from '../social-service.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 30 };
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function send(res: ServerResponse, status: number, data: unknown) {
   res.statusCode = status; res.setHeader('content-type','application/json'); res.end(JSON.stringify(data));
 }

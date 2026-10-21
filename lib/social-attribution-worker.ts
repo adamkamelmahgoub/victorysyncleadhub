@@ -2,7 +2,7 @@ import {mcpPool} from './mcp-auth.js';
 import {SOCIAL_WORKSPACE_ORG_ID} from './social-workspace-auth.js';
 
 const org=SOCIAL_WORKSPACE_ORG_ID;
-const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const asObject=(value:unknown):Record<string,unknown>=>value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:{};
 const asString=(value:unknown)=>typeof value==='string'?value:'';
 

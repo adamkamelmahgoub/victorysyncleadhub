@@ -2,7 +2,7 @@ import type {IncomingMessage,ServerResponse} from 'node:http';
 import {mcpPool} from '../mcp-auth.js';
 import {socialActor,isSocialOwner,SOCIAL_PERMISSIONS,SOCIAL_WORKSPACE_ORG_ID} from '../social-workspace-auth.js';
 
-const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const answer=(res:ServerResponse,status:number,data:unknown)=>{res.statusCode=status;res.setHeader('content-type','application/json');res.end(JSON.stringify(data));};
 export default async function handler(req:IncomingMessage,res:ServerResponse){
   try{

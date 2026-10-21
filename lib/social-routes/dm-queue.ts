@@ -3,7 +3,7 @@ import {mcpPool} from '../mcp-auth.js';
 import {renderDmTemplate} from '../dm-template.js';
 import {socialActor,socialActorOrganizations,isSocialOwner,SOCIAL_WORKSPACE_ORG_ID} from '../social-workspace-auth.js';
 export const config={api:{bodyParser:false},maxDuration:30};
-const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function reply(res:ServerResponse,status:number,data:unknown){res.statusCode=status;res.setHeader('content-type','application/json');res.end(JSON.stringify(data));}
 type QueueRow={id:string;organization_id:string;enrollment_id:string;step_id:string;connected_account_id:string|null;due_at:Date;
   step_type:string;channel:string;body:string|null;allow_spintax:boolean|null;entity_type:string;entity_id:string;
