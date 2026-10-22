@@ -9,6 +9,7 @@ import { socialRest } from '../lib/social-service.js';
 import { mailboxTransport } from '../artifacts/api-server/src/lib/email-transports.js';
 import { inboxAdapter } from '../artifacts/api-server/src/lib/inbox-adapters.js';
 import { WorkflowService,isWorkflowEndpoint,isPublicWorkflowEndpoint } from '../lib/workflow-service.js';
+import { escapeHtml, renderLandingPage, type LandingSection, type LandingTheme } from '../lib/marketing-pages.js';
 export const config = { api: { bodyParser: false } };
 
 type VercelRequest = {
@@ -506,6 +507,7 @@ function apiPermissionForPath(path: string) {
     [/^\/api\/social/, "social"],
     [/^\/api\/automation/, "automation"],
     [/^\/api\/forms/, "forms"],
+    [/^\/api\/(?:landing-pages|marketing\/reports)/, "forms"],
     [/^\/api\/(?:integrations|webhooks|oauth)/, "integrations"],
     [/^\/api\/reviews/, "reputation"],
     [/^\/api\/(?:analytics|revenue)/, "reporting"],
@@ -1287,6 +1289,24 @@ async function handleGenericResource(path: string, method: string, req: VercelRe
   const config = resourceConfigs[match.key];
   if (!config) return false;
 
+  if (match.key === "forms" && match.id && match.action === "submissions" && method === "GET") {
+    const rows = await supabaseRest(`form_submissions?form_id=eq.${encodeURIComponent(match.id)}&select=id,data,source_url,created_at,lead_id&order=created_at.desc&limit=100`, { method: "GET" }, req);
+    sendJson(res, 200, toCamelValue(rows));
+    return true;
+  }
+
+  if (match.key === "forms" && method === "GET" && !match.action) {
+    const rows = await supabaseRest(`forms?select=*&${match.id ? `id=eq.${encodeURIComponent(match.id)}&` : ""}order=created_at.desc`, { method: "GET" }, req) as Array<Record<string, unknown>>;
+    const forms = await Promise.all(rows.map(async (row) => ({
+      ...toCamelValue(row) as object,
+      submissionCount: await supabaseRestCount(`form_submissions?form_id=eq.${encodeURIComponent(String(row.id))}&select=id`, req),
+      embedCode: `<iframe src="${marketingOrigin(req)}/api/public/forms/${row.id}" title="${escapeHtml(row.name)}" style="width:100%;min-height:500px;border:0"></iframe>`,
+    })));
+    if (match.id) sendJson(res, forms[0] ? 200 : 404, forms[0] ?? { error: "Form not found" });
+    else sendJson(res, 200, forms);
+    return true;
+  }
+
   if (match.key === "api-keys" && !match.id && method === "POST") {
     await createApiKey(req, res);
     return true;
@@ -1366,6 +1386,157 @@ async function handleGenericResource(path: string, method: string, req: VercelRe
   }
 
   return false;
+}
+
+type MarketingPageRow = { id: string; title: string; slug: string; status: string; seo_description: string; sections: LandingSection[]; theme: LandingTheme; created_at: string; updated_at: string };
+type MarketingFormRow = { id: string; name: string; status: string; campaign_id?: string | null; fields: Array<{ id?: string; label?: string; fieldType?: string; required?: boolean; placeholder?: string; options?: string[]; mappedLeadField?: string }>; success_message?: string };
+const marketingUuidPattern = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const marketingUuid = new RegExp(`^${marketingUuidPattern}$`, "i");
+
+function marketingHtml(res: VercelResponse, status: number, html: string) {
+  res.statusCode = status;
+  res.setHeader("content-type", "text/html; charset=utf-8");
+  res.setHeader("x-content-type-options", "nosniff");
+  res.setHeader("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; frame-src 'self'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'");
+  res.end(html);
+}
+
+function marketingOrigin(req: VercelRequest) {
+  const inboundHost = getHeader(req, "host") ?? "";
+  const host = /^[a-z0-9.-]+(?::\d{1,5})?$/i.test(inboundHost) ? inboundHost : "localhost";
+  const protocol = getHeader(req, "x-forwarded-proto") === "http" || /^localhost(?::|$)/.test(host) ? "http" : "https";
+  return `${protocol}://${host}`;
+}
+
+function validLandingSections(value: unknown): value is LandingSection[] {
+  return Array.isArray(value) && value.length <= 40 && value.every((section) => section && typeof section === "object" &&
+    typeof section.id === "string" && ["hero", "text", "features", "image", "cta", "form"].includes(section.type) &&
+    [section.heading, section.body, section.buttonText, section.buttonUrl, section.imageUrl].every((entry) => entry === undefined || typeof entry === "string" && entry.length <= 5000) &&
+    (section.formId === undefined || typeof section.formId === "string" && section.formId.length <= 100) &&
+    (section.items === undefined || Array.isArray(section.items) && section.items.length <= 12 && section.items.every((item: unknown) => typeof item === "string" && item.length <= 300)));
+}
+
+async function handleLandingPages(path: string, method: string, req: VercelRequest, res: VercelResponse) {
+  const match = path.match(/^\/api\/landing-pages(?:\/([^/]+))?(?:\/(preview))?$/);
+  if (!match) return false;
+  const id = match[1] ? decodeURIComponent(match[1]) : null;
+  if (method === "GET" && match[2] === "preview" && id) {
+    const rows = await supabaseRest(`marketing_landing_pages?id=eq.${encodeURIComponent(id)}&select=*&limit=1`, { method: "GET" }, req) as MarketingPageRow[];
+    if (!rows[0]) { sendJson(res, 404, { error: "Landing page not found" }); return true; }
+    marketingHtml(res, 200, renderLandingPage(rows[0], marketingOrigin(req)));
+    return true;
+  }
+  if (method === "GET") {
+    const rows = await supabaseRest(`marketing_landing_pages?select=*&${id ? `id=eq.${encodeURIComponent(id)}&` : ""}order=created_at.desc`, { method: "GET" }, req) as MarketingPageRow[];
+    if (id) sendJson(res, rows[0] ? 200 : 404, rows[0] ? toCamelValue(rows[0]) : { error: "Landing page not found" });
+    else sendJson(res, 200, toCamelValue(rows));
+    return true;
+  }
+  if (method === "DELETE" && id) {
+    await supabaseRest(`marketing_landing_pages?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" }, req);
+    res.statusCode = 204; res.end(); return true;
+  }
+  if ((method === "POST" && !id) || (method === "PATCH" && id)) {
+    const body = await readJson(req) as Record<string, unknown>;
+    if (typeof body.title !== "string" || !body.title.trim() || body.title.length > 180) { sendJson(res, 400, { error: "Enter a title (up to 180 characters)" }); return true; }
+    const slug = String(body.slug ?? "").trim().toLowerCase();
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || slug.length > 100) { sendJson(res, 400, { error: "Use a URL slug with lowercase letters, numbers and hyphens" }); return true; }
+    if (!validLandingSections(body.sections)) { sendJson(res, 400, { error: "Landing page sections are invalid" }); return true; }
+    if (body.status !== "draft" && body.status !== "published") { sendJson(res, 400, { error: "Choose draft or published status" }); return true; }
+    const theme = body.theme && typeof body.theme === "object" && !Array.isArray(body.theme) ? body.theme : {};
+    const payload = { title: body.title.trim(), slug, status: body.status, sections: body.sections, theme, seo_description: String(body.seoDescription ?? "").slice(0, 320), updated_at: new Date().toISOString() };
+    const rows = await supabaseRest(id ? `marketing_landing_pages?id=eq.${encodeURIComponent(id)}` : "marketing_landing_pages", { method: id ? "PATCH" : "POST", body: JSON.stringify(payload) }, req) as MarketingPageRow[];
+    sendJson(res, id ? 200 : 201, toCamelValue(rows[0])); return true;
+  }
+  sendJson(res, 405, { error: "Method not allowed" }); return true;
+}
+
+async function handlePublicMarketing(path: string, method: string, req: VercelRequest, res: VercelResponse) {
+  const pageMatch = path.match(/^\/api\/public\/landing\/([a-z0-9-]+)$/);
+  if (pageMatch && method === "GET") {
+    const rows = await supabaseRest(`marketing_landing_pages?slug=eq.${encodeURIComponent(pageMatch[1])}&status=eq.published&select=*&limit=1`, { method: "GET" }) as MarketingPageRow[];
+    const page = rows[0];
+    if (!page) { marketingHtml(res, 404, "<h1>Page not found</h1>"); return true; }
+    try { await supabaseRest("marketing_landing_page_events", { method: "POST", body: JSON.stringify({ page_id: page.id, event_type: "view" }) }); }
+    catch (error) { console.error("Landing page view could not be recorded", error); }
+    marketingHtml(res, 200, renderLandingPage(page, marketingOrigin(req))); return true;
+  }
+  const formMatch = path.match(new RegExp(`^/api/public/forms/(${marketingUuidPattern})$`, "i"));
+  if (!formMatch) return false;
+  const formId = formMatch[1];
+  const rows = await supabaseRest(`forms?id=eq.${encodeURIComponent(formId)}&status=eq.active&select=*&limit=1`, { method: "GET" }) as MarketingFormRow[];
+  const form = rows[0] ? { ...rows[0], fields: toCamelValue(rows[0].fields) as MarketingFormRow["fields"] } : undefined;
+  if (!form) { sendJson(res, 404, { error: "Form not found or inactive" }); return true; }
+  if (method === "POST") {
+    const body = await readJson(req) as { data?: Record<string, unknown>; pageId?: string; website?: string };
+    if (body.website) { sendJson(res, 201, { success: true }); return true; }
+    const data = body.data && typeof body.data === "object" && !Array.isArray(body.data) ? body.data : {};
+    if (JSON.stringify(data).length > 20000) { sendJson(res, 413, { error: "Submission is too large" }); return true; }
+    for (const field of Array.isArray(form.fields) ? form.fields : []) {
+      const key = field.id ?? field.label ?? "";
+      if (field.required && !String(data[key] ?? "").trim()) { sendJson(res, 400, { error: `${field.label ?? "A required field"} is required` }); return true; }
+    }
+    let pageId: string | null = null;
+    if (typeof body.pageId === "string" && marketingUuid.test(body.pageId)) {
+      const pageRows = await supabaseRest(`marketing_landing_pages?id=eq.${encodeURIComponent(body.pageId)}&status=eq.published&select=id,sections&limit=1`, { method: "GET" }) as Array<{ id: string; sections: LandingSection[] }>;
+      if (pageRows[0]?.sections?.some((section) => section.type === "form" && section.formId === formId)) pageId = body.pageId;
+    }
+    const submitted = await supabaseRest("form_submissions", { method: "POST", body: JSON.stringify({ form_id: formId, marketing_page_id: pageId, data, source_url: getHeader(req, "referer") ?? null }) }) as Array<{ id: string }>;
+    if (pageId) {
+      try { await supabaseRest("marketing_landing_page_events", { method: "POST", body: JSON.stringify({ page_id: pageId, event_type: "form_submission" }) }); }
+      catch (error) { console.error("Landing page conversion event could not be recorded", error); }
+    }
+    const mapped: Record<string, string> = {};
+    for (const field of Array.isArray(form.fields) ? form.fields : []) {
+      const key = field.id ?? field.label ?? "";
+      const leadKey = field.mappedLeadField ?? (field.fieldType === "email" ? "email" : "");
+      if (leadKey && typeof data[key] === "string") mapped[leadKey] = String(data[key]).trim();
+    }
+    if (mapped.email || mapped.phone) {
+      try {
+        const leads = await supabaseRest("leads", { method: "POST", body: JSON.stringify({ first_name: mapped.firstName || "Unknown", last_name: mapped.lastName || "", email: mapped.email || "", phone: mapped.phone || "", company: mapped.company || null, title: mapped.title || null, source: "form", status: "new", form_id: formId, campaign_id: form.campaign_id ?? null, custom_fields: data }) }) as Array<{ id: string }>;
+        if (leads[0]?.id && submitted[0]?.id) await supabaseRest(`form_submissions?id=eq.${encodeURIComponent(submitted[0].id)}`, { method: "PATCH", body: JSON.stringify({ lead_id: leads[0].id }) });
+      } catch (error) { console.error("Form submission saved but lead creation failed", error); }
+    }
+    sendJson(res, 201, { success: true, message: form.success_message ?? "Thank you!" }); return true;
+  }
+  if (method === "GET") {
+    const fields = (Array.isArray(form.fields) ? form.fields : []).map((field) => {
+      const id = escapeHtml(field.id ?? field.label ?? "field");
+      const label = escapeHtml(field.label ?? "Field");
+      const required = field.required ? " required" : "";
+      const placeholder = escapeHtml(field.placeholder ?? "");
+      if (field.fieldType === "textarea") return `<label>${label}<textarea name="${id}" placeholder="${placeholder}"${required}></textarea></label>`;
+      if (field.fieldType === "select") return `<label>${label}<select name="${id}"${required}><option value="">Select…</option>${(field.options ?? []).map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`).join("")}</select></label>`;
+      if (field.fieldType === "checkbox") return `<label><input type="checkbox" name="${id}" value="yes"${required}> ${label}</label>`;
+      const type = ["email", "tel", "number"].includes(field.fieldType ?? "") ? field.fieldType : "text";
+      return `<label>${label}<input type="${type}" name="${id}" placeholder="${placeholder}"${required}></label>`;
+    }).join("");
+    const pageParam = new URL(req.url ?? "/", "https://local.invalid").searchParams.get("page") ?? "";
+    const pageId = marketingUuid.test(pageParam) ? pageParam : "";
+    const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:16px Arial,sans-serif;margin:0;color:#172033}form{display:grid;gap:16px;padding:8px}label{display:grid;gap:6px;font-weight:600}input,textarea,select{font:inherit;padding:11px;border:1px solid #cbd5e1;border-radius:7px}button{padding:12px 20px;border:0;border-radius:7px;background:#285ce6;color:#fff;font:inherit;cursor:pointer}#message{min-height:20px}</style></head><body><form id="lead-form">${fields}<input type="text" name="website" style="display:none" tabindex="-1" autocomplete="off"><button>Submit</button><p id="message" role="status"></p></form><script>document.getElementById('lead-form').addEventListener('submit',async function(event){event.preventDefault();const form=event.currentTarget;const data=Object.fromEntries(new FormData(form).entries());const website=data.website;delete data.website;const message=document.getElementById('message');try{const response=await fetch(location.pathname,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({data,website,pageId:${JSON.stringify(pageId)}})});const result=await response.json();if(!response.ok)throw Error(result.error||'Submission failed');message.textContent=result.message||'Thank you!';form.reset()}catch(error){message.textContent=error.message}}</script></body></html>`;
+    marketingHtml(res, 200, html); return true;
+  }
+  sendJson(res, 405, { error: "Method not allowed" }); return true;
+}
+
+async function handleMarketingReports(path: string, method: string, req: VercelRequest, res: VercelResponse) {
+  if (path !== "/api/marketing/reports" || method !== "GET") return false;
+  const period = new URL(req.url ?? "/", "https://local.invalid").searchParams.get("period") ?? "30d";
+  if (!["7d", "30d", "all"].includes(period)) { sendJson(res, 400, { error: "Invalid reporting period" }); return true; }
+  const since = period === "all" ? "" : `&created_at=gte.${encodeURIComponent(new Date(Date.now() - (period === "7d" ? 7 : 30) * 86400000).toISOString())}`;
+  const pages = await supabaseRest("marketing_landing_pages?select=id,title,slug,status,created_at&order=created_at.desc", { method: "GET" }, req) as Array<{ id: string; title: string; slug: string; status: string; created_at: string }>;
+  const forms = await supabaseRest("forms?select=id,name,status,created_at&order=created_at.desc", { method: "GET" }, req) as Array<{ id: string; name: string; status: string; created_at: string }>;
+  const pageRows = await Promise.all(pages.map(async (page) => {
+    const filter = `page_id=eq.${encodeURIComponent(page.id)}&select=id`;
+    const [views, submissions] = await Promise.all([
+      supabaseRestCount(`marketing_landing_page_events?${filter}&event_type=eq.view${since}`, req),
+      supabaseRestCount(`form_submissions?marketing_page_id=eq.${encodeURIComponent(page.id)}&select=id${since}`, req),
+    ]);
+    return { ...toCamelValue(page) as object, views, submissions, conversionRate: views ? Math.round(submissions / views * 1000) / 10 : 0 };
+  }));
+  const formRows = await Promise.all(forms.map(async (form) => ({ ...toCamelValue(form) as object, submissions: await supabaseRestCount(`form_submissions?form_id=eq.${encodeURIComponent(form.id)}&select=id${since}`, req) })));
+  sendJson(res, 200, { pages: pageRows, forms: formRows }); return true;
 }
 
 async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
@@ -2856,6 +3027,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if(isPublicEmailEndpoint(emailPath)) {await runEmail(false);return;}
     if(isPublicWorkflowEndpoint(emailPath)) {await runWorkflow(false);return;}
+    if (await handlePublicMarketing(path, method, req, res)) return;
 
     if (path === "/api/healthz") {
       sendJson(res, 200, {
@@ -3212,6 +3384,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await deleteSequence(sequenceId, req, res);
       return;
     }
+
+    if (await handleLandingPages(path, method, req, res)) return;
+    if (await handleMarketingReports(path, method, req, res)) return;
 
     if (await handleGenericResource(path, method, req, res)) {
       return;

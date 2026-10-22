@@ -1,7 +1,6 @@
 import { PageTitle, PageDescription } from "@/components/page-layout";
 import { useState } from "react";
-import { useListForms, useCreateForm, useDeleteForm, getListFormsQueryKey } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,10 +12,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Skeleton } from "@/components/ui/skeleton";
 import { Plus, Trash2, ArrowRight, FormInput, Copy, Check } from "lucide-react";
 import { Link } from "wouter";
-import { useListCampaigns } from "@workspace/api-client-react";
+import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow, parseISO } from "date-fns";
-import { asArray, type ArrayElement } from "@/lib/data-shape";
+import { asArray } from "@/lib/data-shape";
+
+type FormRow = { id: string; name: string; description?: string | null; status: string; fields?: unknown[]; submissionCount?: number; embedCode?: string | null; createdAt?: string | null };
+type CampaignRow = { id: string; name: string };
+const formsQueryKey = ["marketing-forms"];
 
 function formatRelativeDate(value: string | null | undefined) {
   if (!value) return "Date unavailable";
@@ -28,17 +31,17 @@ function formatRelativeDate(value: string | null | undefined) {
 
 export default function Forms() {
   const [showCreate, setShowCreate] = useState(false);
-  const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", description: "", campaignId: "", status: "active" });
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: formsResponse, isLoading } = useListForms();
-  const { data: campaigns } = useListCampaigns();
-  const forms = asArray<ArrayElement<NonNullable<typeof formsResponse>>>(formsResponse);
-  const campaignRows = asArray<ArrayElement<NonNullable<typeof campaigns>>>(campaigns);
-  const createForm = useCreateForm();
-  const deleteForm = useDeleteForm();
+  const { data: formsResponse, isLoading, error: formsError } = useQuery<FormRow[]>({ queryKey: formsQueryKey, queryFn: () => apiFetch("/api/forms") });
+  const { data: campaigns } = useQuery<CampaignRow[]>({ queryKey: ["marketing-campaigns"], queryFn: () => apiFetch("/api/campaigns") });
+  const forms = asArray<FormRow>(formsResponse);
+  const campaignRows = asArray<CampaignRow>(campaigns);
+  const createForm = useMutation({ mutationFn: (data: object) => apiFetch("/api/forms", { method: "POST", body: JSON.stringify(data) }) });
+  const deleteForm = useMutation({ mutationFn: (id: string) => apiFetch(`/api/forms/${encodeURIComponent(id)}`, { method: "DELETE" }) });
 
   function handleCreate() {
     if (!form.name.trim()) {
@@ -46,28 +49,31 @@ export default function Forms() {
       return;
     }
     createForm.mutate(
-      { data: { ...form, campaignId: form.campaignId ? parseInt(form.campaignId) : undefined, fields: [] } },
+      { ...form, campaignId: form.campaignId || null, fields: [] },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListFormsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: formsQueryKey });
           setShowCreate(false);
           setForm({ name: "", description: "", campaignId: "", status: "active" });
           toast({ title: "Form created" });
         },
+        onError: (error) => toast({ title: "Could not create form", description: error instanceof Error ? error.message : String(error), variant: "destructive" }),
       }
     );
   }
 
-  function handleDelete(id: number) {
-    deleteForm.mutate({ id }, {
+  function handleDelete(id: string) {
+    if (!window.confirm("Delete this form and its submissions?")) return;
+    deleteForm.mutate(id, {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListFormsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: formsQueryKey });
         toast({ title: "Form deleted" });
       },
+      onError: (error) => toast({ title: "Could not delete form", description: error instanceof Error ? error.message : String(error), variant: "destructive" }),
     });
   }
 
-  function copyEmbed(embedCode: string | null | undefined, id: number) {
+  function copyEmbed(embedCode: string | null | undefined, id: string) {
     if (!embedCode) return;
     navigator.clipboard.writeText(embedCode);
     setCopiedId(id);
@@ -88,7 +94,13 @@ export default function Forms() {
           </Button>
         </div>
 
-        {isLoading ? (
+        {formsError ? (
+          <Card className="p-6 border-destructive/40" role="alert">
+            <p className="font-medium">Forms could not be loaded</p>
+            <p className="text-sm text-muted-foreground mt-1">{formsError instanceof Error ? formsError.message : String(formsError)}</p>
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => queryClient.invalidateQueries({ queryKey: formsQueryKey })}>Try again</Button>
+          </Card>
+        ) : isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-52" />)}
           </div>
@@ -174,12 +186,12 @@ export default function Forms() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs text-muted-foreground">Campaign</Label>
-                <Select value={form.campaignId} onValueChange={(v) => setForm((f) => ({ ...f, campaignId: v }))}>
+                <Select value={form.campaignId || "none"} onValueChange={(v) => setForm((f) => ({ ...f, campaignId: v === "none" ? "" : v }))}>
                   <SelectTrigger className="mt-1">
                     <SelectValue placeholder="None" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">No campaign</SelectItem>
+                    <SelectItem value="none">No campaign</SelectItem>
                     {campaignRows.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
                   </SelectContent>
                 </Select>

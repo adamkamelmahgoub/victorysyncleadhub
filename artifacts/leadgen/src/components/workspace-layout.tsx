@@ -63,12 +63,14 @@ const groups: { label: string; links: Item[] }[] = [
       { href: "/email-unsubscribes", label: "Unsubscribed contacts", icon: Users },
       { href: "/automation", label: "Workflows", icon: Zap },
       { href: "/forms", label: "Forms", icon: FileText },
+      { href: "/landing-pages", label: "Landing pages", icon: FileText },
       { href: "/social-planner", label: "Social planner", icon: Megaphone },
     ],
   },
   {
     label: "Reports",
     links: [
+      { href: "/marketing-reports", label: "Marketing reports", icon: BarChart3 },
       { href: "/outreach-weekly", label: "Weekly outreach", icon: BarChart3 },
       { href: "/company-kpis", label: "Daily performance", icon: BarChart3 },
       { href: "/analytics", label: "CRM analytics", icon: BarChart3 },

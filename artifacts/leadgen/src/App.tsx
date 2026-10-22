@@ -26,6 +26,8 @@ import Campaigns from "@/pages/campaigns";
 import CampaignDetail from "@/pages/campaign-detail";
 import Forms from "@/pages/forms";
 import FormEditor from "@/pages/form-editor";
+import LandingPages, { LandingPageEditor } from "@/pages/landing-pages";
+import MarketingReports from "@/pages/marketing-reports";
 import Analytics from "@/pages/analytics";
 import Settings from "@/pages/settings";
 import SocialInbox from "@/pages/social-inbox";
@@ -104,6 +106,9 @@ function Router() {
       <Route path="/leadgen/campaigns/:id" component={CampaignDetail} />
       <Route path="/leadgen/forms" component={Forms} />
       <Route path="/leadgen/forms/:id" component={FormEditor} />
+      <Route path="/leadgen/landing-pages" component={LandingPages} />
+      <Route path="/leadgen/landing-pages/:id" component={LandingPageEditor} />
+      <Route path="/leadgen/marketing-reports" component={MarketingReports} />
       <Route path="/leadgen/analytics" component={Analytics} />
       <Route path="/leadgen/scraper" component={Scraper} />
       <Route path="/leadgen/email-accounts" component={EmailAccounts} />
@@ -141,6 +146,9 @@ function Router() {
       <Route path="/campaigns/:id" component={CampaignDetail} />
       <Route path="/forms" component={Forms} />
       <Route path="/forms/:id" component={FormEditor} />
+      <Route path="/landing-pages" component={LandingPages} />
+      <Route path="/landing-pages/:id" component={LandingPageEditor} />
+      <Route path="/marketing-reports" component={MarketingReports} />
       <Route path="/analytics" component={Analytics} />
       <Route path="/scraper" component={Scraper} />
       <Route path="/outreach-weekly" component={OutreachWeekly} />
