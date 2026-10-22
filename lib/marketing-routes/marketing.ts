@@ -176,8 +176,10 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
     if(method==='POST'&&!id){const data=await body(req),name=plain(data.name,150),slug=safeSlug(data.slug||name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''));
       if(!name)throw new Error('Form name is required');const fields=validatedFields(data.fields||[]);
       if(data.status==='active'&&!fields.length)throw new Error('Add at least one field before publishing');
+      if(data.status!==undefined&&!['active','inactive'].includes(String(data.status)))throw new Error('Invalid form status');
+      const status=data.status==='active'?'active':'inactive';
       const result=await mcpPool.query<FormRow>(`insert into public.forms(organization_id,name,description,status,slug,fields,success_message,submit_button_text,campaign_id)
-        values($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *`,[org,name,plain(data.description,1000)||null,data.status==='inactive'?'inactive':'active',slug,JSON.stringify(fields),
+        values($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *`,[org,name,plain(data.description,1000)||null,status,slug,JSON.stringify(fields),
         plain(data.successMessage,1000)||'Thank you! We will be in touch.',plain(data.submitButtonText,80)||'Submit',uuid.test(String(data.campaignId||''))?data.campaignId:null]);
       return json(res,201,formShape(result.rows[0],req));}
     if(!id)return json(res,405,{error:'Method not allowed'});
