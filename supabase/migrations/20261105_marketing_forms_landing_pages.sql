@@ -59,6 +59,15 @@ create table if not exists public.landing_page_events (
   referrer_domain text,utm jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
+-- An older marketing experiment may already have this table with page_id.
+-- CREATE TABLE IF NOT EXISTS leaves that shape untouched, so add the columns
+-- this version uses before creating its report index.
+alter table public.landing_page_events add column if not exists organization_id uuid references public.organizations(id);
+alter table public.landing_page_events add column if not exists landing_page_id uuid references public.landing_pages(id);
+alter table public.landing_page_events add column if not exists event_type text;
+alter table public.landing_page_events add column if not exists referrer_domain text;
+alter table public.landing_page_events add column if not exists utm jsonb not null default '{}'::jsonb;
+alter table public.landing_page_events add column if not exists created_at timestamptz not null default now();
 create index if not exists landing_page_events_report_idx on public.landing_page_events(landing_page_id,event_type,created_at desc);
 alter table public.landing_page_events enable row level security;
 
