@@ -42,7 +42,7 @@ export function validatedFields(value:unknown):Field[]{
   if(!Array.isArray(value)||value.length>50)throw new Error('A form can have up to 50 fields');
   const seen=new Set<string>();return value.map((item,index)=>{if(!item||typeof item!=='object')throw new Error(`Field ${index+1} is invalid`);
     const data=item as Record<string,unknown>,id=plain(data.id,60),label=plain(data.label,120),fieldType=plain(data.fieldType||data.field_type,30);
-    if(!/^[a-zA-Z0-9_-]{3,60}$/.test(id)||seen.has(id)||!label||!fieldTypes.has(fieldType))throw new Error(`Field ${index+1} needs a unique ID, label, and supported type`);
+    if(!/^[a-zA-Z0-9_-]{1,60}$/.test(id)||seen.has(id)||!label||!fieldTypes.has(fieldType))throw new Error(`Field ${index+1} needs a unique ID, label, and supported type`);
     seen.add(id);const options=Array.isArray(data.options)?data.options.map(x=>plain(x,100)).filter(Boolean).slice(0,40):[];
     if(fieldType==='select'&&!options.length)throw new Error(`Select field “${label}” needs options`);
     const mappedLeadField=data.mappedLeadField||data.mapped_lead_field?plain(data.mappedLeadField||data.mapped_lead_field,30):null;

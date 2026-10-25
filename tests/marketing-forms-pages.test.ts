@@ -15,6 +15,10 @@ test('form fields validate types, select choices, and lead mappings',()=>{
   const legacy=validatedFields([{id:'legacy_email',label:'Email',field_type:'email',mapped_lead_field:'email',required:true}]);
   assert.equal(legacy[0].fieldType,'email');
   assert.equal(validateSubmission(legacy,{field_legacy_email:'legacy@example.com'}).mapped.email,'legacy@example.com');
+  const existing=validatedFields([{id:'fn',label:'First name',field_type:'text',mapped_lead_field:'firstName'},
+    {id:'em',label:'Email',field_type:'email',mapped_lead_field:'email'}]);
+  assert.deepEqual(existing.map(field=>field.id),['fn','em']);
+  assert.equal(validateSubmission(existing,{field_fn:'Ada',field_em:'ada@example.com'}).mapped.email,'ada@example.com');
 });
 
 test('landing page sections accept supported blocks and reject unsafe links',()=>{
