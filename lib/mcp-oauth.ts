@@ -23,6 +23,8 @@ const html = (s: string) =>
         c
       ]!,
   );
+export const authorizeFormCsp =
+  "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://claude.ai https://claude.com https://chatgpt.com; base-uri 'none'; frame-ancestors 'none'";
 async function body(req: IncomingMessage): Promise<Record<string, string>> {
   let raw = "";
   for await (const chunk of req) {
@@ -90,7 +92,7 @@ function renderAuthorizeForm(
   res.setHeader("referrer-policy", "no-referrer");
   res.setHeader(
     "content-security-policy",
-    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://claude.ai https://claude.com; base-uri 'none'; frame-ancestors 'none'",
+    authorizeFormCsp,
   );
   res.end(
     `<!doctype html><html><meta charset="utf-8"><title>Authorize Victory Sync</title><style>body{font:16px system-ui;max-width:420px;margin:8vh auto;padding:20px}label{display:block;margin:14px 0}input{display:block;width:100%;padding:10px;box-sizing:border-box}button{padding:12px 20px}.error{color:#a00}</style><h1>Connect Victory Sync CRM</h1><p>This grants CRM read and write access to the selected MCP client. Sign in with your Victory Sync account to authorize.</p>${error ? `<p class="error" role="alert">${html(error)}</p>` : ""}<form method="post" action="/authorize">${fields}<label>Email<input name="email" type="email" value="${html(p.email || "")}" required autocomplete="username"></label><label>Password<input name="password" type="password" required autocomplete="current-password"></label><button type="submit">Authorize</button></form></html>`,
