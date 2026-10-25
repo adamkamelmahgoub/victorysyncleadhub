@@ -9,6 +9,9 @@ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const slugPattern=/^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const fieldTypes=new Set(['text','email','tel','number','textarea','select','checkbox','date','url']);
 const leadFields=new Set(['firstName','lastName','email','phone','company','title']);
+export const pageDailyStatsSql=`select created_at::date AS day,count(*) filter(where event_type='view')::integer views,
+        count(*) filter(where event_type='form_submit')::integer submissions from public.landing_page_events
+        where landing_page_id=$1 and organization_id=$2 and created_at>=now()-interval '30 days' group by 1 order by 1`;
 type Field={id:string;label:string;fieldType:string;required:boolean;order:number;placeholder:string|null;options:string[];mappedLeadField:string|null};
 type FormRow={id:string;name:string;description:string|null;status:string;slug:string;campaign_id:string|null;fields:Field[];success_message:string|null;submit_button_text:string;redirect_url:string|null;created_at:string;updated_at:string;submission_count?:number};
 type PageRow={id:string;name:string;slug:string;status:string;sections:Array<Record<string,unknown>>;theme:Record<string,unknown>;seo_title:string|null;seo_description:string|null;form_id:string|null;visits:number;published_at:string|null;created_at:string;updated_at:string};
@@ -242,9 +245,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
         count(*) filter(where event_type='form_submit')::integer submissions,
         count(distinct referrer_domain) filter(where referrer_domain is not null)::integer referring_domains
         from public.landing_page_events where landing_page_id=$1 and organization_id=$2`,[id,org]);
-      const daily=await mcpPool.query(`select created_at::date day,count(*) filter(where event_type='view')::integer views,
-        count(*) filter(where event_type='form_submit')::integer submissions from public.landing_page_events
-        where landing_page_id=$1 and organization_id=$2 and created_at>=now()-interval '30 days' group by 1 order by 1`,[id,org]);
+      const daily=await mcpPool.query(pageDailyStatsSql,[id,org]);
       const top=await mcpPool.query(`select referrer_domain,count(*)::integer views from public.landing_page_events
         where landing_page_id=$1 and organization_id=$2 and event_type='view' and referrer_domain is not null
         group by referrer_domain order by views desc limit 10`,[id,org]);return json(res,200,{...stats.rows[0],daily:daily.rows,referrers:top.rows});}

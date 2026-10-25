@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {safeHref,validatedFields,validatedSections,validateSubmission} from '../lib/marketing-routes/marketing.js';
+import {PGlite} from '@electric-sql/pglite';
+import {pageDailyStatsSql,safeHref,validatedFields,validatedSections,validateSubmission} from '../lib/marketing-routes/marketing.js';
 
 test('form fields validate types, select choices, and lead mappings',()=>{
   const fields=validatedFields([
@@ -29,4 +30,16 @@ test('landing page sections accept supported blocks and reject unsafe links',()=
   assert.equal(safeHref('javascript:alert(1)'),'#');
   assert.equal(safeHref('//evil.example'),'#');
   assert.throws(()=>validatedSections([{type:'script'}]),/unsupported type/);
+});
+
+test('landing page daily report query runs on PostgreSQL',async()=>{
+  const db=new PGlite();
+  try{
+    await db.exec('create table landing_page_events(landing_page_id uuid,organization_id uuid,event_type text,created_at timestamptz default now())');
+    const page='00000000-0000-0000-0000-000000000001',org='00000000-0000-0000-0000-000000000002';
+    await db.query('insert into landing_page_events(landing_page_id,organization_id,event_type) values($1,$2,$3)',[page,org,'view']);
+    const result=await db.query(pageDailyStatsSql,[page,org]);
+    assert.equal(result.rows.length,1);
+    assert.equal(result.rows[0].views,1);
+  }finally{await db.close();}
 });
