@@ -1,6 +1,8 @@
 # Victory Sync remote MCP connector
 
-Status: deployed to `https://app.victorysync.com/api/mcp` on 2026-10-06. The MCP migration is applied. OAuth discovery, registration, unauthorized access, and an authenticated read-only MCP call were verified. An interactive Claude authorization still requires the admin to sign in from Claude.
+The remote MCP endpoint is `https://app.victorysync.com/api/mcp`. It supports Claude and ChatGPT OAuth callbacks. The owner must complete the interactive sign-in to connect an account.
+
+For ChatGPT Business or Enterprise/Edu on the web, choose **Plugins → Add custom MCP server**, enter that endpoint, select OAuth, and sign in with a verified Supabase account listed in `MCP_ALLOWED_EMAILS`. Review the discovered tools, then install the plugin. Workspace admins or owners can publish it for others. ChatGPT can use all tools exposed by this server, subject to ChatGPT workspace action permissions and confirmation prompts. Generic SQL and row tools provide broad CRM access; use them carefully. The server does not expose every web-app workflow as a dedicated MCP tool.
 
 ## Deployment
 

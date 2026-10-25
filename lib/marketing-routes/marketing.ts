@@ -166,6 +166,26 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
   const url=new URL(req.url||'/','https://local.invalid'),path=url.pathname,method=req.method||'GET';
   let match=path.match(/^\/f\/([a-z0-9-]+)$/);if(match&&['GET','POST'].includes(method))return await publicForm(req,res,match[1],method==='POST');
   match=path.match(/^\/p\/([a-z0-9-]+)$/);if(match&&method==='GET')return await publicPage(req,res,match[1]);
+  if(path==='/api/marketing/reports'){
+    if(method!=='GET')return json(res,405,{error:'Method not allowed'});
+    await actor(req,'forms');
+    const period=url.searchParams.get('period')||'30d';
+    if(!['7d','30d','all'].includes(period))return json(res,400,{error:'Invalid reporting period'});
+    const since=period==='all'?null:period==='7d'?7:30;
+    const pages=await mcpPool.query(`select p.id,p.name,p.slug,p.status,
+      coalesce(e.views,0)::integer views,coalesce(s.submissions,0)::integer submissions
+      from public.landing_pages p
+      left join (select landing_page_id,count(*) filter(where event_type='view') views
+        from public.landing_page_events where organization_id=$1 and ($2::integer is null or created_at>=now()-($2::integer * interval '1 day')) group by landing_page_id) e on e.landing_page_id=p.id
+      left join (select landing_page_id,count(*) submissions from public.form_submissions
+        where organization_id=$1 and landing_page_id is not null and ($2::integer is null or created_at>=now()-($2::integer * interval '1 day')) group by landing_page_id) s on s.landing_page_id=p.id
+      where p.organization_id=$1 order by p.updated_at desc limit 500`,[org,since]);
+    const forms=await mcpPool.query(`select f.id,f.name,f.status,coalesce(s.submissions,0)::integer submissions
+      from public.forms f left join (select form_id,count(*) submissions from public.form_submissions
+        where organization_id=$1 and ($2::integer is null or created_at>=now()-($2::integer * interval '1 day')) group by form_id) s on s.form_id=f.id
+      where f.organization_id=$1 order by f.updated_at desc limit 500`,[org,since]);
+    return json(res,200,{period,pages:pages.rows.map(row=>({...row,conversionRate:Number(row.views)>0?Number(row.submissions)/Number(row.views)*100:0})),forms:forms.rows});
+  }
   if(!path.startsWith('/api/forms')&&!path.startsWith('/api/landing-pages'))return json(res,404,{error:'Not found'});
   const isForms=path.startsWith('/api/forms'),user=await actor(req,isForms?'forms':'landing-pages');
   const root=isForms?'/api/forms':'/api/landing-pages',parts=path.slice(root.length).split('/').filter(Boolean),id=parts[0];

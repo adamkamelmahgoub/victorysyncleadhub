@@ -116,7 +116,7 @@ export async function handleMcpOAuth(
     send(res, 200, {
       resource: resourceUrl(),
       authorization_servers: [issuerUrl()],
-      scopes_supported: ["mcp:full"],
+      scopes_supported: ["mcp:full", "offline_access"],
       bearer_methods_supported: ["header"],
     });
     return;
@@ -135,7 +135,7 @@ export async function handleMcpOAuth(
       grant_types_supported: ["authorization_code", "refresh_token"],
       token_endpoint_auth_methods_supported: ["none"],
       code_challenge_methods_supported: ["S256"],
-      scopes_supported: ["mcp:full"],
+      scopes_supported: ["mcp:full", "offline_access"],
     });
     return;
   }
@@ -259,7 +259,7 @@ export async function handleMcpOAuth(
         refresh_token: refresh,
         token_type: "Bearer",
         expires_in: 3600,
-        scope: "mcp:full",
+        scope: "mcp:full offline_access",
       });
       return;
     }
@@ -297,7 +297,7 @@ export async function handleMcpOAuth(
         refresh_token: refresh,
         token_type: "Bearer",
         expires_in: 3600,
-        scope: "mcp:full",
+        scope: "mcp:full offline_access",
       });
       return;
     }

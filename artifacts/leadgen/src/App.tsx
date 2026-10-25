@@ -30,6 +30,7 @@ const Forms = lazy(() => import("@/pages/forms"));
 const FormEditor = lazy(() => import("@/pages/form-editor"));
 const LandingPages = lazy(() => import("@/pages/landing-pages"));
 const LandingPageEditor = lazy(() => import("@/pages/landing-page-editor"));
+const MarketingReports = lazy(() => import("@/pages/marketing-reports"));
 const Analytics = lazy(() => import("@/pages/analytics"));
 const Settings = lazy(() => import("@/pages/settings"));
 const SocialInbox = lazy(() => import("@/pages/social-inbox"));
@@ -120,6 +121,7 @@ function Router() {
       <Route path="/leadgen/forms/:id" component={FormEditor} />
       <Route path="/leadgen/landing-pages" component={LandingPages} />
       <Route path="/leadgen/landing-pages/:id" component={LandingPageEditor} />
+      <Route path="/leadgen/marketing-reports" component={MarketingReports} />
       <Route path="/leadgen/analytics" component={Analytics} />
       <Route path="/leadgen/scraper" component={Scraper} />
       <Route path="/leadgen/email-accounts" component={EmailAccounts} />
@@ -162,6 +164,7 @@ function Router() {
       <Route path="/forms/:id" component={FormEditor} />
       <Route path="/landing-pages" component={LandingPages} />
       <Route path="/landing-pages/:id" component={LandingPageEditor} />
+      <Route path="/marketing-reports" component={MarketingReports} />
       <Route path="/analytics" component={Analytics} />
       <Route path="/scraper" component={Scraper} />
       <Route path="/outreach-weekly" component={OutreachWeekly} />
