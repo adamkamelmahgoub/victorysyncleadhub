@@ -32,6 +32,8 @@ export const TIMEZONES = [
   "America/North_Dakota/Beulah",
   "America/North_Dakota/Center",
   "America/North_Dakota/New_Salem",
+  "America/Toronto",
+  "Europe/Amsterdam",
 ] as const;
 export type Disposition = (typeof DISPOSITIONS)[number];
 export function terminal(disposition: string | null) {
@@ -98,7 +100,7 @@ export function parseOutreachUpdate(input: unknown) {
       typeof b.timezone !== "string" ||
       !(TIMEZONES as readonly string[]).includes(b.timezone)
     )
-      throw new Error("Choose a supported US timezone");
+      throw new Error("Choose a supported timezone");
     values.timezone = b.timezone;
     values.timezone_confirmed = true;
   }

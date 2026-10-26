@@ -32,3 +32,22 @@ export async function apiFetch(path: string, opts?: RequestInit) {
   if (res.status === 204) return null;
   return res.json();
 }
+
+export async function apiDownloadCsv(path: string, body: unknown, filename = "contacts.csv") {
+  const { data } = await supabase.auth.getSession();
+  const response = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...(data.session?.access_token ? { authorization: `Bearer ${data.session.access_token}` } : {}) },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({})) as { error?: string };
+    throw new Error(error.error || `Export failed (${response.status})`);
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

@@ -1,0 +1,27 @@
+# VictorySync assistant context
+
+The in-app AI assistant speaks **from VictorySync** when drafting calls and email. A CRM lead or company is the **prospect** receiving that outreach. The server supplies a built-in seller profile based on [VictorySync's public website](https://www.victorysync.com/) (reviewed October 8, 2026). The profile describes VictorySync as a US-managed contact center with Cairo-based agents that handles inbound support, outbound calling, lead follow-up, qualification, and appointment setting. It also explains the human-led service, US-led management, account playbooks, CRM/calendar handoff, and reporting.
+
+The public site currently says dedicated agent engagements start from $10/hour, with final terms scoped on a discovery call. The assistant is told to verify current terms before making a customer-facing promise. It is also told not to represent VictorySync as a Google Maps SEO agency or promise rankings, lead volume, booked jobs, or ROI.
+
+The **Calling from** panel on `/ai-assistant` starts with this profile and lets the signed-in administrator edit the name, offer, audience, differentiators, call goal, tone, and signature for a campaign. Edits are kept in that browser's local storage and sent with each chat request. The server's baseline context still applies when no browser profile is present. Lead and company **Ask AI** use the same baseline VictorySync context. Prospect details must come from the CRM record or sourced public research.
+
+The backend enforces the existing `MCP_ALLOWED_EMAILS` list. Chat CRM actions reuse the same MCP tool implementations and audit path as the Claude connector.
+
+## Chat history, tool activity, and memory
+
+Apply `supabase/migrations/20261011_assistant_memory.sql` before deploying this version. It creates private, server-only tables for conversations, messages, and saved memories. Existing CRM tables and RLS policies are unchanged. The assistant API checks the signed-in Supabase user and the allowed-email list, then scopes every history and memory operation to that user. No new environment variables are required; the server uses `DATABASE_URL`.
+
+The History selector opens up to 100 recent conversations. Messages persist across refreshes and across the full page and bottom-right widget. The assistant receives the last 24 messages of the current conversation plus up to 30 saved memories. Each assistant reply stores the names and success/error states of tools it used; the user can expand **Tools used** under the reply. Raw tool arguments and results are not stored in this activity display.
+
+Use **Memory** to add or remove lasting company facts and preferences. **Remember this** under a user message saves it as memory, and messages beginning with “Remember ...” are saved automatically. Saved memories are supplied as context in future chats. Deleting a conversation deletes its messages; deleting a memory removes it from future context. The calling profile remains editable in the full assistant and is saved in that browser.
+
+The bottom-right chat button opens the assistant from any signed-in CRM page for an owner or administrator. On a lead or company detail page, the widget sends that record ID as screen context so the assistant can fetch the right CRM data when asked about "this lead" or "this company". The full assistant page remains available for editing the seller profile.
+
+## GTM lead generation
+
+The assistant exposes `generate_gtm_leads` alongside the existing CRM, enrichment, reporting, task, and pipeline tools. For example, ask: “Find 10 roofing businesses in Tulsa, OK that fit VictorySync and show why,” or “Add the top 10 accounting firms near Phoenix, AZ to the CRM and research the best three.” It uses Open Places / Overture listings, removes existing and suppressed phone numbers, scores listing confidence, category match, website, phone, location, and operating status, then optionally saves the shortlist through the existing DNC-aware import function. Results include source details and new CRM lead IDs. The tool defaults to preview mode; it saves records when the user requests it.
+
+The source score is a sourcing signal, not verified buying intent, revenue, size, call volume, or a confirmed decision maker. Ask the assistant to enrich a saved shortlist for sourced business research before drafting personalized calls or emails. The assistant must fetch current CRM facts, distinguish verified facts from assumptions, and draft messages without sending unless explicitly instructed. Open Places calls use the existing monthly usage cap. The API key remains in Supabase Edge secrets.
+
+Lead and company enrichment cards let the user choose **Open Places** or **Google Places**. Open Places runs only the free business-listing match; Google Places runs its own match and rank grid without a new Open Places request. Both choices may run the existing Nemotron research and save that research to the record. The preferred listing source is stored in the signed-in user's Supabase Auth metadata through `auth.updateUser`, so it follows the account across devices and can be changed at any time. The existing bulk job pipeline still uses its combined Open Places then Google flow.

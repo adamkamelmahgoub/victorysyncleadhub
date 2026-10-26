@@ -35,10 +35,12 @@ test('adding an existing domain succeeds without resetting DNS or sender permiss
 test('production campaign API preserves UUIDs, flattens every member page and does not reset duplicates',async()=>{
  process.env.SUPABASE_URL='https://campaign-test.invalid';process.env.SUPABASE_ANON_KEY='test-key';
  const {default:handler}=await import('../api/[...path].js');const previous=globalThis.fetch;
+ const token=`e30.${Buffer.from(JSON.stringify({sub:'user-id',crm_role:'owner'})).toString('base64url')}.sig`;
  const id='564cc761-f59f-461f-a211-ddab9cf9768b';let pages=0;
  globalThis.fetch=async(input,init)=>{
   const url=new URL(String(input));
   if(url.pathname==='/auth/v1/user')return Response.json({id:'user-id',user_metadata:{role:'owner'}});
+  if(url.pathname==='/rest/v1/portal_activity_log')return Response.json([]);
   if(url.pathname==='/rest/v1/campaigns'){assert.equal(url.searchParams.get('id'),`eq.${id}`);return Response.json([{id,name:'My campaign',status:'draft'}]);}
   assert.equal(url.pathname,'/rest/v1/campaign_leads');
   if(init?.method==='POST'){assert.match(new Headers(init.headers).get('prefer')??'',/ignore-duplicates/);assert.equal(JSON.parse(String(init.body))[0].campaign_id,id);return Response.json([]);}
@@ -47,8 +49,8 @@ test('production campaign API preserves UUIDs, flattens every member page and do
  };
  try{
   let data:any;const res={statusCode:0,setHeader(){},end(value?:string){data=JSON.parse(value!);}};
-  await handler({method:'GET',url:`/api/campaigns/${id}`,headers:{authorization:'Bearer token'},on(){}},res);assert.equal(res.statusCode,200);assert.equal(data.id,id);
-  await handler({method:'GET',url:`/api/campaigns/${id}/leads`,headers:{authorization:'Bearer token'},on(){}},res);assert.equal(res.statusCode,200);assert.equal(data.total,501);assert.equal(data.leads[500].firstName,'Jo');assert.equal(pages,2);
-  await handler({method:'POST',url:`/api/campaigns/${id}/leads`,headers:{authorization:'Bearer token'},body:{leadIds:['lead-id']},on(){}},res);assert.equal(res.statusCode,201);
+  await handler({method:'GET',url:`/api/campaigns/${id}`,headers:{authorization:`Bearer ${token}`},on(){}},res);assert.equal(res.statusCode,200);assert.equal(data.id,id);
+  await handler({method:'GET',url:`/api/campaigns/${id}/leads`,headers:{authorization:`Bearer ${token}`},on(){}},res);assert.equal(res.statusCode,200);assert.equal(data.total,501);assert.equal(data.leads[500].firstName,'Jo');assert.equal(pages,2);
+  await handler({method:'POST',url:`/api/campaigns/${id}/leads`,headers:{authorization:`Bearer ${token}`},body:{leadIds:['lead-id']},on(){}},res);assert.equal(res.statusCode,201);
  }finally{globalThis.fetch=previous;}
 });

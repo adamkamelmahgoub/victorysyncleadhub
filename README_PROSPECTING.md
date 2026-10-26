@@ -1,0 +1,11 @@
+# Prospecting and Lead Finder
+
+**Prospecting** (`/prospect-search`) searches live Open Places / Overture listings for any business category around a US city. Choose one of the 2,302 Overture taxonomy categories or type a free-text business phrase, then enter a city, state, and radius (1–50 miles). Category browse uses up to three Open Places calls; free-text search uses one. Results mark phone numbers already in the CRM or suppression list. Select listings with a phone number and add them to leads. The database import function checks duplicates and DNC again at write time. Imported leads are tagged `op-new` and `needs-enrichment`. Listings without a phone remain visible so you can check their website.
+
+The CRM prospect list below the discovery form searches actual `public.leads` records by company, name, email, phone, category, and status. Each result opens its CRM record for outreach and enrichment. Existing unsaved `public.prospects` rows still appear in a separate section when present. Saving one checks existing leads and suppressions, and records its new lead ID so it cannot be saved twice.
+
+**Lead Finder** (`/scraper`) includes the same business search. Each listing with a website links to a domain contact scan. It reads public HTML pages from a company domain or direct URL and extracts email addresses found there. Domain scans check common home, about, team, people, staff, and contact paths. Imports skip existing email/phone identities and suppressed contacts. Sites that render contacts with JavaScript or hide email addresses will not yield contacts. The page no longer offers an unconfigured general web search.
+
+The Open Places Edge Function uses `OPEN_PLACES_API_KEY` and the existing monthly usage cap. The web finder needs no provider key. Both app endpoints require Victory Sync sign-in and the existing prospecting permission; Open Places discovery additionally uses the enrichment administrator check.
+
+The category picker is generated from the [Overture Places taxonomy CSV](https://docs.overturemaps.org/taxonomy/2026-09-23.0/taxonomy.csv). Open Places accepts exact category strings or a text query, as documented in its [Places API guide](https://openplacesapi.com/docs).

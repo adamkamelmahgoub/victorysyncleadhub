@@ -3,6 +3,8 @@ import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { mcpPool, type McpIdentity } from "./mcp-auth.js";
+import { enrichLead, enrichCompany, askAboutCompany, bulkEnrich, jobStatus, askAboutLead, previewBulk, findNewLeads } from "./enrichment-client.js";
+import { generateGtmLeads } from "./gtm-leads.js";
 import { registerSocialMcpTools } from "./social-mcp.js";
 
 const ident = (s: string) => {
@@ -1034,6 +1036,59 @@ export function createCrmMcpServer(who: McpIdentity) {
       ).rows;
     },
   );
+  if (process.env.ENRICHMENT_ENABLED === "true") {
+  tool(server, who, "enrich_lead",
+    "Enrich a lead with either Open Places (free business listing) or Google Places (rating and rank), plus optional OpenRouter AI research. Google results are returned for immediate use; only its place ID is saved. AI research is saved.",
+    { lead_id: idSchema, mode: z.enum(["google", "ai", "both"]), grid: z.union([z.literal(3), z.literal(5)]).default(5),
+      provider: z.enum(["open_places", "google_places", "combined"]).default("open_places") },
+    false, false, async (_db, a) => enrichLead(a.lead_id, a.mode, a.grid, a.provider), 180);
+  tool(server, who, "bulk_enrich",
+    "Queue enrichment for a segment, a tag or tag intersection, or lead IDs. Returns a resumable job ID and conservative cost estimate.",
+    { segment_id: idSchema.optional(), tag: z.string().optional(), tags: z.array(z.string()).optional(),
+      lead_ids: z.array(idSchema).min(1).max(5000).optional(), mode: z.enum(["google", "ai", "both"]),
+      grid: z.union([z.literal(3), z.literal(5)]).default(3), max_cost_usd: z.number().positive().optional() },
+    false, false, async (_db, a) => bulkEnrich(a, a.mode, a.grid, a.max_cost_usd ?? null, who.userId));
+  tool(server, who, "enrichment_job_status",
+    "Show a queued enrichment job's progress, cost, failures and lead tag counts.",
+    { job_id: idSchema }, true, false, async (_db, a) => jobStatus(a.job_id));
+  tool(server, who, "ask_about_lead",
+    "Ask OpenRouter a sourced question about a lead using public web search. This may incur search API cost.",
+    { lead_id: idSchema, question: z.string().min(1).max(2000) },
+    false, false, async (_db, a) => askAboutLead(a.lead_id, a.question), 180);
+  tool(server, who, "enrich_company",
+    "Enrich a company with Open Places or Google Places and optional Nemotron research. Save its listing, Google place ID when used, AI research and dated notes to the CRM record.",
+    { company_id: idSchema, mode: z.enum(["google", "ai", "both"]).default("both"),
+      grid: z.union([z.literal(3), z.literal(5)]).default(3),
+      provider: z.enum(["open_places", "google_places", "combined"]).default("open_places") },
+    false, false, async (_db, a) => enrichCompany(a.company_id, a.mode, a.grid, a.provider), 180);
+  tool(server, who, "ask_about_company",
+    "Answer in normal prose about a company using its stored enrichment and public web research; useful for call scripts and cold emails.",
+    { company_id: idSchema, question: z.string().min(1).max(2000) },
+    false, false, async (_db, a) => askAboutCompany(a.company_id, a.question), 180);
+  tool(server, who, "enrichment_cost_preview",
+    "Estimate the lead count and maximum budget reservation before a bulk enrichment job.",
+    { segment_id: idSchema.optional(), tag: z.string().optional(), tags: z.array(z.string()).optional(),
+      lead_ids: z.array(idSchema).min(1).max(5000).optional(), mode: z.enum(["google", "ai", "both"]),
+      grid: z.union([z.literal(3), z.literal(5)]).default(3) },
+    true, false, async (_db, a) => previewBulk(a, a.mode, a.grid));
+  tool(server, who, "find_new_leads",
+    "Find businesses of any Overture category, or by a business-type search phrase, near a US city with Open Places. Skips CRM and DNC phone numbers and adds new leads tagged op-new and needs-enrichment. Category and query are mutually exclusive; omitting both searches plumbing and HVAC for backward compatibility.",
+    { city: z.string().min(1).max(100), state: z.string().min(2).max(40),
+      radius_mi: z.number().positive().max(50).default(25),
+      category: z.string().regex(/^[a-z0-9][a-z0-9_:-]{0,127}$/).optional(),
+      query: z.string().min(2).max(128).optional() },
+    false, false, async (_db, a) => findNewLeads(a.city, a.state, a.radius_mi, a.category, a.query), 180);
+  tool(server, who, "generate_gtm_leads",
+    "Search real Open Places / Overture businesses for a VictorySync prospect list. Exclude existing CRM and suppressed phone numbers, rank by verified listing completeness and category match, and optionally save the shortlist as leads. The score is a sourcing signal, not proof of demand, revenue, intent, or a decision maker. Use save=false to preview and save=true only when the user asks to add or generate leads in the CRM. Returns source details and new lead IDs.",
+    { city: z.string().min(1).max(100), state: z.string().min(2).max(40),
+      category: z.string().regex(/^[a-z0-9][a-z0-9_:-]{0,127}$/).optional(),
+      query: z.string().min(2).max(128).optional(),
+      radius_mi: z.number().min(1).max(50).default(25),
+      max_results: z.number().int().min(1).max(50).default(15),
+      min_score: z.number().min(0).max(100).default(65),
+      require_website: z.boolean().default(false), save: z.boolean().default(false) },
+    false, false, async (_db, a) => generateGtmLeads(a), 180);
+  }
   registerSocialMcpTools(server, who);
   return server;
 }

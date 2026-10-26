@@ -1,5 +1,4 @@
 import { DeleteCompanies } from "@/components/company-trash";
-import { SocialsSection } from "@/components/socials-section";
 import { useState } from "react";
 import { Link, useRoute, useLocation } from "wouter";
 import {
@@ -30,6 +29,7 @@ import {
 } from "@/lib/company-crm";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { SocialsSection } from "@/components/socials-section";
 
 const selectClass =
   "mt-1 h-10 w-full rounded-md border bg-white px-3 text-sm disabled:opacity-60";
@@ -264,6 +264,8 @@ export function ActivityLog({
   );
 }
 
+import { CompanyEnrichment } from "@/components/company-enrichment";
+
 export default function CompanyDetail() {
   const [, navigate] = useLocation();
   const [, params] = useRoute("/companies/:id");
@@ -302,6 +304,7 @@ export default function CompanyDetail() {
         }
       />
       <div className="flex items-center justify-between"><div><StageBadge stage={company.stage} />{company.meeting_at && <p className="mt-2 text-sm text-muted-foreground">Meeting: {new Date(company.meeting_at).toLocaleString()}</p>}</div>{role !== "viewer" && <DeleteCompanies companies={[company]} onDeleted={() => navigate("/companies")} />}</div>
+      <CompanyEnrichment companyId={company.id} />
       <SocialsSection entityType="company" entityId={company.id} readOnly={role === "viewer"} />
       <Tabs
         defaultValue="details"

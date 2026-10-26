@@ -3,55 +3,32 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm --filter @workspace/leadgen build",
   "outputDirectory": "artifacts/leadgen/dist/public",
+  "crons": [
+    { "path": "/api/client-delivery-worker", "schedule": "* * * * *" },
+    { "path": "/api/social-worker", "schedule": "*/5 * * * *" },
+    { "path": "/api/social-daily", "schedule": "0 5 * * *" }
+  ],
   "routes": [
-    {
-      "src": "^/api/social-inbox$",
-      "dest": "/api/social-inbox.ts"
-    },
-    {
-      "src": "^/api/social$",
-      "dest": "/api/social.ts"
-    },
-    {
-      "src": "^/api/social-worker$",
-      "dest": "/api/social-worker.ts"
-    },
-    {
-      "src": "^/api/social-webhook$",
-      "dest": "/api/social-webhook.ts"
-    },
-    {
-      "src": "^/api/social-reply$",
-      "dest": "/api/social-reply.ts"
-    },
-    {
-      "src": "^/api/social-accounts$",
-      "dest": "/api/social-accounts.ts"
-    },
-    {
-      "src": "^/api/social-daily$",
-      "dest": "/api/social-daily.ts"
-    },
-    {
-      "src": "^/api/dm-queue$",
-      "dest": "/api/dm-queue.ts"
-    },
-    {
-      "src": "^/api/dm-campaigns$",
-      "dest": "/api/dm-campaigns.ts"
-    },
-    {
-      "src": "^/api/mcp$",
-      "dest": "/api/mcp.ts"
-    },
-    {
-      "src": "^/\\.well-known/oauth-(protected-resource|authorization-server)$",
-      "dest": "/api/mcp.ts"
-    },
-    {
-      "src": "^/(authorize|token|register|revoke)$",
-      "dest": "/api/mcp.ts"
-    },
+    { "src": "^/api/portal$", "dest": "/api/portal.ts" },
+    { "src": "^/api/client-stripe-webhook$", "dest": "/api/client-stripe-webhook.ts" },
+    { "src": "^/api/client-delivery-worker$", "dest": "/api/client-delivery-worker.ts" },
+    { "src": "^/leadgen/api/portal$", "dest": "/api/portal.ts" },
+    { "src": "^/api/assistant$", "dest": "/api/assistant.ts" },
+    { "src": "^/leadgen/api/assistant$", "dest": "/api/assistant.ts" },
+    { "src": "^/api/enrichment$", "dest": "/api/enrichment.ts" },
+    { "src": "^/api/enrichment-worker$", "dest": "/api/enrichment-worker.ts" },
+    { "src": "^/api/social-webhook$", "dest": "/api/social-webhook.ts" },
+    { "src": "^/api/social-worker$", "dest": "/api/social-worker.ts" },
+    { "src": "^/api/social$", "dest": "/api/social.ts" },
+    { "src": "^/api/social-inbox$", "dest": "/api/social-inbox.ts" },
+    { "src": "^/api/social-reply$", "dest": "/api/social-reply.ts" },
+    { "src": "^/api/social-accounts$", "dest": "/api/social-accounts.ts" },
+    { "src": "^/api/social-daily$", "dest": "/api/social-daily.ts" },
+    { "src": "^/api/dm-queue$", "dest": "/api/dm-queue.ts" },
+    { "src": "^/api/dm-campaigns$", "dest": "/api/dm-campaigns.ts" },
+    { "src": "^/api/mcp$", "dest": "/api/mcp.ts" },
+    { "src": "^/\\.well-known/oauth-(protected-resource|authorization-server)$", "dest": "/api/mcp.ts" },
+    { "src": "^/(authorize|token|register|revoke)$", "dest": "/api/mcp.ts" },
     {
       "src": "/api/(.*)",
       "dest": "/api/[...path].ts"
@@ -66,16 +43,6 @@
     {
       "src": "/(.*)",
       "dest": "/index.html"
-    }
-  ],
-  "crons": [
-    {
-      "path": "/api/social-worker",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/social-daily",
-      "schedule": "0 5 * * *"
     }
   ]
 }

@@ -6,10 +6,11 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCreateLead, getListLeadsQueryKey } from "@workspace/api-client-react";
+import { getListLeadsQueryKey } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { asArray } from "@/lib/data-shape";
+import { BusinessDiscovery } from "@/components/business-discovery";
 import {
   Globe,
   Search,
@@ -145,7 +146,6 @@ function ResultsPanel({
 export default function ScraperPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const createLead = useCreateLead();
   const [tab, setTab] = useState<Tab>("domain");
   const [importing, setImporting] = useState(false);
 
@@ -158,7 +158,7 @@ export default function ScraperPage() {
   const [urlSelected, setUrlSelected] = useState<Set<string>>(new Set());
 
   // Domain tab
-  const [domainInput, setDomainInput] = useState("");
+  const [domainInput, setDomainInput] = useState(() => new URLSearchParams(window.location.search).get("domain") || "");
   const [domainResults, setDomainResults] = useState<ScrapedLead[]>([]);
   const [domainPatterns, setDomainPatterns] = useState<string[]>([]);
   const [domainLoading, setDomainLoading] = useState(false);
@@ -217,15 +217,15 @@ export default function ScraperPage() {
     const toImport = leads.filter((l) => selected.has(l.email));
     if (!toImport.length) { toast({ title: "Select at least one contact", variant: "destructive" }); return; }
     setImporting(true);
-    let ok = 0, fail = 0;
-    for (const l of toImport) {
-      await new Promise<void>((resolve) => {
-        createLead.mutate({ data: { firstName: l.firstName, lastName: l.lastName, email: l.email, phone: l.phone ?? undefined, company: l.company ?? undefined, title: l.title ?? undefined, source: "web_scrape" } }, { onSuccess: () => { ok++; resolve(); }, onError: () => { fail++; resolve(); } });
-      });
-    }
-    queryClient.invalidateQueries({ queryKey: getListLeadsQueryKey() });
-    setImporting(false);
-    toast({ title: `Imported ${ok} contact${ok !== 1 ? "s" : ""}${fail ? ` (${fail} skipped)` : ""}` });
+    try {
+      const result = await apiFetch("/api/scraper/import", { method: "POST",
+        body: JSON.stringify({ contacts: toImport }) }) as { imported: number; skipped: number };
+      queryClient.invalidateQueries({ queryKey: getListLeadsQueryKey() });
+      toast({ title: `Imported ${result.imported} contact${result.imported !== 1 ? "s" : ""}`,
+        description: result.skipped ? `${result.skipped} duplicates, suppressed, or invalid contacts skipped` : undefined });
+    } catch (error) {
+      toast({ title: "Import failed", description: String(error), variant: "destructive" });
+    } finally { setImporting(false); }
   }
 
   function toggle(set: Set<string>, setter: (s: Set<string>) => void, email: string) {
@@ -241,16 +241,16 @@ export default function ScraperPage() {
   const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "domain", label: "Company Domain", icon: <Building2 className="w-3.5 h-3.5" /> },
     { id: "url", label: "Scrape URL", icon: <Globe className="w-3.5 h-3.5" /> },
-    { id: "search", label: "Web Search", icon: <Search className="w-3.5 h-3.5" /> },
   ];
 
   return (
 
       <div className="page-stack">
+        <BusinessDiscovery />
         {/* Header */}
         <div>
           <PageTitle>Lead Finder</PageTitle>
-          <PageDescription>Find and import contacts from the web</PageDescription>
+          <PageDescription>Find businesses by category, then scan their public websites for contact emails.</PageDescription>
         </div>
 
         {/* Tab bar */}
@@ -292,7 +292,7 @@ export default function ScraperPage() {
               </div>
               <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                 <Info className="w-3.5 h-3.5 flex-shrink-0" />
-                Automatically checks /team, /about, /people, /contact and extracts email addresses
+                Checks public home, team, about, people, and contact pages. Some sites hide emails or require JavaScript.
               </p>
             </div>
 
@@ -343,19 +343,6 @@ export default function ScraperPage() {
               />
             )}
 
-            {/* Examples */}
-            {!domainResults.length && !domainLoading && !domainError && (
-              <div className="rounded-xl border border-border bg-card p-4">
-                <p className="text-xs text-muted-foreground font-medium mb-3">Try these examples:</p>
-                <div className="flex flex-wrap gap-2">
-                  {["stripe.com","notion.so","linear.app","vercel.com","github.com"].map((d) => (
-                    <button key={d} onClick={() => setDomainInput(d)} className="text-xs bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-border px-3 py-1.5 rounded-lg transition-colors font-mono">
-                      {d}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
 

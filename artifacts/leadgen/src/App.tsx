@@ -1,5 +1,6 @@
+import { ContactErrorBoundary } from "@/components/contact-error-boundary";
  import { Component, type ErrorInfo, type ReactNode } from "react";
-import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { Switch, Route, Redirect, Router as WouterRouter, useLocation } from "wouter";
 import { MutationCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -14,6 +15,7 @@ import ActivityLog from '@/pages/activity-log';
 import Pipeline from "@/pages/pipeline";
 import Companies from "@/pages/companies";
 import CompanyDetail from "@/pages/company-detail";
+import AiAssistant from "@/pages/ai-assistant";
 import TrialQueue from "@/pages/trial-queue";
 import CompanyKpis from "@/pages/company-kpis";
 import CompanyTasks from "@/pages/company-tasks";
@@ -26,6 +28,8 @@ import Campaigns from "@/pages/campaigns";
 import CampaignDetail from "@/pages/campaign-detail";
 import Forms from "@/pages/forms";
 import FormEditor from "@/pages/form-editor";
+import LandingPages, { LandingPageEditor } from "@/pages/landing-pages";
+import MarketingReports from "@/pages/marketing-reports";
 import Analytics from "@/pages/analytics";
 import Settings from "@/pages/settings";
 import SocialInbox from "@/pages/social-inbox";
@@ -37,11 +41,13 @@ import Team from "@/pages/team";
 import Integrations from "@/pages/integrations";
 import LeadImport from "@/pages/lead-import";
 import SocialPlanner from "@/pages/social-planner";
-import Segments from "@/pages/segments";
+import Segments from "@/pages/segments-v2";
+import SegmentDetail from "@/pages/segment-detail";
 import Webhooks from "@/pages/webhooks";
 import EmailTemplatesPage from "@/pages/email-templates";
 import SubAccounts from "@/pages/sub-accounts";
 import ClientWorkspace from "@/pages/client-workspace";
+import ClientPortal from "@/pages/client-portal";
 import ProspectSearch from "@/pages/prospect-search";
 import MeetingScheduler from "@/pages/meeting-scheduler";
 import SequenceAnalytics from "@/pages/sequence-analytics";
@@ -52,12 +58,14 @@ import BillingIntegration from "@/pages/billing-integration";
 import VictorySyncHome from "@/pages/victorysync-home";
 import AgentTraining from "@/pages/agent-training";
 import { Layout } from "@/components/layout";
+import { AssistantLauncher } from "@/components/assistant-launcher";
 import Login from "@/pages/login";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { canAccessPath } from "@/lib/permissions";
 import {ActivityTracker} from '@/components/activity-tracker';
+import { MfaGate } from '@/components/mfa-gate';
 
 const queryClient = new QueryClient({
   mutationCache: new MutationCache({
@@ -76,9 +84,15 @@ function Router() {
   return (
     <Switch>
       <Route path="/victorysync" component={VictorySyncHome} />
+      <Route path="/client-portal" component={ClientPortal} />
+      <Route path="/client-portal/:section" component={ClientPortal} />
+      <Route path="/leadgen/client-portal" component={ClientPortal} />
+      <Route path="/leadgen/client-portal/:section" component={ClientPortal} />
       <Route path="/" component={Companies} />
       <Route path="/companies" component={Companies} />
       <Route path="/companies/:id" component={CompanyDetail} />
+      <Route path="/ai-assistant" component={() => <AiAssistant />} />
+      <Route path="/leadgen/ai-assistant" component={() => <AiAssistant />} />
       <Route path="/trial-queue" component={TrialQueue} />
       <Route path="/company-kpis" component={CompanyKpis} />
       <Route path="/crm-tasks" component={CompanyTasks} />
@@ -90,7 +104,7 @@ function Router() {
       <Route path="/leadgen" component={Dashboard} />
       <Route path="/leadgen/leads" component={Leads} />
       <Route path="/leadgen/call-queue" component={CallQueue} />
-      <Route path="/leadgen/leads/:id" component={LeadDetail} />
+      <Route path="/leadgen/leads/:id" component={() => <ContactErrorBoundary fallback={<div role="alert" className="p-6">Could not display this contact.</div>}><LeadDetail /></ContactErrorBoundary>} />
       <Route path="/leadgen/conversations" component={SocialInbox} />
       <Route path="/leadgen/dm-queue" component={DmQueue} />
       <Route path="/leadgen/dm-campaigns" component={DmCampaigns} />
@@ -104,6 +118,9 @@ function Router() {
       <Route path="/leadgen/campaigns/:id" component={CampaignDetail} />
       <Route path="/leadgen/forms" component={Forms} />
       <Route path="/leadgen/forms/:id" component={FormEditor} />
+      <Route path="/leadgen/landing-pages" component={LandingPages} />
+      <Route path="/leadgen/landing-pages/:id" component={LandingPageEditor} />
+      <Route path="/leadgen/marketing-reports" component={MarketingReports} />
       <Route path="/leadgen/analytics" component={Analytics} />
       <Route path="/leadgen/scraper" component={Scraper} />
       <Route path="/leadgen/email-accounts" component={EmailAccounts} />
@@ -127,7 +144,7 @@ function Router() {
       <Route path="/dashboard" component={Companies} />
       <Route path="/leads" component={Leads} />
       <Route path="/call-queue" component={CallQueue} />
-      <Route path="/leads/:id" component={LeadDetail} />
+      <Route path="/leads/:id" component={() => <ContactErrorBoundary fallback={<div role="alert" className="p-6">Could not display this contact.</div>}><LeadDetail /></ContactErrorBoundary>} />
       <Route path="/conversations" component={SocialInbox} />
       <Route path="/dm-queue" component={DmQueue} />
       <Route path="/dm-campaigns" component={DmCampaigns} />
@@ -141,6 +158,9 @@ function Router() {
       <Route path="/campaigns/:id" component={CampaignDetail} />
       <Route path="/forms" component={Forms} />
       <Route path="/forms/:id" component={FormEditor} />
+      <Route path="/landing-pages" component={LandingPages} />
+      <Route path="/landing-pages/:id" component={LandingPageEditor} />
+      <Route path="/marketing-reports" component={MarketingReports} />
       <Route path="/analytics" component={Analytics} />
       <Route path="/scraper" component={Scraper} />
       <Route path="/outreach-weekly" component={OutreachWeekly} />
@@ -156,6 +176,7 @@ function Router() {
       <Route path="/lead-import" component={() => <LeadImport />} />
       <Route path="/social-planner" component={SocialPlanner} />
       <Route path="/segments" component={Segments} />
+      <Route path="/contacts/segments/:id" component={SegmentDetail} />
       <Route path="/webhooks" component={Webhooks} />
       <Route path="/email-templates" component={EmailTemplatesPage} />
       <Route path="/sub-accounts" component={SubAccounts} />
@@ -272,6 +293,12 @@ function AuthenticatedApp() {
     return <Login />;
   }
 
+  const agencyMfaRequired = ["owner", "admin", "member", "viewer", "agent", "agency_admin", "agency_staff"].includes(role);
+
+  if (["client_owner", "client_staff"].includes(role) && ["/", "/dashboard", "/victorysync", "/leadgen"].includes(location)) {
+    return <Redirect to="/client-portal/dashboard" />;
+  }
+
   if ((role === "client" && !clientAccountId) || !canAccessPath(location, pagePermissions, role)) {
     return (
       <Layout>
@@ -283,14 +310,15 @@ function AuthenticatedApp() {
     );
   }
 
-  return (
+  return <MfaGate required={agencyMfaRequired}>
     <AppErrorBoundary resetKey={location}>
       <ActivityTracker />
       <Layout>
         <Router />
       </Layout>
+      <AssistantLauncher />
     </AppErrorBoundary>
-  );
+  </MfaGate>;
 }
 
 export default App;

@@ -6,6 +6,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -34,6 +35,7 @@ interface FormRecord {
   submissionCount?: number;
   embedCode?: string | null;
 }
+type FormSubmission = { id: string; data: Record<string, unknown>; sourceUrl?: string | null; createdAt: string; leadId?: string | null };
 
 const FIELD_TYPES = ["text", "email", "tel", "number", "textarea", "select", "checkbox"];
 const LEAD_FIELD_MAP = [
@@ -51,18 +53,24 @@ function generateId() {
 
 export default function FormEditor() {
   const [, params] = useRoute("/forms/:id");
-  const id = params?.id ?? "";
+  const [, leadgenParams] = useRoute("/leadgen/forms/:id");
+  const id = params?.id ?? leadgenParams?.id ?? "";
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   const formQueryKey = ["form", id];
-  const { data: form, isLoading } = useQuery({
+  const { data: form, isLoading, error: formError, refetch: refetchForm } = useQuery({
     queryKey: formQueryKey,
-    queryFn: () => apiFetch(`/api/forms/${id}`) as Promise<FormRecord>,
+    queryFn: () => apiFetch(`/api/forms/${encodeURIComponent(id)}`) as Promise<FormRecord>,
     enabled: !!id,
   });
   const updateForm = useMutation({
-    mutationFn: (data: object) => apiFetch(`/api/forms/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+    mutationFn: (data: object) => apiFetch(`/api/forms/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  });
+  const { data: submissions, error: submissionsError } = useQuery<FormSubmission[]>({
+    queryKey: ["form-submissions", id],
+    queryFn: () => apiFetch(`/api/forms/${encodeURIComponent(id)}/submissions`),
+    enabled: !!id,
   });
 
   const [fields, setFields] = useState<FormField[]>([]);
@@ -110,9 +118,11 @@ export default function FormEditor() {
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: formQueryKey });
+          queryClient.invalidateQueries({ queryKey: ["marketing-forms"] });
           setDirty(false);
           toast({ title: "Form saved" });
         },
+        onError: (error) => toast({ title: "Could not save form", description: error instanceof Error ? error.message : String(error), variant: "destructive" }),
       }
     );
   }
@@ -127,6 +137,9 @@ export default function FormEditor() {
 
   if (isLoading) {
     return <div className="space-y-4"><Skeleton className="h-8 w-64" /><Skeleton className="h-96 w-full" /></div>;
+  }
+  if (formError) {
+    return <Card role="alert" className="p-6"><p className="font-medium text-destructive">Form could not be loaded</p><p className="text-sm mt-1">{String(formError)}</p><Button variant="outline" size="sm" className="mt-3" onClick={() => refetchForm()}>Try again</Button></Card>;
   }
   if (!form) {
     return <div className="text-center py-20 text-muted-foreground">Form not found.</div>;
@@ -213,15 +226,16 @@ export default function FormEditor() {
                     </div>
                     <div>
                       <Label className="text-xs text-muted-foreground">Maps to</Label>
-                      <Select value={field.mappedLeadField ?? ""} onValueChange={(v) => updateField(field.id, { mappedLeadField: v || null })}>
+                      <Select value={field.mappedLeadField ?? "none"} onValueChange={(v) => updateField(field.id, { mappedLeadField: v === "none" ? null : v })}>
                         <SelectTrigger className="mt-0.5 h-8 text-sm"><SelectValue placeholder="Custom field" /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">Custom field</SelectItem>
+                          <SelectItem value="none">Custom field</SelectItem>
                           {LEAD_FIELD_MAP.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>
                   </div>
+                  {field.fieldType === "select" && <div className="mt-3"><Label className="text-xs text-muted-foreground">Options, one per line</Label><Textarea className="mt-1 text-sm" rows={3} value={(field.options ?? []).join("\n")} onChange={(e) => updateField(field.id, { options: e.target.value.split("\n").map((option) => option.trim()).filter(Boolean) })} /></div>}
                   <div className="flex items-center gap-2 mt-3">
                     <Switch
                       checked={field.required}
@@ -301,6 +315,11 @@ export default function FormEditor() {
                 {form.embedCode ?? "Save the form to generate an embed code."}
               </pre>
               <p className="text-xs text-muted-foreground mt-2">Paste this snippet on any webpage to display your lead capture form.</p>
+            </Card>
+
+            <Card className="p-5 border border-border bg-card">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Recent submissions</p>
+              {submissionsError ? <p className="text-xs text-destructive">Could not load submissions: {String(submissionsError)}</p> : !submissions?.length ? <p className="text-xs text-muted-foreground">No submissions yet.</p> : <div className="max-h-72 overflow-auto space-y-3">{submissions.map((submission) => <div key={submission.id} className="border-t pt-3 text-xs"><p className="font-medium">{new Date(submission.createdAt).toLocaleString()}</p><dl className="mt-1 space-y-1">{Object.entries(submission.data ?? {}).map(([key, value]) => <div key={key} className="flex gap-2"><dt className="text-muted-foreground">{fields.find((field) => field.id === key)?.label ?? key}:</dt><dd className="break-all">{String(value ?? "")}</dd></div>)}</dl></div>)}</div>}
             </Card>
           </div>
         </div>

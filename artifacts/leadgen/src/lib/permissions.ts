@@ -1,10 +1,11 @@
 export const PAGE_PERMISSIONS = [
+  { key: "ai-assistant", label: "AI Assistant", paths: ["/ai-assistant"] },
   { key: "home", label: "Home", paths: ["/", "/dashboard", "/victorysync"] },
   { key: "client-accounts", label: "Client Accounts", paths: ["/sub-accounts"] },
   { key: "team", label: "Team & Invites", paths: ["/team"] },
   { key: "contacts", label: "Contacts", paths: ["/leads", "/call-queue"] },
   { key: "imports", label: "Import Contacts", paths: ["/lead-import"] },
-  { key: "segments", label: "Segments", paths: ["/segments"] },
+  { key: "segments", label: "Segments", paths: ["/segments", "/contacts/segments"] },
   { key: "conversations", label: "Conversations", paths: ["/conversations", "/dm-queue", "/dm-campaigns"] },
   { key: "pipeline", label: "Company CRM & Pipelines", paths: ["/pipeline", "/companies", "/company-import", "/trial-queue", "/company-kpis", "/crm-tasks"] },
   { key: "prospecting", label: "Prospecting & Lead Finder", paths: ["/prospect-search", "/scraper"] },
@@ -14,7 +15,7 @@ export const PAGE_PERMISSIONS = [
   { key: "email", label: "Email Templates & Mailboxes", paths: ["/email-templates", "/email-accounts"] },
   { key: "social", label: "Social Planner", paths: ["/social-planner"] },
   { key: "automation", label: "Automation", paths: ["/automation"] },
-  { key: "forms", label: "Sites / Forms", paths: ["/forms"] },
+  { key: "forms", label: "Sites / Forms", paths: ["/forms", "/landing-pages", "/marketing-reports"] },
   { key: "integrations", label: "Integrations & Webhooks", paths: ["/integrations", "/webhooks"] },
   { key: "reputation", label: "Reputation", paths: ["/reputation"] },
   { key: "reporting", label: "Reports & Attribution", paths: ["/outreach-weekly", "/analytics", "/revenue-attribution"] },
@@ -32,6 +33,18 @@ export function permissionForPath(path: string) {
 }
 
 export function canAccessPath(path: string, permissions: string[] | null, role?: string) {
+  const normalized = path.replace(/^\/leadgen(?=\/|$)/, "") || "/";
+  if (normalized === "/client-portal" || normalized.startsWith("/client-portal/")) {
+    if (role === "no_access") return false;
+    const page = normalized.split("/")[2] || "dashboard";
+    const portalKeys = ["dashboard", "leads", "calls", "pages", "forms", "reviews", "reports", "billing", "settings"];
+    if (!portalKeys.includes(page)) return false;
+    if (role === "client_staff" && !["dashboard", "leads", "calls"].includes(page)) return false;
+    if (["agency_staff", "member", "viewer", "agent"].includes(role ?? "") && page === "billing") return false;
+    return permissions === null || !permissions.some(key => portalKeys.includes(key)) || permissions.includes(page);
+  }
+  if (role === "client_owner" || role === "client_staff") return false;
+  if (normalized === "/ai-assistant") return role === "owner" || role === "admin";
   if (role === "no_access") return false;
   if (role === "client" && path === "/victorysync") return true;
   if (role === "agent" && path === "/victorysync") return true;

@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import { mcpPool } from "../lib/mcp-auth.js";
+import { fetchWebsiteContacts, scanDomain } from "../lib/web-lead-finder.js";
 import { leadReports } from "../artifacts/api-server/src/lib/lead-reports.js";
 import { companyCrmRequest } from "../artifacts/api-server/src/lib/company-crm.js";
 import { DISPOSITIONS, parseCall, parseOutreachUpdate } from '../lib/outreach.js';
@@ -9,7 +11,9 @@ import { socialRest } from '../lib/social-service.js';
 import { mailboxTransport } from '../artifacts/api-server/src/lib/email-transports.js';
 import { inboxAdapter } from '../artifacts/api-server/src/lib/inbox-adapters.js';
 import { WorkflowService,isWorkflowEndpoint,isPublicWorkflowEndpoint } from '../lib/workflow-service.js';
-export const config = { api: { bodyParser: false } };
+import { normalizeSegmentFilters, segmentFilterSummary, validateSegmentFilters } from '../lib/segment-filters.js';
+import { escapeHtml, renderLandingPage, type LandingSection, type LandingTheme } from '../lib/marketing-pages.js';
+export const config = { api: { bodyParser: false }, maxDuration: 60 };
 
 type VercelRequest = {
   method?: string;
@@ -58,13 +62,14 @@ type FetchInit = {
 type LeadRow = {
   id: number | string;
   client_account_id?: string | null;
-  first_name: string;
-  last_name: string;
-  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
   phone: string | null;
   company: string | null;
   title: string | null;
   source: string | null;
+  state?: string | null;
   status: string;
   disposition: string | null;
   contact_attempts: number;
@@ -195,9 +200,6 @@ function normalizeLead(lead: LeadInput) {
 }
 
 function validateLead(lead: ReturnType<typeof normalizeLead>) {
-  if (!lead.first_name) return "First name is required";
-  if (!lead.last_name) return "Last name is required";
-  if (!lead.email) return "Email is required";
   if (lead.status === "meeting_booked" && !validMeetingAt(lead.meeting_at)) return "Meeting date and time are required";
   return null;
 }
@@ -273,6 +275,7 @@ function leadFromRow(row: LeadRow) {
     company: row.company,
     title: row.title,
     source: source && !badLeadSources.has(source.toLowerCase()) ? source : null,
+    state: row.state ?? null,
     status: row.status,
     disposition: row.disposition,
     contactAttempts: row.contact_attempts ?? 0,
@@ -328,7 +331,9 @@ type DashboardMembership = {
 function normalizeDashboardRole(role: unknown) {
   const value = typeof role === "string" ? role.trim().toLowerCase() : "";
   if (value === "org_owner" || value === "owner") return "owner";
-  if (value === "org_admin" || value === "admin") return "admin";
+  if (value === "org_admin" || value === "admin" || value === "agency_admin") return "admin";
+  if (value === "agency_staff") return "member";
+  if (value === "client_owner" || value === "client_staff") return "client";
   if (value === "agent") return "agent";
   if (value === "client") return "client";
   if (value === "viewer") return "viewer";
@@ -506,6 +511,7 @@ function apiPermissionForPath(path: string) {
     [/^\/api\/social/, "social"],
     [/^\/api\/automation/, "automation"],
     [/^\/api\/forms/, "forms"],
+    [/^\/api\/(?:landing-pages|marketing\/reports)/, "forms"],
     [/^\/api\/(?:integrations|webhooks|oauth)/, "integrations"],
     [/^\/api\/reviews/, "reputation"],
     [/^\/api\/(?:analytics|revenue)/, "reporting"],
@@ -532,7 +538,7 @@ async function authenticateRequest(req: VercelRequest): Promise<AuthenticatedUse
     const claims = JSON.parse(Buffer.from(authorization.slice(7).split(".")[1] ?? "", "base64url").toString("utf8")) as Record<string, unknown>;
     if (claims.sub !== user.id) throw new Error("Session identity mismatch");
     user.crmRoleVerified = typeof claims.crm_role === "string" &&
-      ["owner", "admin", "agent", "member", "viewer", "client"].includes(claims.crm_role);
+      ["owner", "admin", "agent", "member", "viewer", "client", "agency_admin", "agency_staff", "client_owner", "client_staff"].includes(claims.crm_role);
     user.user_metadata = { ...user.user_metadata,
       ...(typeof claims.crm_role === "string" ? { role: claims.crm_role } : {}),
       ...(typeof claims.crm_client_account_id === "string" ? { client_account_id: claims.crm_client_account_id } : {}),
@@ -543,6 +549,19 @@ async function authenticateRequest(req: VercelRequest): Promise<AuthenticatedUse
     if (error instanceof Error && error.message === "Session identity mismatch") throw error;
   }
   return user;
+}
+
+async function portalEnabledForUser(req: VercelRequest) {
+  if (!supabaseUrl || !supabaseAnonKey) return false;
+  const authorization = getHeader(req, "authorization");
+  if (!authorization) return false;
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/client_feature_enabled`, {
+    method: "POST",
+    headers: { apikey: supabaseAnonKey, authorization, "content-type": "application/json" },
+    body: JSON.stringify({ p_feature: "client_portal" }),
+    signal: AbortSignal.timeout(5000),
+  });
+  return response.ok && await response.json() === true;
 }
 
 async function recordPortalActivity(req:VercelRequest,user:AuthenticatedUser,event:{eventType:string;action:string;pagePath?:string|null;target?:string|null;requestMethod?:string|null;requestStatus?:number|null;sessionId?:string|null;metadata?:Record<string,unknown>}) {
@@ -1287,6 +1306,25 @@ async function handleGenericResource(path: string, method: string, req: VercelRe
   const config = resourceConfigs[match.key];
   if (!config) return false;
 
+  if (match.key === "forms" && match.id && match.action === "submissions" && method === "GET") {
+    const rows = await supabaseRest(`form_submissions?form_id=eq.${encodeURIComponent(match.id)}&select=id,data,source_url,created_at,lead_id&order=created_at.desc&limit=100`, { method: "GET" }, req);
+    sendJson(res, 200, toCamelValue(rows));
+    return true;
+  }
+
+  if (match.key === "forms" && method === "GET" && !match.action) {
+    const rows = await supabaseRest(`forms?select=*&${match.id ? `id=eq.${encodeURIComponent(match.id)}&` : ""}order=created_at.desc`, { method: "GET" }, req) as Array<Record<string, unknown>>;
+    const forms = await Promise.all(rows.map(async (row) => ({
+      ...toCamelValue(row) as object,
+      submissionCount: await supabaseRestCount(`form_submissions?form_id=eq.${encodeURIComponent(String(row.id))}&select=id`, req),
+      embedCode: `<iframe src="${marketingOrigin(req)}/api/public/forms/${row.id}" title="${escapeHtml(row.name)}" style="width:100%;min-height:500px;border:0"></iframe>`,
+    })));
+    if (match.id) sendJson(res, forms[0] ? 200 : 404, forms[0] ?? { error: "Form not found" });
+    else sendJson(res, 200, forms);
+    return true;
+  }
+
+
   if (match.key === "api-keys" && !match.id && method === "POST") {
     await createApiKey(req, res);
     return true;
@@ -1368,6 +1406,456 @@ async function handleGenericResource(path: string, method: string, req: VercelRe
   return false;
 }
 
+type MarketingPageRow = { id: string; title: string; slug: string; status: string; seo_description: string; sections: LandingSection[]; theme: LandingTheme; created_at: string; updated_at: string };
+type MarketingFormRow = { id: string; name: string; status: string; campaign_id?: string | null; client_account_id?: string | null; fields: Array<{ id?: string; label?: string; fieldType?: string; required?: boolean; placeholder?: string; options?: string[]; mappedLeadField?: string }>; success_message?: string };
+const marketingUuidPattern = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const marketingUuid = new RegExp(`^${marketingUuidPattern}$`, "i");
+
+function marketingHtml(res: VercelResponse, status: number, html: string) {
+  res.statusCode = status;
+  res.setHeader("content-type", "text/html; charset=utf-8");
+  res.setHeader("x-content-type-options", "nosniff");
+  res.setHeader("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; frame-src 'self'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'");
+  res.end(html);
+}
+
+function marketingOrigin(req: VercelRequest) {
+  const inboundHost = getHeader(req, "host") ?? "";
+  const host = /^[a-z0-9.-]+(?::\d{1,5})?$/i.test(inboundHost) ? inboundHost : "localhost";
+  const protocol = getHeader(req, "x-forwarded-proto") === "http" || /^localhost(?::|$)/.test(host) ? "http" : "https";
+  return `${protocol}://${host}`;
+}
+
+function validLandingSections(value: unknown): value is LandingSection[] {
+  return Array.isArray(value) && value.length <= 40 && value.every((section) => section && typeof section === "object" &&
+    typeof section.id === "string" && ["hero", "text", "features", "image", "cta", "form"].includes(section.type) &&
+    [section.heading, section.body, section.buttonText, section.buttonUrl, section.imageUrl].every((entry) => entry === undefined || typeof entry === "string" && entry.length <= 5000) &&
+    (section.formId === undefined || typeof section.formId === "string" && section.formId.length <= 100) &&
+    (section.items === undefined || Array.isArray(section.items) && section.items.length <= 12 && section.items.every((item: unknown) => typeof item === "string" && item.length <= 300)));
+}
+
+async function handleLandingPages(path: string, method: string, req: VercelRequest, res: VercelResponse) {
+  const match = path.match(/^\/api\/landing-pages(?:\/([^/]+))?(?:\/(preview))?$/);
+  if (!match) return false;
+  const id = match[1] ? decodeURIComponent(match[1]) : null;
+  if (method === "GET" && match[2] === "preview" && id) {
+    const rows = await supabaseRest(`marketing_landing_pages?id=eq.${encodeURIComponent(id)}&select=*&limit=1`, { method: "GET" }, req) as MarketingPageRow[];
+    if (!rows[0]) { sendJson(res, 404, { error: "Landing page not found" }); return true; }
+    marketingHtml(res, 200, renderLandingPage(rows[0], marketingOrigin(req)));
+    return true;
+  }
+  if (method === "GET") {
+    const rows = await supabaseRest(`marketing_landing_pages?select=*&${id ? `id=eq.${encodeURIComponent(id)}&` : ""}order=created_at.desc`, { method: "GET" }, req) as MarketingPageRow[];
+    if (id) sendJson(res, rows[0] ? 200 : 404, rows[0] ? toCamelValue(rows[0]) : { error: "Landing page not found" });
+    else sendJson(res, 200, toCamelValue(rows));
+    return true;
+  }
+  if (method === "DELETE" && id) {
+    await supabaseRest(`marketing_landing_pages?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" }, req);
+    res.statusCode = 204; res.end(); return true;
+  }
+  if ((method === "POST" && !id) || (method === "PATCH" && id)) {
+    const body = await readJson(req) as Record<string, unknown>;
+    if (typeof body.title !== "string" || !body.title.trim() || body.title.length > 180) { sendJson(res, 400, { error: "Enter a title (up to 180 characters)" }); return true; }
+    const slug = String(body.slug ?? "").trim().toLowerCase();
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || slug.length > 100) { sendJson(res, 400, { error: "Use a URL slug with lowercase letters, numbers and hyphens" }); return true; }
+    if (!validLandingSections(body.sections)) { sendJson(res, 400, { error: "Landing page sections are invalid" }); return true; }
+    if (body.status !== "draft" && body.status !== "published") { sendJson(res, 400, { error: "Choose draft or published status" }); return true; }
+    const theme = body.theme && typeof body.theme === "object" && !Array.isArray(body.theme) ? body.theme : {};
+    const payload = { title: body.title.trim(), slug, status: body.status, sections: body.sections, theme, seo_description: String(body.seoDescription ?? "").slice(0, 320), updated_at: new Date().toISOString() };
+    const rows = await supabaseRest(id ? `marketing_landing_pages?id=eq.${encodeURIComponent(id)}` : "marketing_landing_pages", { method: id ? "PATCH" : "POST", body: JSON.stringify(payload) }, req) as MarketingPageRow[];
+    sendJson(res, id ? 200 : 201, toCamelValue(rows[0])); return true;
+  }
+  sendJson(res, 405, { error: "Method not allowed" }); return true;
+}
+
+async function handlePublicMarketing(path: string, method: string, req: VercelRequest, res: VercelResponse) {
+  const pageMatch = path.match(/^\/api\/public\/landing\/([a-z0-9-]+)$/);
+  if (pageMatch && method === "GET") {
+    const rows = await supabaseRest(`marketing_landing_pages?slug=eq.${encodeURIComponent(pageMatch[1])}&status=eq.published&select=*&limit=1`, { method: "GET" }) as MarketingPageRow[];
+    const page = rows[0];
+    if (!page) { marketingHtml(res, 404, "<h1>Page not found</h1>"); return true; }
+    try { await supabaseRest("marketing_landing_page_events", { method: "POST", body: JSON.stringify({ page_id: page.id, event_type: "view" }) }); }
+    catch (error) { console.error("Landing page view could not be recorded", error); }
+    marketingHtml(res, 200, renderLandingPage(page, marketingOrigin(req))); return true;
+  }
+  const formMatch = path.match(new RegExp(`^/api/public/forms/(${marketingUuidPattern})$`, "i"));
+  if (!formMatch) return false;
+  const formId = formMatch[1];
+  const rows = await supabaseRest(`forms?id=eq.${encodeURIComponent(formId)}&status=eq.active&select=*&limit=1`, { method: "GET" }) as MarketingFormRow[];
+  const form = rows[0] ? { ...rows[0], fields: toCamelValue(rows[0].fields) as MarketingFormRow["fields"] } : undefined;
+  if (!form) { sendJson(res, 404, { error: "Form not found or inactive" }); return true; }
+  if (method === "POST") {
+    const body = await readJson(req) as { data?: Record<string, unknown>; pageId?: string; website?: string };
+    if (body.website) { sendJson(res, 201, { success: true }); return true; }
+    const data = body.data && typeof body.data === "object" && !Array.isArray(body.data) ? body.data : {};
+    if (JSON.stringify(data).length > 20000) { sendJson(res, 413, { error: "Submission is too large" }); return true; }
+    for (const field of Array.isArray(form.fields) ? form.fields : []) {
+      const key = field.id ?? field.label ?? "";
+      if (field.required && !String(data[key] ?? "").trim()) { sendJson(res, 400, { error: `${field.label ?? "A required field"} is required` }); return true; }
+    }
+    let pageId: string | null = null;
+    if (typeof body.pageId === "string" && marketingUuid.test(body.pageId)) {
+      const pageRows = await supabaseRest(`marketing_landing_pages?id=eq.${encodeURIComponent(body.pageId)}&status=eq.published&select=id,sections&limit=1`, { method: "GET" }) as Array<{ id: string; sections: LandingSection[] }>;
+      if (pageRows[0]?.sections?.some((section) => section.type === "form" && section.formId === formId)) pageId = body.pageId;
+    }
+    const submitted = await supabaseRest("form_submissions", { method: "POST", body: JSON.stringify({ form_id: formId, marketing_page_id: pageId, client_account_id: form.client_account_id ?? null, data, source_url: getHeader(req, "referer") ?? null }) }) as Array<{ id: string }>;
+    if (pageId) {
+      try { await supabaseRest("marketing_landing_page_events", { method: "POST", body: JSON.stringify({ page_id: pageId, event_type: "form_submission" }) }); }
+      catch (error) { console.error("Landing page conversion event could not be recorded", error); }
+    }
+    const mapped: Record<string, string> = {};
+    for (const field of Array.isArray(form.fields) ? form.fields : []) {
+      const key = field.id ?? field.label ?? "";
+      const leadKey = field.mappedLeadField ?? (field.fieldType === "email" ? "email" : "");
+      if (leadKey && typeof data[key] === "string") mapped[leadKey] = String(data[key]).trim();
+    }
+    if (mapped.email || mapped.phone) {
+      try {
+        const leads = await supabaseRest("leads", { method: "POST", body: JSON.stringify({ first_name: mapped.firstName || "Unknown", last_name: mapped.lastName || "", email: mapped.email || "", phone: mapped.phone || "", company: mapped.company || null, title: mapped.title || null, source: "form", status: "new", form_id: formId, campaign_id: form.campaign_id ?? null, client_account_id: form.client_account_id ?? null, custom_fields: data }) }) as Array<{ id: string }>;
+        if (leads[0]?.id && submitted[0]?.id) await supabaseRest(`form_submissions?id=eq.${encodeURIComponent(submitted[0].id)}`, { method: "PATCH", body: JSON.stringify({ lead_id: leads[0].id }) });
+      } catch (error) { console.error("Form submission saved but lead creation failed", error); }
+    }
+    sendJson(res, 201, { success: true, message: form.success_message ?? "Thank you!" }); return true;
+  }
+  if (method === "GET") {
+    const fields = (Array.isArray(form.fields) ? form.fields : []).map((field) => {
+      const id = escapeHtml(field.id ?? field.label ?? "field");
+      const label = escapeHtml(field.label ?? "Field");
+      const required = field.required ? " required" : "";
+      const placeholder = escapeHtml(field.placeholder ?? "");
+      if (field.fieldType === "textarea") return `<label>${label}<textarea name="${id}" placeholder="${placeholder}"${required}></textarea></label>`;
+      if (field.fieldType === "select") return `<label>${label}<select name="${id}"${required}><option value="">Select…</option>${(field.options ?? []).map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`).join("")}</select></label>`;
+      if (field.fieldType === "checkbox") return `<label><input type="checkbox" name="${id}" value="yes"${required}> ${label}</label>`;
+      const type = ["email", "tel", "number"].includes(field.fieldType ?? "") ? field.fieldType : "text";
+      return `<label>${label}<input type="${type}" name="${id}" placeholder="${placeholder}"${required}></label>`;
+    }).join("");
+    const pageParam = new URL(req.url ?? "/", "https://local.invalid").searchParams.get("page") ?? "";
+    const pageId = marketingUuid.test(pageParam) ? pageParam : "";
+    const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:16px Arial,sans-serif;margin:0;color:#172033}form{display:grid;gap:16px;padding:8px}label{display:grid;gap:6px;font-weight:600}input,textarea,select{font:inherit;padding:11px;border:1px solid #cbd5e1;border-radius:7px}button{padding:12px 20px;border:0;border-radius:7px;background:#285ce6;color:#fff;font:inherit;cursor:pointer}#message{min-height:20px}</style></head><body><form id="lead-form">${fields}<input type="text" name="website" style="display:none" tabindex="-1" autocomplete="off"><button>Submit</button><p id="message" role="status"></p></form><script>document.getElementById('lead-form').addEventListener('submit',async function(event){event.preventDefault();const form=event.currentTarget;const data=Object.fromEntries(new FormData(form).entries());const website=data.website;delete data.website;const message=document.getElementById('message');try{const response=await fetch(location.pathname,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({data,website,pageId:${JSON.stringify(pageId)}})});const result=await response.json();if(!response.ok)throw Error(result.error||'Submission failed');message.textContent=result.message||'Thank you!';form.reset()}catch(error){message.textContent=error.message}}</script></body></html>`;
+    marketingHtml(res, 200, html); return true;
+  }
+  sendJson(res, 405, { error: "Method not allowed" }); return true;
+}
+
+async function handleMarketingReports(path: string, method: string, req: VercelRequest, res: VercelResponse) {
+  if (path !== "/api/marketing/reports" || method !== "GET") return false;
+  const period = new URL(req.url ?? "/", "https://local.invalid").searchParams.get("period") ?? "30d";
+  if (!["7d", "30d", "all"].includes(period)) { sendJson(res, 400, { error: "Invalid reporting period" }); return true; }
+  const since = period === "all" ? "" : `&created_at=gte.${encodeURIComponent(new Date(Date.now() - (period === "7d" ? 7 : 30) * 86400000).toISOString())}`;
+  const pages = await supabaseRest("marketing_landing_pages?select=id,title,slug,status,created_at&order=created_at.desc", { method: "GET" }, req) as Array<{ id: string; title: string; slug: string; status: string; created_at: string }>;
+  const forms = await supabaseRest("forms?select=id,name,status,created_at&order=created_at.desc", { method: "GET" }, req) as Array<{ id: string; name: string; status: string; created_at: string }>;
+  const pageRows = await Promise.all(pages.map(async (page) => {
+    const filter = `page_id=eq.${encodeURIComponent(page.id)}&select=id`;
+    const [views, submissions] = await Promise.all([
+      supabaseRestCount(`marketing_landing_page_events?${filter}&event_type=eq.view${since}`, req),
+      supabaseRestCount(`form_submissions?marketing_page_id=eq.${encodeURIComponent(page.id)}&select=id${since}`, req),
+    ]);
+    return { ...toCamelValue(page) as object, views, submissions, conversionRate: views ? Math.round(submissions / views * 1000) / 10 : 0 };
+  }));
+  const formRows = await Promise.all(forms.map(async (form) => ({ ...toCamelValue(form) as object, submissions: await supabaseRestCount(`form_submissions?form_id=eq.${encodeURIComponent(form.id)}&select=id${since}`, req) })));
+  sendJson(res, 200, { pages: pageRows, forms: formRows }); return true;
+}
+
+const contactOrganization = 'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+async function resolveContactOrganization(user: AuthenticatedUser, req: VercelRequest) {
+  const preferred = await supabaseRest(`team_members?org_id=eq.${contactOrganization}&or=(auth_user_id.eq.${user.id},user_id.eq.${user.id})&select=org_id&limit=1`, { method: 'GET' }, req) as Array<{org_id?:string}>;
+  if (preferred[0]?.org_id) return contactOrganization;
+  if (await isPlatformAdmin(user, req)) return contactOrganization;
+  return resolveUserOrgId(user, req);
+}
+type SegmentRow = { id: string; organization_id: string; name: string; description: string | null; filters: unknown; segment_type: 'smart' | 'static'; contact_count: number; created_at: string; updated_at: string };
+function segmentSummary(row: SegmentRow) { return row.segment_type === 'static' ? 'Fixed list' : segmentFilterSummary(normalizeSegmentFilters(row.filters)); }
+
+async function segmentPage(segment: SegmentRow, req: VercelRequest, options: { page?: number; limit?: number; search?: string; sort?: string; desc?: boolean } = {}) {
+  const result = await supabaseRest('rpc/crm_segment_contacts_page', {
+    method: 'POST', body: JSON.stringify({
+      p_organization_id: segment.organization_id,
+      p_filters: normalizeSegmentFilters(segment.filters),
+      p_segment_id: segment.id,
+      p_segment_type: segment.segment_type,
+      p_page: options.page ?? 1,
+      p_limit: options.limit ?? 50,
+      p_search: options.search ?? null,
+      p_sort: options.sort ?? 'created_at',
+      p_desc: options.desc ?? true,
+    }),
+  }, req) as { total: number; page: number; limit: number; leads: LeadRow[] };
+  return { ...result, leads: await contactsWithActivity(result.leads ?? [], req) };
+}
+
+async function contactsWithActivity(rows: LeadRow[], req: VercelRequest) {
+  if (!rows.length) return [];
+  const events = await supabaseRest('rpc/crm_contacts_last_activity', { method: 'POST', body: JSON.stringify({ p_ids: rows.map((row) => row.id) }) }, req) as Array<{ lead_id: string; last_activity_at: string }>;
+  const byId = new Map(events.map((event) => [event.lead_id, event.last_activity_at]));
+  return rows.map((row) => ({ ...leadFromRow(row), lastActivityAt: byId.get(String(row.id)) ?? null }));
+}
+
+async function handleContactSegments(path: string, method: string, user: AuthenticatedUser, req: VercelRequest, res: VercelResponse): Promise<boolean> {
+  const match = path.match(/^\/api\/segments(?:\/([^/]+))?(?:\/(contacts|members))?$/);
+  if (!match) return false;
+  const role = normalizeDashboardRole(user.user_metadata?.role ?? user.app_metadata?.role);
+  if (role === 'client' || role === 'agent') { sendJson(res, 403, { error: 'Segments are not available for this role' }); return true; }
+  const organizationId = await resolveContactOrganization(user, req);
+  if (!organizationId || !uuidPattern.test(organizationId)) { sendJson(res, 403, { error: 'No organization is assigned to this session' }); return true; }
+  const id = match[1];
+  if (id && !uuidPattern.test(id)) { sendJson(res, 400, { error: 'Invalid segment id' }); return true; }
+  const write = method !== 'GET';
+  if (write && role === 'viewer') { sendJson(res, 403, { error: 'Read-only role' }); return true; }
+  const segmentPath = `segments?organization_id=eq.${encodeURIComponent(organizationId)}${id ? `&id=eq.${encodeURIComponent(id)}` : ''}&select=*&order=created_at.desc`;
+  const rows = await supabaseRest(segmentPath, { method: 'GET' }, req) as SegmentRow[];
+  const segment = id ? rows[0] : null;
+  if (id && !segment) { sendJson(res, 404, { error: 'Segment not found' }); return true; }
+  if (method === 'GET' && !id) {
+    const results = await Promise.all(rows.map(async (row) => {
+      const count = (await segmentPage(row, req, { limit: 1 })).total;
+      return { ...toCamelValue(row) as Record<string, unknown>, filters: normalizeSegmentFilters(row.filters), filterSummary: segmentSummary(row), contactCount: count };
+    }));
+    sendJson(res, 200, results);
+    return true;
+  }
+  if (method === 'GET' && id && match[2] === 'contacts' && segment) {
+    const url = new URL(req.url ?? '', 'https://local.invalid');
+    const page = Math.max(1, Number(url.searchParams.get('page') ?? 1) || 1);
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') ?? 50) || 50));
+    const data = await segmentPage(segment, req, { page, limit, search: url.searchParams.get('search') ?? '', sort: url.searchParams.get('sort') ?? 'created_at', desc: url.searchParams.get('desc') !== 'false' });
+    if (data.total !== segment.contact_count) await supabaseRest(`segments?id=eq.${encodeURIComponent(id)}&organization_id=eq.${encodeURIComponent(organizationId)}`, { method: 'PATCH', body: JSON.stringify({ contact_count: data.total }) }, req);
+    sendJson(res, 200, { ...data, segment: { ...toCamelValue(segment) as Record<string, unknown>, filters: normalizeSegmentFilters(segment.filters), filterSummary: segmentSummary(segment), contactCount: data.total } });
+    return true;
+  }
+  if (method === 'GET' && id && segment) {
+    const count = (await segmentPage(segment, req, { limit: 1 })).total;
+    sendJson(res, 200, { ...toCamelValue(segment) as Record<string, unknown>, filters: normalizeSegmentFilters(segment.filters), filterSummary: segmentSummary(segment), contactCount: count });
+    return true;
+  }
+  if (method === 'POST' && !id) {
+    const body = await readJson(req) as Record<string, unknown>;
+    const name = String(body.name ?? '').trim();
+    if (!name || name.length > 120) { sendJson(res, 400, { error: 'Enter a segment name under 120 characters' }); return true; }
+    if (!validateSegmentFilters(body.filters)) { sendJson(res, 400, { error: 'Invalid segment conditions' }); return true; }
+    const segmentType = body.segmentType === 'static' ? 'static' : 'smart';
+    const created = await supabaseRest('segments', { method: 'POST', body: JSON.stringify({ organization_id: organizationId, name, description: String(body.description ?? ''), filters: normalizeSegmentFilters(body.filters), segment_type: segmentType, contact_count: 0 }) }, req) as SegmentRow[];
+    const row = created[0];
+    if (!row) throw new Error('Segment creation returned no row');
+    const count = (await segmentPage(row, req, { limit: 1 })).total;
+    await supabaseRest(`segments?id=eq.${encodeURIComponent(row.id)}`, { method: 'PATCH', body: JSON.stringify({ contact_count: count }) }, req);
+    sendJson(res, 201, { ...toCamelValue(row) as Record<string, unknown>, filters: normalizeSegmentFilters(row.filters), contactCount: count });
+    return true;
+  }
+  if (method === 'PATCH' && id && segment && !match[2]) {
+    const body = await readJson(req) as Record<string, unknown>;
+    const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (body.name !== undefined) { const name = String(body.name).trim(); if (!name || name.length > 120) { sendJson(res, 400, { error: 'Invalid name' }); return true; } update.name = name; }
+    if (body.description !== undefined) update.description = String(body.description);
+    if (body.filters !== undefined) { if (!validateSegmentFilters(body.filters)) { sendJson(res, 400, { error: 'Invalid segment conditions' }); return true; } update.filters = normalizeSegmentFilters(body.filters); }
+    if (body.segmentType !== undefined) update.segment_type = body.segmentType === 'static' ? 'static' : 'smart';
+    const changed = await supabaseRest(`segments?id=eq.${encodeURIComponent(id)}&organization_id=eq.${encodeURIComponent(organizationId)}`, { method: 'PATCH', body: JSON.stringify(update) }, req) as SegmentRow[];
+    const row = changed[0];
+    if (!row) { sendJson(res, 404, { error: 'Segment not found' }); return true; }
+    const count = (await segmentPage(row, req, { limit: 1 })).total;
+    await supabaseRest(`segments?id=eq.${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ contact_count: count }) }, req);
+    sendJson(res, 200, { ...toCamelValue(row) as Record<string, unknown>, filters: normalizeSegmentFilters(row.filters), contactCount: count });
+    return true;
+  }
+  if (method === 'DELETE' && id && !match[2]) {
+    await supabaseRest(`segments?id=eq.${encodeURIComponent(id)}&organization_id=eq.${encodeURIComponent(organizationId)}`, { method: 'DELETE' }, req);
+    res.statusCode = 204; res.end(); return true;
+  }
+  if (id && match[2] === 'members' && segment?.segment_type === 'static' && (method === 'POST' || method === 'DELETE')) {
+    const body = await readJson(req) as { ids?: unknown };
+    const ids = Array.isArray(body.ids) ? body.ids.filter((value): value is string => typeof value === 'string' && uuidPattern.test(value)).slice(0, 500) : [];
+    if (!ids.length) { sendJson(res, 400, { error: 'Contact ids are required' }); return true; }
+    if (!ids.length) { sendJson(res, 400, { error: 'No contacts selected' }); return true; }
+    const allowed: Array<{ id: string; organization_id: string | null }> = [];
+    for (let start = 0; start < ids.length; start += 500) {
+      const page = await supabaseRest(`leads?id=in.(${ids.slice(start,start+500).join(',')})&select=id,organization_id`, { method: 'GET' }, req) as Array<{ id: string; organization_id: string | null }>;
+      allowed.push(...page);
+    }
+    const valid = allowed.filter((lead) => lead.organization_id === organizationId || (organizationId === contactOrganization && !lead.organization_id)).map((lead) => lead.id);
+    if (valid.length !== ids.length) { sendJson(res, 403, { error: 'One or more contacts are outside this organization' }); return true; }
+    if (method === 'POST') await supabaseRest('segment_contacts?on_conflict=segment_id,lead_id', { method: 'POST', headers: { prefer: 'resolution=ignore-duplicates,return=representation' }, body: JSON.stringify(valid.map((leadId) => ({ segment_id: id, lead_id: leadId }))) }, req);
+    else await supabaseRest(`segment_contacts?segment_id=eq.${encodeURIComponent(id)}&lead_id=in.(${valid.join(',')})`, { method: 'DELETE' }, req);
+    const count = (await segmentPage(segment, req, { limit: 1 })).total;
+    await supabaseRest(`segments?id=eq.${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ contact_count: count }) }, req);
+    sendJson(res, 200, { contactCount: count }); return true;
+  }
+  sendJson(res, 405, { error: 'Unsupported segment operation' });
+  return true;
+}
+
+async function handleContactBulk(path: string, method: string, user: AuthenticatedUser, req: VercelRequest, res: VercelResponse): Promise<boolean> {
+  if (path !== '/api/contacts/bulk' || method !== 'POST') return false;
+  const role = normalizeDashboardRole(user.user_metadata?.role ?? user.app_metadata?.role);
+  if (role === 'viewer' || role === 'client' || role === 'agent') { sendJson(res, 403, { error: 'Bulk contact actions are not available for this role' }); return true; }
+  const organizationId = await resolveContactOrganization(user, req);
+  if (!organizationId || !uuidPattern.test(organizationId)) { sendJson(res, 403, { error: 'No organization is assigned to this session' }); return true; }
+  const body = await readJson(req) as { action?: string; ids?: unknown; segmentId?: string; value?: string; sequenceId?: string; targetSegmentId?: string; confirm?: boolean };
+  const action = body.action ?? '';
+  const validActions = ['add_tag','remove_tag','change_status','enroll_sequence','add_to_segment','export_csv','delete'];
+  if (!validActions.includes(action)) { sendJson(res, 400, { error: 'Invalid bulk action' }); return true; }
+  if (action === 'delete' && body.confirm !== true) { sendJson(res, 400, { error: 'Confirm deletion first' }); return true; }
+  let ids: string[] = [];
+  if (body.segmentId) {
+    if (!uuidPattern.test(body.segmentId)) { sendJson(res, 400, { error: 'Invalid segment id' }); return true; }
+    const rows = await supabaseRest(`segments?id=eq.${body.segmentId}&organization_id=eq.${organizationId}&select=*&limit=1`, { method: 'GET' }, req) as SegmentRow[];
+    const segment = rows[0];
+    if (!segment) { sendJson(res, 404, { error: 'Segment not found' }); return true; }
+    const result = await supabaseRest('rpc/crm_segment_lead_ids', { method: 'POST', body: JSON.stringify({ p_organization_id: organizationId, p_filters: normalizeSegmentFilters(segment.filters), p_segment_id: segment.id, p_segment_type: segment.segment_type }) }, req) as string[];
+    ids = Array.isArray(result) ? result : [];
+  } else if (Array.isArray(body.ids)) {
+    ids = [...new Set(body.ids.filter((value): value is string => typeof value === 'string' && uuidPattern.test(value)))].slice(0, 10000);
+    if (ids.length !== body.ids.length) { sendJson(res, 400, { error: 'Invalid contact selection' }); return true; }
+    if (!ids.length) { sendJson(res, 400, { error: 'No contacts selected' }); return true; }
+    const allowed: Array<{ id: string; organization_id: string | null }> = [];
+    for (let start = 0; start < ids.length; start += 500) {
+      const page = await supabaseRest(`leads?id=in.(${ids.slice(start,start+500).join(',')})&select=id,organization_id`, { method: 'GET' }, req) as Array<{ id: string; organization_id: string | null }>;
+      allowed.push(...page);
+    }
+    if (allowed.length !== ids.length || allowed.some((lead) => lead.organization_id !== organizationId && !(organizationId === contactOrganization && !lead.organization_id))) {
+      sendJson(res, 403, { error: 'One or more contacts are outside this organization' }); return true;
+    }
+  }
+  if (!ids.length) { sendJson(res, 400, { error: 'No matching contacts' }); return true; }
+  if (action === 'enroll_sequence') {
+    if (!body.sequenceId || !uuidPattern.test(body.sequenceId)) { sendJson(res, 400, { error: 'Choose a sequence' }); return true; }
+    let enrolled = 0;
+    for (let start = 0; start < ids.length; start += 500) {
+      const result = await supabaseRest('rpc/outreach_sequence_bulk_enroll', { method: 'POST', body: JSON.stringify({ p_sequence: body.sequenceId, p_leads: ids.slice(start,start+500), p_actor: user.id, p_scope: null }) }, req) as { enrolled?: number };
+      enrolled += Number(result.enrolled ?? 0);
+    }
+    sendJson(res, 200, { processed: ids.length, enrolled }); return true;
+  }
+  if (action === 'add_to_segment') {
+    if (!body.targetSegmentId || !uuidPattern.test(body.targetSegmentId)) { sendJson(res, 400, { error: 'Choose a static segment' }); return true; }
+    const rows = await supabaseRest(`segments?id=eq.${body.targetSegmentId}&organization_id=eq.${organizationId}&segment_type=eq.static&select=id&limit=1`, { method: 'GET' }, req) as Array<{ id: string }>;
+    if (!rows.length) { sendJson(res, 400, { error: 'Choose a static segment' }); return true; }
+    for (let start = 0; start < ids.length; start += 500) await supabaseRest('segment_contacts?on_conflict=segment_id,lead_id', { method: 'POST', headers: { prefer: 'resolution=ignore-duplicates,return=representation' }, body: JSON.stringify(ids.slice(start,start+500).map((leadId) => ({ segment_id: body.targetSegmentId, lead_id: leadId }))) }, req);
+    const target = { id: body.targetSegmentId, organization_id: organizationId, filters: {}, segment_type: 'static' } as SegmentRow;
+    const count = (await segmentPage(target, req, { limit: 1 })).total;
+    await supabaseRest(`segments?id=eq.${body.targetSegmentId}`, { method: 'PATCH', body: JSON.stringify({ contact_count: count }) }, req);
+    sendJson(res, 200, { processed: ids.length }); return true;
+  }
+  if (action === 'export_csv') {
+    const lines = ['Name,Company,Phone,Email,Tags,Status,Source,State,Created Date'];
+    const csvCell = (value: unknown) => { const raw = String(value ?? ''); const safe = /^[=+@-]/.test(raw) ? `\t${raw}` : raw; return `"${safe.replace(/"/g,'""')}"`; };
+    for (let start = 0; start < ids.length; start += 500) {
+      const rows = await supabaseRest(`leads?id=in.(${ids.slice(start,start+500).join(',')})&select=first_name,last_name,company,phone,email,tags,status,source,state,created_at`, { method: 'GET' }, req) as LeadRow[];
+      for (const row of rows) lines.push([`${row.first_name ?? ''} ${row.last_name ?? ''}`.trim() || row.company || 'Unnamed contact', row.company, row.phone, row.email, (row.tags ?? []).join('; '), row.status, row.source, row.state, row.created_at].map(csvCell).join(','));
+    }
+    res.setHeader('content-type','text/csv; charset=utf-8');
+    res.setHeader('content-disposition','attachment; filename="contacts.csv"');
+    res.statusCode = 200; res.end('\uFEFF'+lines.join('\r\n')); return true;
+  }
+  const value = String(body.value ?? '');
+  const changed = await supabaseRest('rpc/crm_contact_bulk_action', { method: 'POST', body: JSON.stringify({ p_organization_id: organizationId, p_ids: ids, p_action: action, p_value: value }) }, req) as number;
+  sendJson(res, 200, { processed: ids.length, changed });
+  return true;
+}
+
+async function handleContactViews(path: string, method: string, user: AuthenticatedUser, req: VercelRequest, res: VercelResponse): Promise<boolean> {
+  const match = path.match(/^\/api\/contact-views(?:\/([^/]+))?$/);
+  if (!match) return false;
+  const organizationId = await resolveContactOrganization(user, req);
+  if (!organizationId || !uuidPattern.test(organizationId)) { sendJson(res, 403, { error: 'No organization is assigned to this session' }); return true; }
+  const id = match[1];
+  if (id && !uuidPattern.test(id)) { sendJson(res, 400, { error: 'Invalid view id' }); return true; }
+  const pathQuery = `crm_saved_views?organization_id=eq.${organizationId}&user_id=eq.${user.id}&object_type=eq.contacts${id ? `&id=eq.${id}` : ''}&select=*&order=created_at.desc`;
+  if (method === 'GET') { sendJson(res, 200, toCamelValue(await supabaseRest(pathQuery, { method: 'GET' }, req))); return true; }
+  if (method === 'POST' && !id) {
+    const body = await readJson(req) as { name?: string; filters?: unknown; isDefault?: boolean };
+    const name = String(body.name ?? '').trim();
+    if (!name || name.length > 120 || !body.filters || typeof body.filters !== 'object') { sendJson(res, 400, { error: 'Name and filters are required' }); return true; }
+    const result = await supabaseRest('crm_saved_views', { method: 'POST', body: JSON.stringify({ organization_id: organizationId, user_id: user.id, object_type: 'contacts', name, filters: body.filters, is_default: body.isDefault === true }) }, req);
+    sendJson(res, 201, toCamelValue(Array.isArray(result) ? result[0] : result)); return true;
+  }
+  if (id && (method === 'PATCH' || method === 'DELETE')) {
+    const existing = await supabaseRest(pathQuery, { method: 'GET' }, req) as unknown[];
+    if (!existing.length) { sendJson(res, 404, { error: 'View not found' }); return true; }
+    if (method === 'DELETE') { await supabaseRest(pathQuery.replace('&select=*&order=created_at.desc',''), { method: 'DELETE' }, req); res.statusCode = 204; res.end(); return true; }
+    const body = await readJson(req) as { name?: string; filters?: unknown; isDefault?: boolean };
+    const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (body.name !== undefined) { const name = String(body.name).trim(); if (!name || name.length > 120) { sendJson(res, 400, { error: 'Invalid name' }); return true; } update.name = name; }
+    if (body.filters !== undefined) update.filters = body.filters;
+    if (body.isDefault !== undefined) update.is_default = body.isDefault === true;
+    const result = await supabaseRest(pathQuery.replace('&select=*&order=created_at.desc',''), { method: 'PATCH', body: JSON.stringify(update) }, req);
+    sendJson(res, 200, toCamelValue(Array.isArray(result) ? result[0] : result)); return true;
+  }
+  sendJson(res, 405, { error: 'Unsupported view operation' }); return true;
+}
+
+async function handleContactContext(path: string, method: string, user: AuthenticatedUser, req: VercelRequest, res: VercelResponse): Promise<boolean> {
+  const match = path.match(/^\/api\/contacts\/([^/]+)\/context$/);
+  if (!match) return false;
+  if (method !== 'GET') { sendJson(res, 405, { error: 'Unsupported contact operation' }); return true; }
+  const id = match[1];
+  if (!uuidPattern.test(id)) { sendJson(res, 400, { error: 'Invalid contact id' }); return true; }
+  const organizationId = await resolveContactOrganization(user, req);
+  if (!organizationId || !uuidPattern.test(organizationId)) { sendJson(res, 403, { error: 'No organization is assigned to this session' }); return true; }
+  const leads = await supabaseRest(`leads?id=eq.${id}&select=id,organization_id,phone&limit=1`, { method: 'GET' }, req) as Array<{ id: string; organization_id: string | null; phone: string | null }>;
+  const lead = leads[0];
+  if (!lead || (lead.organization_id !== organizationId && !(organizationId === contactOrganization && !lead.organization_id))) { sendJson(res, 404, { error: 'Contact not found' }); return true; }
+  const [contactTasks, jobs, enrollments, deals, crmContacts, calls] = await Promise.all([
+    supabaseRest(`contact_tasks?lead_id=eq.${id}&select=id,title,is_completed,created_at,due_date&order=created_at.desc&limit=200`, { method: 'GET' }, req) as Promise<Array<{id:string;title:string;is_completed:boolean;created_at:string;due_date:string|null}>>,
+    supabaseRest(`outreach_email_jobs?lead_id=eq.${id}&sent_at=not.is.null&select=id,subject,state,sent_at&order=sent_at.desc&limit=200`, { method: 'GET' }, req) as Promise<Array<{id:string;subject:string|null;state:string;sent_at:string}>>,
+    supabaseRest(`sequence_enrollments?lead_id=eq.${id}&select=id,sequence_id,current_step,status,created_at,updated_at&order=created_at.desc&limit=200`, { method: 'GET' }, req) as Promise<Array<{id:string;sequence_id:string;current_step:number;status:string;created_at:string;updated_at:string}>>,
+    supabaseRest(`crm_deals?organization_id=eq.${organizationId}&source_lead_id=eq.${id}&select=id,title,stage_id,next_action,stage_changed_at&order=created_at.desc&limit=100`, { method: 'GET' }, req) as Promise<Array<{id:string;title:string;stage_id:string|null;next_action:string|null;stage_changed_at:string|null}>>,
+    supabaseRest(`crm_contacts?organization_id=eq.${organizationId}&source_lead_id=eq.${id}&select=id&limit=100`, { method: 'GET' }, req) as Promise<Array<{id:string}>>,
+    supabaseRest('rpc/crm_contact_call_history', { method: 'POST', body: JSON.stringify({ p_organization_id: organizationId, p_phone: lead.phone ?? '' }) }, req) as Promise<Array<{id:string;call_date:string;direction:string|null;status:string|null;duration_seconds:number|null}>>,
+  ]);
+  const dealIds = deals.map((deal) => deal.id);
+  const contactIds = crmContacts.map((contact) => contact.id);
+  const linkFilter = [...(dealIds.length ? [`deal_id.in.(${dealIds.join(',')})`] : []), ...(contactIds.length ? [`contact_id.in.(${contactIds.join(',')})`] : [])].join(',');
+  const [crmTasks, crmActivities, stages] = await Promise.all([
+    linkFilter ? supabaseRest(`crm_tasks?organization_id=eq.${organizationId}&or=(${linkFilter})&select=id,title,completed,due_date,created_at&order=created_at.desc&limit=200`, { method: 'GET' }, req) as Promise<Array<{id:string;title:string;completed:boolean;due_date:string|null;created_at:string}>> : Promise.resolve([]),
+    linkFilter ? supabaseRest(`crm_activities?organization_id=eq.${organizationId}&or=(${linkFilter})&select=id,type,body,occurred_at&order=occurred_at.desc&limit=200`, { method: 'GET' }, req) as Promise<Array<{id:string;type:string;body:string;occurred_at:string}>> : Promise.resolve([]),
+    supabaseRest(`crm_pipeline_stages?organization_id=eq.${organizationId}&select=id,name`, { method: 'GET' }, req) as Promise<Array<{id:string;name:string}>>,
+  ]);
+  const stageNames = new Map(stages.map((stage) => [stage.id,stage.name]));
+  const timeline = [
+    ...contactTasks.map((task) => ({ id: task.id, type: 'task', description: task.title, createdAt: task.created_at, _type: 'contact_task' })),
+    ...crmTasks.map((task) => ({ id: task.id, type: 'task', description: task.title, createdAt: task.created_at, _type: 'crm_task' })),
+    ...jobs.map((job) => ({ id: job.id, type: 'email', description: `Sent: ${job.subject || '(no subject)'}`, createdAt: job.sent_at, _type: 'outreach_email' })),
+    ...enrollments.flatMap((enrollment) => [{ id: enrollment.id, type: 'sequence', description: `Enrolled in sequence ${enrollment.sequence_id}`, createdAt: enrollment.created_at, _type: 'sequence_enrollment' },
+      ...(enrollment.updated_at !== enrollment.created_at ? [{ id: `${enrollment.id}-step`, type: 'sequence', description: `Sequence step ${enrollment.current_step} · ${enrollment.status}`, createdAt: enrollment.updated_at, _type: 'sequence_step' }] : [])]),
+    ...crmActivities.map((activity) => ({ id: activity.id, type: activity.type, description: activity.body, createdAt: activity.occurred_at, _type: 'crm_activity' })),
+    ...calls.map((call) => ({ id: call.id, type: 'call', description: `${call.direction || 'Call'} · ${call.status || 'completed'}${call.duration_seconds ? ` · ${call.duration_seconds}s` : ''}`, createdAt: call.call_date, _type: 'call_history' })),
+  ].filter((event) => event.createdAt).sort((a,b) => b.createdAt.localeCompare(a.createdAt)).slice(0,300);
+  sendJson(res, 200, { timeline, opportunities: deals.map((deal) => ({ ...toCamelValue(deal) as Record<string, unknown>, stageName: deal.stage_id ? stageNames.get(deal.stage_id) ?? 'Unknown stage' : 'No stage' })),
+    openTasks: [...contactTasks.filter((task) => !task.is_completed).map((task) => ({ id: task.id, title: task.title, dueDate: task.due_date })), ...crmTasks.filter((task) => !task.completed).map((task) => ({ id: task.id, title: task.title, dueDate: task.due_date }))] });
+  return true;
+}
+
+async function handleContactOpportunity(path: string, method: string, user: AuthenticatedUser, req: VercelRequest, res: VercelResponse): Promise<boolean> {
+  const match = path.match(/^\/api\/contacts\/([^/]+)\/opportunities$/);
+  if (!match) return false;
+  if (method !== 'POST') { sendJson(res, 405, { error: 'Unsupported opportunity operation' }); return true; }
+  const role = normalizeDashboardRole(user.user_metadata?.role ?? user.app_metadata?.role);
+  if (role === 'viewer' || role === 'client' || role === 'agent') { sendJson(res, 403, { error: 'Opportunity creation is not available for this role' }); return true; }
+  const id = match[1];
+  const org = await resolveContactOrganization(user, req);
+  if (!uuidPattern.test(id) || !org || !uuidPattern.test(org)) { sendJson(res, 400, { error: 'Invalid contact or organization' }); return true; }
+  const leads = await supabaseRest(`leads?id=eq.${id}&select=id,first_name,last_name,company,phone,state,organization_id&limit=1`, { method: 'GET' }, req) as Array<{id:string;first_name:string|null;last_name:string|null;company:string|null;phone:string|null;state:string|null;organization_id:string|null}>;
+  const lead = leads[0];
+  if (!lead || (lead.organization_id !== org && !(org === contactOrganization && !lead.organization_id))) { sendJson(res, 404, { error: 'Contact not found' }); return true; }
+  const body = await readJson(req) as { title?: string; stageId?: string };
+  const title = String(body.title ?? '').trim();
+  if (!title || title.length > 200) { sendJson(res, 400, { error: 'Enter an opportunity title' }); return true; }
+  const stages = await supabaseRest(`crm_pipeline_stages?organization_id=eq.${org}&select=id,name&order=position.asc&limit=100`, { method: 'GET' }, req) as Array<{id:string;name:string}>;
+  const stage = body.stageId ? stages.find((item) => item.id === body.stageId) : stages[0];
+  if (!stage) { sendJson(res, 400, { error: 'Create a pipeline stage first' }); return true; }
+  const companyName = lead.company?.trim() || `${lead.first_name ?? ''} ${lead.last_name ?? ''}`.trim() || 'Unnamed company';
+  const existing = await supabaseRest(`crm_companies?organization_id=eq.${org}&name=ilike.${encodeURIComponent(companyName)}&select=id&limit=1`, { method: 'GET' }, req) as Array<{id:string}>;
+  let companyId = existing[0]?.id;
+  if (!companyId) {
+    const created = await supabaseRest('crm_companies', { method: 'POST', body: JSON.stringify({ organization_id: org, name: companyName, phone: lead.phone, state: lead.state, created_by: user.id }) }, req) as Array<{id:string}>;
+    companyId = created[0]?.id;
+  }
+  if (!companyId) throw new Error('Could not create company for opportunity');
+  const deals = await supabaseRest('crm_deals', { method: 'POST', body: JSON.stringify({ organization_id: org, company_id: companyId, stage_id: stage.id, title, source_lead_id: id, created_by: user.id }) }, req);
+  sendJson(res, 201, toCamelValue(Array.isArray(deals) ? deals[0] : deals)); return true;
+}
+
 async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
   const url = new URL(req.url ?? "/api/leads", "https://local.invalid");
   const page = Math.max(Number(url.searchParams.get("page") ?? "1"), 1);
@@ -1375,12 +1863,25 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   const offset = (page - 1) * limit;
   const search = url.searchParams.get("search")?.trim();
   const status = url.searchParams.get("status")?.trim();
+  const tag = url.searchParams.get("tag")?.trim();
+  const source = url.searchParams.get("source")?.trim();
+  const state = url.searchParams.get("state")?.trim();
+  const sort = url.searchParams.get("sort")?.trim() ?? "created_at";
+  const direction = url.searchParams.get("direction") === "asc" ? "asc" : "desc";
+  const orders: Record<string, string> = {
+    created_at: `created_at.${direction},id.desc`,
+    name: `first_name.${direction},last_name.${direction},id.desc`,
+    company: `company.${direction},id.desc`,
+    status: `status.${direction},id.desc`,
+    source: `source.${direction},id.desc`,
+  };
+  if (!Object.hasOwn(orders, sort)) { sendJson(res, 400, { error: "Invalid sort field" }); return; }
   const disposition = url.searchParams.get("disposition")?.trim();
   const sequenceEligible = url.searchParams.get("sequenceEligible") === "true";
 
   const query = new URLSearchParams({
     select: "*",
-    order: "created_at.desc,id.desc",
+    order: orders[sort],
     limit: String(limit),
     offset: String(offset),
   });
@@ -1406,12 +1907,24 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   }
   if (status) query.set("status", `eq.${status}`);
   if (status) countQuery.set("status", `eq.${status}`);
+  if (source) { query.set("source", `eq.${source}`); countQuery.set("source", `eq.${source}`); }
+  if (state) { query.set("state", `eq.${state}`); countQuery.set("state", `eq.${state}`); }
+  if (tag) {
+    if (!/^[a-z0-9][a-z0-9_-]{0,99}$/i.test(tag)) { sendJson(res, 400, { error: "Invalid tag" }); return; }
+    query.set("tags", `cs.{${tag}}`);
+    countQuery.set("tags", `cs.{${tag}}`);
+  }
   if (disposition) query.set("disposition", `eq.${disposition}`);
   if (disposition) countQuery.set("disposition", `eq.${disposition}`);
   if (search) {
-    const searchFilter = `(first_name.ilike.*${search}*,last_name.ilike.*${search}*,email.ilike.*${search}*,company.ilike.*${search}*)`;
+    const safeSearch = search.replace(/[^\p{L}\p{N}@._+ -]/gu, ' ').trim().slice(0, 100);
+    if (safeSearch) {
+    const words = safeSearch.split(/\s+/).filter(Boolean);
+    const fullName = words.length > 1 ? `,and(first_name.ilike.*${words[0]}*,last_name.ilike.*${words.slice(1).join(' ')}*)` : '';
+    const searchFilter = `(first_name.ilike.*${safeSearch}*,last_name.ilike.*${safeSearch}*,email.ilike.*${safeSearch}*,company.ilike.*${safeSearch}*,phone.ilike.*${safeSearch}*${fullName})`;
     query.set("or", searchFilter);
     countQuery.set("or", searchFilter);
+    }
   }
 
   const [rows, count] = await Promise.all([
@@ -1420,7 +1933,7 @@ async function listLeads(currentUser: AuthenticatedUser, req: VercelRequest, res
   ]);
 
   sendJson(res, 200, {
-    leads: rows.map(leadFromRow),
+    leads: await contactsWithActivity(rows, req),
     total: sequenceEligible
       ? (rows.length === limit ? offset + rows.length + 1 : offset + rows.length)
       : count,
@@ -2592,11 +3105,43 @@ async function updateLeadStage(path: string, method: string, req: VercelRequest,
 }
 
 async function getProspectFilters(res: VercelResponse) {
+  const rows = await mcpPool.query("select distinct industry,company_size,seniority from public.prospects");
+  const options = (key: "industry" | "company_size" | "seniority") =>
+    [...new Set(rows.rows.map((row) => row[key]).filter((value) => typeof value === "string" && value.trim()))].sort();
   sendJson(res, 200, {
-    industries: ["Legal Services", "Healthcare", "Real Estate", "Home Services", "Professional Services"],
-    companySizes: ["1-10", "11-50", "51-200", "201-500", "501-1000", "1001-5000"],
-    seniorities: ["owner", "founder", "partner", "executive", "director", "manager"],
+    industries: options("industry"), companySizes: options("company_size"),
+    seniorities: options("seniority"),
   });
+}
+
+async function listCrmProspects(req: VercelRequest, res: VercelResponse) {
+  const url = new URL(req.url ?? "/api/prospects/crm", "https://local.invalid");
+  const search = (url.searchParams.get("search") || "").trim().slice(0, 120);
+  const category = (url.searchParams.get("category") || "").trim().slice(0, 80);
+  const status = (url.searchParams.get("status") || "").trim().slice(0, 60);
+  const offset = Math.min(10000, Math.max(0, Number(url.searchParams.get("offset")) || 0));
+  const where = [`true`];
+  const args: unknown[] = [];
+  if (search) {
+    args.push(`%${search}%`);
+    where.push(`(coalesce(company,'') ilike $${args.length} or coalesce(first_name,'') ilike $${args.length}
+      or coalesce(last_name,'') ilike $${args.length} or coalesce(email,'') ilike $${args.length}
+      or coalesce(phone,'') ilike $${args.length})`);
+  }
+  if (category) {
+    args.push(`%${category}%`);
+    where.push(`coalesce(custom_fields->'open_places'->>'category',custom_fields->>'industry','') ilike $${args.length}`);
+  }
+  if (status) { args.push(status); where.push(`status=$${args.length}`); }
+  const filter = where.join(" and ");
+  const count = await mcpPool.query(`select count(*)::int as total from public.leads where ${filter}`, args);
+  const rows = await mcpPool.query(`select id,first_name,last_name,company,email,phone,status,source,state,
+    dnc,suppressed_reason,tags,created_at,custom_fields->>'city' as city,
+    coalesce(custom_fields->'open_places'->>'category',custom_fields->>'industry') as category
+    from public.leads where ${filter} order by created_at desc,id desc
+    limit 100 offset $${args.length + 1}`, [...args, offset]);
+  sendJson(res, 200, { prospects: rows.rows.map(toCamelValue), total: count.rows[0]?.total || 0,
+    limit: 100, offset });
 }
 
 async function listProspects(req: VercelRequest, res: VercelResponse) {
@@ -2631,29 +3176,44 @@ async function listProspects(req: VercelRequest, res: VercelResponse) {
 }
 
 async function saveProspectsToLeads(req: VercelRequest, res: VercelResponse) {
-  const body = (await readJson(req)) as { prospects?: Array<Record<string, unknown>> };
-  const prospects = Array.isArray(body.prospects) ? body.prospects : [];
-  if (prospects.length === 0) {
-    sendJson(res, 400, { error: "prospects are required" });
+  const body = (await readJson(req)) as { ids?: string[] };
+  const ids = Array.isArray(body.ids) ? [...new Set(body.ids)] : [];
+  if (!ids.length || ids.length > 500 || ids.some((id) => !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id))) {
+    sendJson(res, 400, { error: "Select 1 to 500 prospects" });
     return;
   }
-  const payload = prospects.map((prospect) => ({
-    first_name: String(prospect.firstName ?? prospect.first_name ?? ""),
-    last_name: String(prospect.lastName ?? prospect.last_name ?? ""),
-    email: prospect.email ?? null,
-    phone: String(prospect.phone ?? "").trim(),
-    company: prospect.company ?? null,
-    title: prospect.title ?? null,
-    source: "prospect_search",
-    status: "new",
-    score: Number(prospect.score ?? 0),
-    custom_fields: prospect,
-  }));
-  const rows = await supabaseRest("leads", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  }, req) as LeadRow[];
-  sendJson(res, 201, { saved: rows.length, imported: rows.length, leads: rows.map(leadFromRow) });
+  const client = await mcpPool.connect();
+  let saved = 0;
+  try {
+    await client.query("begin");
+    const { rows } = await client.query(
+      "select * from public.prospects where id=any($1::uuid[]) for update", [ids]);
+    for (const prospect of rows) {
+      if (prospect.saved_to_leads) continue;
+      const phone = prospect.phone ? String(prospect.phone) : null;
+      const email = prospect.email ? String(prospect.email).trim().toLowerCase() : null;
+      if (!phone && !email) continue;
+      const eligible = await client.query(`select not exists (
+        select 1 from public.leads where (normalized_phone=public.outreach_phone($1))
+          or ($2::text is not null and normalized_email=$2)
+        union all select 1 from public.outreach_suppressions where
+          (identity_type='phone' and identity_value=public.outreach_phone($1)) or
+          (identity_type='email' and identity_value=$2)
+      ) as available`, [phone, email]);
+      if (!eligible.rows[0]?.available) continue;
+      const inserted = await client.query(`insert into public.leads
+        (first_name,last_name,email,phone,company,title,source,status,custom_fields)
+        values($1,$2,$3,$4,$5,$6,'prospect_search','new',$7::jsonb) returning id`,
+        [prospect.first_name, prospect.last_name, email, phone, prospect.company,
+          prospect.title, JSON.stringify({ prospect_id: prospect.id, city: prospect.city, state: prospect.state })]);
+      await client.query("update public.prospects set saved_to_leads=true,lead_id=$2,updated_at=now() where id=$1",
+        [prospect.id, inserted.rows[0].id]);
+      saved++;
+    }
+    await client.query("commit");
+    sendJson(res, 200, { saved, skipped: ids.length - saved });
+  } catch (error) { await client.query("rollback"); throw error; }
+  finally { client.release(); }
 }
 
 async function getOnboarding(req: VercelRequest, res: VercelResponse) {
@@ -2737,22 +3297,59 @@ async function sendEmail(req: VercelRequest, res: VercelResponse) {
 
 async function handleScraper(path: string, method: string, req: VercelRequest, res: VercelResponse) {
   if (method !== "POST") return false;
-  if (!["/api/scraper/url", "/api/scraper/domain", "/api/scraper/search"].includes(path)) {
+  if (!["/api/scraper/url", "/api/scraper/domain", "/api/scraper/search", "/api/scraper/import"].includes(path)) {
     return false;
   }
 
   const body = (await readJson(req)) as Record<string, unknown>;
+  if (path === "/api/scraper/import") {
+    const contacts = Array.isArray(body.contacts) ? body.contacts as Array<Record<string, unknown>> : [];
+    if (!contacts.length || contacts.length > 100) { sendJson(res, 400, { error: "Select 1 to 100 contacts" }); return true; }
+    const client = await mcpPool.connect();
+    let imported = 0;
+    try {
+      await client.query("begin");
+      for (const contact of contacts) {
+        const email = String(contact.email || "").trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) continue;
+        const phone = String(contact.phone || "").trim().slice(0, 40) || null;
+        const exists = await client.query(`select exists(
+          select 1 from public.leads where normalized_email=$1 or
+            ($2::text is not null and normalized_phone=public.outreach_phone($2))
+          union all select 1 from public.outreach_suppressions where
+            (identity_type='email' and identity_value=$1) or
+            (identity_type='phone' and identity_value=public.outreach_phone($2))
+        ) as blocked`, [email, phone]);
+        if (exists.rows[0]?.blocked) continue;
+        await client.query(`insert into public.leads(first_name,last_name,email,phone,company,title,source,status,custom_fields)
+          values($1,$2,$3,$4,$5,$6,'web_scrape','new',$7::jsonb)`, [
+          String(contact.firstName || "").slice(0, 100), String(contact.lastName || "").slice(0, 100),
+          email, phone, String(contact.company || "").slice(0, 200) || null,
+          String(contact.title || "").slice(0, 100) || null,
+          JSON.stringify({ source_url: String(contact.sourceUrl || "").slice(0, 500) }),
+        ]);
+        imported++;
+      }
+      await client.query("commit");
+      sendJson(res, 200, { imported, skipped: contacts.length - imported });
+    } catch (error) { await client.query("rollback"); throw error; }
+    finally { client.release(); }
+    return true;
+  }
   const query = String(body.url ?? body.domain ?? body.query ?? "").trim();
   if (!query) {
     sendJson(res, 400, { error: "url, domain, or query is required" });
     return true;
   }
 
-  sendJson(res, 200, {
-    success: true,
-    results: [],
-    message: "Scraper request accepted. Configure a scraping provider key to pull live external results.",
-  });
+  if (query.length > 500) { sendJson(res, 400, { error: "URL or domain is too long" }); return true; }
+  if (path === "/api/scraper/url") {
+    sendJson(res, 200, await fetchWebsiteContacts(query)); return true;
+  }
+  if (path === "/api/scraper/domain") {
+    sendJson(res, 200, await scanDomain(query)); return true;
+  }
+  sendJson(res, 400, { error: "For a local business search, use Prospecting. For website contacts, enter a company domain or a public URL." });
   return true;
 }
 
@@ -2856,6 +3453,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if(isPublicEmailEndpoint(emailPath)) {await runEmail(false);return;}
     if(isPublicWorkflowEndpoint(emailPath)) {await runWorkflow(false);return;}
+    if (await handlePublicMarketing(path, method, req, res)) return;
 
     if (path === "/api/healthz") {
       sendJson(res, 200, {
@@ -2895,6 +3493,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (!currentUser.crmRoleVerified) {
       sendJson(res, 403, { message: "No Lead Gen Hub access is assigned to this account" }); return;
+    }
+    const claimedRole = String(currentUser.user_metadata?.role ?? "");
+    if (["agency_staff", "client_owner", "client_staff"].includes(claimedRole) ||
+      (["member", "viewer", "agent", "client"].includes(claimedRole) && await portalEnabledForUser(req))) {
+      sendJson(res, 403, { message: "Use the client portal for this account" }); return;
     }
     const role = normalizeDashboardRole(currentUser.user_metadata?.role ?? currentUser.app_metadata?.role);
     const status = String(currentUser.user_metadata?.status ?? "active");
@@ -3096,6 +3699,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    if (method === "GET" && path === "/api/prospects/crm") {
+      await listCrmProspects(req, res);
+      return;
+    }
+
     if (method === "GET" && path === "/api/prospects") {
       await listProspects(req, res);
       return;
@@ -3212,6 +3820,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await deleteSequence(sequenceId, req, res);
       return;
     }
+
+    if (await handleContactOpportunity(path, method, currentUser, req, res)) {
+      return;
+    }
+
+    if (await handleContactContext(path, method, currentUser, req, res)) {
+      return;
+    }
+
+    if (await handleContactViews(path, method, currentUser, req, res)) {
+      return;
+    }
+
+    if (await handleContactBulk(path, method, currentUser, req, res)) {
+      return;
+    }
+
+    if (await handleContactSegments(path, method, currentUser, req, res)) {
+      return;
+    }
+
+    if (await handleLandingPages(path, method, req, res)) return;
+    if (await handleMarketingReports(path, method, req, res)) return;
 
     if (await handleGenericResource(path, method, req, res)) {
       return;

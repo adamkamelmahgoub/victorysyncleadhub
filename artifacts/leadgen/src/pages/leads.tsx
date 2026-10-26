@@ -10,19 +10,22 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, Plus, Trash2, ExternalLink, Upload, Users, Building2, Mail, Phone, ChevronLeft, ChevronRight, ScanSearch, FolderPlus } from "lucide-react";
+import { Search, Plus, Trash2, Upload, Users, Building2, Mail, ChevronLeft, ChevronRight, ScanSearch, FolderPlus } from "lucide-react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { asArray } from "@/lib/data-shape";
 import { Checkbox } from "@/components/ui/checkbox";
+import { BulkEnrichmentPanel } from "@/components/bulk-enrichment-panel";
+import { ContactGrid } from "@/components/contact-grid";
+import { ContactBulkActions } from "@/components/contact-bulk-actions";
 
 type Lead = {
   id: string;
-  firstName: string;
-  lastName: string;
-  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
   phone?: string | null;
   company?: string | null;
   title?: string | null;
@@ -34,6 +37,9 @@ type Lead = {
   disposition?: string | null;
   contactAttempts: number;
   customFields?: Record<string, unknown>;
+  tags?: string[] | null;
+  state?: string | null;
+  lastActivityAt?: string | null;
 };
 
 type LeadsResponse = {
@@ -67,40 +73,21 @@ type ContactGroup = {
 
 type AssignmentOption = { id: string; name: string; email?: string; role?: string };
 
-const STATUS_COLORS: Record<string, string> = {
-  new: "hsl(199 89% 48%)",
-  contacted: "hsl(262 83% 58%)",
-  qualified: "hsl(38 92% 50%)",
-  meeting_booked: "hsl(142 71% 45%)",
-  proposal: "hsl(221 83% 53%)",
-  converted: "hsl(142 71% 45%)",
-  lost: "hsl(0 72% 51%)",
-};
-
 const STATUSES = ["new", "contacted", "qualified", "meeting_booked", "proposal", "converted", "lost"];
 const PAGE_SIZE = 50;
-
-function ScoreBadge({ score }: { score: number }) {
-  const color = score >= 70 ? "hsl(142 71% 45%)" : score >= 40 ? "hsl(38 92% 50%)" : "hsl(215 16% 47%)";
-  return (
-    <div className="flex items-center gap-2">
-      <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
-        <div className="h-full rounded-full" style={{ width: `${Math.min(score, 100)}%`, background: color }} />
-      </div>
-      <span className="text-xs font-semibold" style={{ color }}>{score}</span>
-    </div>
-  );
-}
-
-function sourceLabel(source?: string | null) {
-  if (!source) return "Not set";
-  return source.replace(/_/g, " ");
-}
 
 export default function Leads() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("");
+  const [stateFilter, setStateFilter] = useState("");
+  const [sort, setSort] = useState("created_at");
+  const [direction, setDirection] = useState("desc");
+  const [layoutVersion, setLayoutVersion] = useState(0);
+  const [activeViewId, setActiveViewId] = useState("");
+  const [showBulkEnrich, setShowBulkEnrich] = useState(false);
   const [page, setPage] = useState(1);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -128,16 +115,25 @@ export default function Leads() {
     return () => window.clearTimeout(timer);
   }, [search]);
 
-  const queryKey = ["contacts", page, debouncedSearch, statusFilter];
-  const { data, isLoading } = useQuery({
+  const queryKey = ["contacts", page, debouncedSearch, statusFilter, tagFilter, sourceFilter, stateFilter, sort, direction];
+  const { data, isLoading, error: contactsError } = useQuery({
     queryKey,
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
       if (debouncedSearch) params.set("search", debouncedSearch);
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (tagFilter !== "all") params.set("tag", tagFilter);
+      if (sourceFilter.trim()) params.set("source", sourceFilter.trim());
+      if (stateFilter.trim()) params.set("state", stateFilter.trim());
+      params.set("sort", sort);
+      params.set("direction", direction);
       return apiFetch(`/api/leads?${params}`) as Promise<LeadsResponse>;
     },
   });
+  const { data: savedViewsResponse = [] } = useQuery<Array<{id:string;name:string;filters:Record<string,unknown>}>>({
+    queryKey: ["contact-views"], queryFn: () => apiFetch("/api/contact-views"), enabled: role !== "client",
+  });
+  const savedViews = asArray<{id:string;name:string;filters:Record<string,unknown>}>(savedViewsResponse);
   const { data: dispositionsResponse = [] } = useQuery<{ id: string; name: string; color: string }[]>({
     queryKey: ["dispositions"],
     queryFn: () => apiFetch("/dispositions"),
@@ -169,14 +165,6 @@ export default function Leads() {
   const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const to = Math.min(page * PAGE_SIZE, total);
   const allSelected = leads.length > 0 && leads.every((lead) => selected.has(lead.id));
-  const customFieldNames = useMemo(
-    () => Array.from(new Set(
-      leads.flatMap((lead) => Object.keys(lead.customFields ?? {}))
-        .filter((name) => !["contact_group_ids", "assigned_agent_id"].includes(name)),
-    )),
-    [leads],
-  );
-
   const stats = useMemo(() => {
     const companies = new Set(leads.map((lead) => lead.company).filter(Boolean));
     return {
@@ -191,11 +179,39 @@ export default function Leads() {
     await queryClient.invalidateQueries({ queryKey: ["contacts"] });
   }
 
+  async function saveView() {
+    const name = window.prompt("Name this view")?.trim();
+    if (!name) return;
+    try {
+      const created = await apiFetch("/api/contact-views", { method: "POST", body: JSON.stringify({ name, filters: currentViewFilters() }) }) as {id:string};
+      await queryClient.invalidateQueries({ queryKey: ["contact-views"] });
+      setActiveViewId(created.id);
+      toast({ title: "View saved" });
+    } catch (cause) { toast({ title: cause instanceof Error ? cause.message : "Could not save view", variant: "destructive" }); }
+  }
+
+  function currentViewFilters() { return { search, status: statusFilter, tag: tagFilter, source: sourceFilter, state: stateFilter, sort, direction, columns: JSON.parse(localStorage.getItem("crm-contact-columns") ?? "null") }; }
+
+  async function updateView() {
+    if (!activeViewId) return;
+    try { await apiFetch(`/api/contact-views/${activeViewId}`, { method: "PATCH", body: JSON.stringify({ filters: currentViewFilters() }) }); await queryClient.invalidateQueries({ queryKey: ["contact-views"] }); toast({ title: "View updated" }); }
+    catch (cause) { toast({ title: cause instanceof Error ? cause.message : "Could not update view", variant: "destructive" }); }
+  }
+
+  async function deleteView() {
+    if (!activeViewId || !window.confirm("Delete this saved view?")) return;
+    try { await apiFetch(`/api/contact-views/${activeViewId}`, { method: "DELETE" }); setActiveViewId(""); await queryClient.invalidateQueries({ queryKey: ["contact-views"] }); toast({ title: "View deleted" }); }
+    catch (cause) { toast({ title: cause instanceof Error ? cause.message : "Could not delete view", variant: "destructive" }); }
+  }
+
+  function applyView(filters: Record<string,unknown>) {
+    setSearch(String(filters.search ?? "")); setStatusFilter(String(filters.status ?? "all")); setTagFilter(String(filters.tag ?? "all"));
+    setSourceFilter(String(filters.source ?? "")); setStateFilter(String(filters.state ?? ""));
+    setSort(String(filters.sort ?? "created_at")); setDirection(String(filters.direction ?? "desc")); setPage(1);
+    if (Array.isArray(filters.columns)) { localStorage.setItem("crm-contact-columns", JSON.stringify(filters.columns)); setLayoutVersion((version) => version + 1); }
+  }
+
   async function handleCreate() {
-    if (!form.firstName.trim() || !form.lastName.trim() || !form.email.trim()) {
-      toast({ title: "First name, last name, and email are required", variant: "destructive" });
-      return;
-    }
     await apiFetch("/api/leads", { method: "POST", body: JSON.stringify(form) });
     setShowCreate(false);
     setForm({ firstName: "", lastName: "", email: "", phone: "", company: "", title: "", source: "" });
@@ -207,13 +223,6 @@ export default function Leads() {
     await apiFetch(`/api/leads/${id}`, { method: "DELETE" });
     toast({ title: "Contact deleted" });
     refresh();
-  }
-
-  async function deleteSelected() {
-    await apiFetch("/api/leads", { method: "DELETE", body: JSON.stringify({ ids: [...selected] }) });
-    setSelected(new Set());
-    toast({ title: "Selected contacts deleted" });
-    await refresh();
   }
 
   async function scanDuplicates() {
@@ -291,7 +300,7 @@ export default function Leads() {
       toast({ title: "Paste a header row and at least one contact", variant: "destructive" });
       return;
     }
-    const headers = lines[0].split(",").map((header) => header.trim());
+    const headers = (lines[0] ?? "").split(",").map((header) => header.trim());
     const leadsToImport = lines.slice(1).map((line) => {
       const values = line.split(",").map((value) => value.trim());
       const row: Record<string, string> = {};
@@ -318,6 +327,7 @@ export default function Leads() {
             <PageDescription>Manage people, companies, activity, source, and pipeline context.</PageDescription>
           </div>
           <div className="flex gap-2">
+            {import.meta.env.VITE_ENRICHMENT_ENABLED === "true" && (role === "owner" || role === "admin") && <Button variant="outline" size="sm" onClick={() => setShowBulkEnrich(true)}>Enrich all</Button>}
             {role !== "client" && <><Button variant="outline" size="sm" onClick={() => void scanDuplicates()} disabled={scanningDuplicates} className="gap-1.5">
               <ScanSearch className="w-4 h-4" /> {scanningDuplicates ? "Scanning..." : "Find Duplicates"}
             </Button>
@@ -352,12 +362,16 @@ export default function Leads() {
             <div className="relative flex-1 min-w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="Search contacts, email, company..."
+                placeholder="Search name, company, email, phone..."
                 className="pl-9"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
             </div>
+            <Select value={tagFilter} onValueChange={(value) => { setTagFilter(value); setPage(1); }}>
+              <SelectTrigger className="w-48"><SelectValue placeholder="Any tag" /></SelectTrigger>
+              <SelectContent><SelectItem value="all">Any tag</SelectItem>{["top3-prospect", "region-tristate", "top3-fit", "top3-reviews-first", "top3-already", "review-leadgen", "franchise", "enrich-not-found"].map((tag) => <SelectItem key={tag} value={tag}>{tag}</SelectItem>)}</SelectContent>
+            </Select>
             <Select value={statusFilter} onValueChange={(value) => { setStatusFilter(value); setPage(1); }}>
               <SelectTrigger className="w-44">
                 <SelectValue placeholder="All statuses" />
@@ -367,6 +381,15 @@ export default function Leads() {
                 {STATUSES.map((status) => <SelectItem key={status} value={status} className="capitalize">{status === "meeting_booked" ? "Meeting Booked" : status}</SelectItem>)}
               </SelectContent>
             </Select>
+            <Input className="w-32" placeholder="Source" aria-label="Filter source" value={sourceFilter} onChange={(event) => { setSourceFilter(event.target.value); setPage(1); }} />
+            <Input className="w-24" placeholder="State" aria-label="Filter state" value={stateFilter} onChange={(event) => { setStateFilter(event.target.value); setPage(1); }} />
+            <select className="workspace-control rounded border px-2 py-2 text-sm" aria-label="Sort contacts" value={sort} onChange={(event) => { setSort(event.target.value); setPage(1); }}>
+              <option value="created_at">Created date</option><option value="name">Name</option><option value="company">Company</option><option value="status">Status</option><option value="source">Source</option>
+            </select>
+            <button className="rounded border px-3 py-2 text-sm" onClick={() => { setDirection(direction === "asc" ? "desc" : "asc"); setPage(1); }} aria-label="Reverse sort direction">{direction === "asc" ? "↑" : "↓"}</button>
+            {role !== "client" && <><select className="workspace-control rounded border px-2 py-2 text-sm" aria-label="Saved views" value={activeViewId} onChange={(event) => { setActiveViewId(event.target.value); const view = savedViews.find((item) => item.id === event.target.value); if (view) applyView(view.filters); }}>
+              <option value="">Saved views</option>{savedViews.map((view) => <option key={view.id} value={view.id}>{view.name}</option>)}
+            </select><Button variant="outline" onClick={() => void saveView()}>Save view</Button>{activeViewId && <><Button variant="outline" onClick={() => void updateView()}>Update</Button><Button variant="outline" onClick={() => void deleteView()}>Delete view</Button></>}</>}
             {role !== "client" && <><Button variant="outline" onClick={() => setSelected(allSelected ? new Set() : new Set(leads.map((lead) => lead.id)))}>
               {allSelected ? "Clear all" : `Select all (${leads.length})`}
             </Button>
@@ -375,101 +398,12 @@ export default function Leads() {
                 <FolderPlus className="h-4 w-4" /> Group & Assign ({selected.size})
               </Button>
             )}
-            {selected.size > 0 && <Button variant="destructive" onClick={() => void deleteSelected()}>Delete {selected.size}</Button>}
             <Button variant="outline" onClick={() => setShowDispositions(true)}>Dispositions</Button></>}
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="workspace-table w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/30">
-                  <th className="px-4 py-3">{role !== "client" && <Checkbox checked={allSelected} onCheckedChange={() => setSelected(allSelected ? new Set() : new Set(leads.map((lead) => lead.id)))} aria-label="Select all contacts" />}</th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Contact</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Company</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Phone</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Status</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Disposition</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Contacted</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Score</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Source</th>
-                  {customFieldNames.map((name) => (
-                    <th key={name} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">{name.replace(/_/g, " ")}</th>
-                  ))}
-                  <th className="px-4 py-3"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {isLoading && [...Array(8)].map((_, index) => (
-                  <tr key={index}>
-                    <td className="px-4 py-3"><Skeleton className="h-4 w-4" /></td>
-                    <td className="px-5 py-3"><Skeleton className="h-10 w-56" /></td>
-                    <td className="px-4 py-3"><Skeleton className="h-4 w-32" /></td>
-                    <td className="px-4 py-3"><Skeleton className="h-4 w-24" /></td>
-                    <td className="px-4 py-3"><Skeleton className="h-5 w-20" /></td>
-                    <td className="px-4 py-3"><Skeleton className="h-4 w-20" /></td>
-                    <td className="px-4 py-3"><Skeleton className="h-4 w-16" /></td>
-                    <td className="px-4 py-3"><Skeleton className="h-4 w-20" /></td>
-                    <td className="px-4 py-3"><Skeleton className="h-4 w-20" /></td>
-                    <td className="px-4 py-3"></td>
-                  </tr>
-                ))}
-                {!isLoading && leads.length === 0 && (
-                  <tr>
-                    <td colSpan={10 + customFieldNames.length} className="text-center py-14 text-muted-foreground text-sm">No contacts found</td>
-                  </tr>
-                )}
-                {leads.map((lead) => (
-                  <tr key={lead.id} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-4 py-3">{role !== "client" && <Checkbox checked={selected.has(lead.id)} onCheckedChange={() => setSelected((current) => { const next = new Set(current); next.has(lead.id) ? next.delete(lead.id) : next.add(lead.id); return next; })} aria-label={`Select ${lead.firstName} ${lead.lastName}`} />}</td>
-                    <td className="px-5 py-3">
-                      <Link href={`/leads/${lead.id}`} className="flex items-center gap-3 group">
-                        <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary flex-shrink-0">
-                          {(lead.firstName[0] ?? "").toUpperCase()}{(lead.lastName[0] ?? "").toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="font-medium text-foreground group-hover:text-primary">{lead.firstName} {lead.lastName}</p>
-                          <p className="text-xs text-muted-foreground">{lead.email}</p>
-                        </div>
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="text-foreground">{lead.company || "Not set"}</div>
-                      <div className="text-xs text-muted-foreground">{lead.title || ""}</div>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {lead.phone ? <span className="inline-flex items-center gap-1"><Phone className="w-3 h-3" />{lead.phone}</span> : "Not set"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant="outline" className="text-xs capitalize" style={{ borderColor: `${STATUS_COLORS[lead.status] ?? "hsl(215 16% 47%)"}60`, color: STATUS_COLORS[lead.status] ?? "hsl(215 16% 47%)" }}>
-                        {lead.status === "meeting_booked" ? "Meeting Booked" : lead.status}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{lead.disposition || "Not set"}</td>
-                    <td className="px-4 py-3 text-center font-medium">{lead.contactAttempts ?? 0}</td>
-                    <td className="px-4 py-3"><ScoreBadge score={lead.score} /></td>
-                    <td className="px-4 py-3 text-muted-foreground capitalize">{sourceLabel(lead.source)}</td>
-                    {customFieldNames.map((name) => {
-                      const value = lead.customFields?.[name];
-                      return <td key={name} className="px-4 py-3 text-muted-foreground whitespace-nowrap">{value === null || value === undefined || value === "" ? "Not set" : String(value)}</td>;
-                    })}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
-                        <Link href={`/leads/${lead.id}`}>
-                          <Button variant="ghost" size="icon" className="w-7 h-7 text-muted-foreground hover:text-foreground">
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </Button>
-                        </Link>
-                        {role !== "client" && <Button variant="ghost" size="icon" className="w-7 h-7 text-muted-foreground hover:text-destructive" onClick={() => handleDelete(lead.id)}>
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
+          {contactsError && <p role="alert" className="p-4 text-destructive">{contactsError instanceof Error ? contactsError.message : "Could not load contacts"}</p>}
+          {isLoading ? <div className="p-6"><Skeleton className="h-72 w-full" /></div> : !contactsError && <ContactGrid key={layoutVersion} contacts={leads} selected={selected} onSelect={(id) => setSelected((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; })} onDelete={role === "client" ? undefined : (id) => { if (window.confirm("Delete this contact?")) void handleDelete(id); }} canEdit={role !== "client"} />}
+          {["owner", "admin", "member"].includes(role) && selected.size > 0 && <ContactBulkActions selected={selected} onDone={() => { setSelected(new Set()); void refresh(); }} />}
           <div className="px-4 py-3 border-t border-border flex flex-wrap items-center justify-between gap-3">
             <div className="text-xs text-muted-foreground">
               Showing {from}-{to} of {total.toLocaleString()} contacts
@@ -607,15 +541,15 @@ export default function Leads() {
           <DialogHeader><DialogTitle>Add contact</DialogTitle></DialogHeader>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-2">
             <div>
-              <Label className="text-xs text-muted-foreground">First name *</Label>
+              <Label className="text-xs text-muted-foreground">First name</Label>
               <Input className="mt-1" value={form.firstName} onChange={(event) => setForm((f) => ({ ...f, firstName: event.target.value }))} />
             </div>
             <div>
-              <Label className="text-xs text-muted-foreground">Last name *</Label>
+              <Label className="text-xs text-muted-foreground">Last name</Label>
               <Input className="mt-1" value={form.lastName} onChange={(event) => setForm((f) => ({ ...f, lastName: event.target.value }))} />
             </div>
             <div className="col-span-2">
-              <Label className="text-xs text-muted-foreground">Email *</Label>
+              <Label className="text-xs text-muted-foreground">Email</Label>
               <Input className="mt-1" type="email" value={form.email} onChange={(event) => setForm((f) => ({ ...f, email: event.target.value }))} />
             </div>
             <div>
@@ -642,6 +576,7 @@ export default function Leads() {
         </DialogContent>
       </Dialog>
 
+      {showBulkEnrich && <BulkEnrichmentPanel initialTags={tagFilter === "all" ? "" : tagFilter} onClose={() => setShowBulkEnrich(false)} />}
       <Dialog open={showImport} onOpenChange={setShowImport}>
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Import contacts via CSV</DialogTitle></DialogHeader>
