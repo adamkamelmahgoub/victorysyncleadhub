@@ -4,7 +4,7 @@
   "buildCommand": "pnpm --filter @workspace/leadgen build",
   "outputDirectory": "artifacts/leadgen/dist/public",
   "crons": [
-    { "path": "/api/client-delivery-worker", "schedule": "* * * * *" }
+    { "path": "/api/client-delivery-worker", "schedule": "0 0 * * *" }
   ],
   "routes": [
     { "src": "^/api/portal$", "dest": "/api/portal.ts" },
