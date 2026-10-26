@@ -305,7 +305,7 @@ function AuthenticatedApp() {
     return <Login />;
   }
 
-  const agencyMfaRequired = ["owner", "admin", "member", "viewer", "agent", "agency_admin", "agency_staff"].includes(role);
+  const agencyMfaRequired = ["agency_admin", "agency_staff"].includes(role);
   if (["client_owner", "client_staff"].includes(role) && ["/", "/dashboard", "/victorysync", "/leadgen"].includes(location)) {
     return <Redirect to="/client-portal/dashboard" />;
   }

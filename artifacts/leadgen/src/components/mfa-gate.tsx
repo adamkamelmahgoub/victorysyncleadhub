@@ -5,6 +5,12 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 
 type Factor = {id:string;totp?:{qr_code:string;secret:string}};
+function mfaErrorMessage(caught: unknown): string {
+  if (caught instanceof Error && caught.message) return caught.message;
+  if (typeof caught === 'object' && caught !== null && 'message' in caught && typeof caught.message === 'string' && caught.message) return caught.message;
+  if (typeof caught === 'string' && caught && caught !== '[object Object]') return caught;
+  return 'Could not set up two-step verification. Please try again or contact your administrator.';
+}
 export function MfaGate({children,required}:{children:ReactNode;required:boolean}) {
   const [level,setLevel]=useState<'loading'|'aal1'|'aal2'>('loading');
   const [factor,setFactor]=useState<Factor|null>(null);
@@ -31,7 +37,7 @@ export function MfaGate({children,required}:{children:ReactNode;required:boolean
       const enrolled=await supabase.auth.mfa.enroll({factorType:'totp',friendlyName:'VictorySync authenticator'});
       if(enrolled.error)throw enrolled.error;
       setFactor({id:enrolled.data.id,totp:enrolled.data.totp});
-    }catch(caught){setError(caught instanceof Error?caught.message:String(caught))}
+    }catch(caught){setError(mfaErrorMessage(caught))}
     finally{setBusy(false)}
   }
   async function verify() {
@@ -42,7 +48,7 @@ export function MfaGate({children,required}:{children:ReactNode;required:boolean
       if(result.error)throw result.error;
       await supabase.auth.refreshSession();
       setLevel('aal2');
-    }catch(caught){setError(caught instanceof Error?caught.message:String(caught))}
+    }catch(caught){setError(mfaErrorMessage(caught))}
     finally{setBusy(false)}
   }
   if(!required||level==='aal2')return <>{children}</>;
