@@ -13,3 +13,9 @@ test('agency staff cannot open client billing', () => {
   assert.equal(canAccessPath('/client-portal/pages', ['dashboard','pages'], 'agency_staff'), true);
   assert.equal(canAccessPath('/client-portal/reviews', ['dashboard','pages'], 'agency_staff'), false);
 });
+
+test('legacy admin permissions do not block the portal dashboard', () => {
+  assert.equal(canAccessPath('/client-portal', ['forms', 'settings'], 'admin'), true);
+  assert.equal(canAccessPath('/client-portal/dashboard', ['forms', 'settings'], 'admin'), true);
+  assert.equal(canAccessPath('/client-portal/billing', ['forms', 'settings'], 'member'), false);
+});

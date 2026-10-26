@@ -41,6 +41,7 @@ export function canAccessPath(path: string, permissions: string[] | null, role?:
     if (!portalKeys.includes(page)) return false;
     if (role === "client_staff" && !["dashboard", "leads", "calls"].includes(page)) return false;
     if (["agency_staff", "member", "viewer", "agent"].includes(role ?? "") && page === "billing") return false;
+    if (["owner", "admin", "member", "viewer", "agent"].includes(role ?? "")) return true;
     return permissions === null || !permissions.some(key => portalKeys.includes(key)) || permissions.includes(page);
   }
   if (role === "client_owner" || role === "client_staff") return false;
