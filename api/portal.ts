@@ -71,6 +71,10 @@ const postSchema = z.discriminatedUnion('action', [
 ]);
 type PortalCookie = { accountId: string | null; viewAsClient: boolean; userId: string; issuedAt: number };
 type PortalUser = { id: string; email?: string; role: string; token: string };
+export function requiresPortalMfa(role: string, claimedRole: unknown): boolean {
+  return (role === 'agency_admin' || role === 'agency_staff') &&
+    !['owner','admin','member','viewer','agent'].includes(String(claimedRole ?? ''));
+}
 
 function send(res: ServerResponse, status: number, value: unknown) {
   res.statusCode = status;
@@ -145,10 +149,11 @@ async function authenticate(req: IncomingMessage): Promise<PortalUser> {
   const user = await response.json() as {id:string;email?:string;factors?:unknown[]};
   const role = await rpc<string>(token,'auth_role');
   if (role === 'no_access') throw new Error('Access denied');
-  if (role === 'agency_admin' || role === 'agency_staff') {
-    const claims = JSON.parse(Buffer.from(token.split('.')[1] || '','base64url').toString()) as {aal?:string};
-    if (claims.aal !== 'aal2') throw new Error('Two-step verification is required for agency access');
-  }
+  let claims: {aal?:string;crm_role?:string} = {};
+  try { claims = JSON.parse(Buffer.from(token.split('.')[1] || '','base64url').toString()) as typeof claims; }
+  catch { throw new Error('Session expired'); }
+  if (requiresPortalMfa(role,claims.crm_role) && claims.aal !== 'aal2')
+    throw new Error('Two-step verification is required for agency access');
   return {id:user.id,email:user.email,role,token};
 }
 async function account(req: IncomingMessage,user: PortalUser): Promise<{id:string;viewAsClient:boolean}> {
