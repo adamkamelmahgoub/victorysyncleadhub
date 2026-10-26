@@ -1,0 +1,351 @@
+import crypto from 'node:crypto';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { z } from 'zod';
+import { assertNoUnsupportedProof } from '../lib/landing-ai-policy.js';
+
+export const config = { api: { bodyParser: false }, maxDuration: 60 };
+const ORG = 'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
+const uuid = z.string().uuid();
+const section = z.enum(['dashboard','leads','calls','pages','forms','reviews','reports','billing','settings']);
+const querySchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('accounts') }),
+  z.object({ action: z.literal('closed_companies') }),
+  z.object({ action: z.literal('features') }),
+  z.object({ action: z.literal('staff') }),
+  z.object({ action: z.literal('ai_model') }),
+  z.object({ action: z.literal('snapshot'), section }),
+  z.object({ action: z.literal('export'), section: z.enum(['leads','calls','reviews','reports']) }),
+]);
+const sectionSchema = z.object({
+  id: z.string().min(1).max(100),
+  type: z.enum(['hero','text','features','image','cta','form']),
+  heading: z.string().max(5000).optional(), body: z.string().max(5000).optional(),
+  buttonText: z.string().max(200).optional(), buttonUrl: z.string().max(2000).optional(),
+  imageUrl: z.string().max(2000).optional(), formId: z.union([z.string().uuid(),z.literal('')]).optional(),
+  items: z.array(z.string().max(300)).max(12).optional(),
+}).strict();
+const themeSchema = z.object({
+  background: z.string().regex(/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i),
+  foreground: z.string().regex(/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i),
+  accent: z.string().regex(/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i),
+  font: z.enum(['sans','serif']),
+}).strict();
+const pageSchema = z.object({ action: z.literal('save_page'), id: uuid.nullable(),
+  title: z.string().trim().min(1).max(180), slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(100),
+  sections: z.array(sectionSchema).max(40), theme: themeSchema,
+  seoDescription: z.string().max(320), status: z.enum(['draft','published']),
+}).strict();
+const accountSettingsSchema = z.object({
+  phone:z.string().max(30).optional(),website:z.union([z.string().url(),z.literal('')]).optional(),
+  timezone:z.string().min(2).max(100).optional(),
+  logoUrl:z.union([z.string().url(),z.literal('')]).optional(),
+  brand:z.object({primary:z.string().regex(/^#[0-9a-f]{6}$/i),text:z.string().regex(/^#[0-9a-f]{6}$/i),
+    background:z.string().regex(/^#[0-9a-f]{6}$/i),font:z.string().max(100)}).strict().optional(),
+  primaryDomain:z.string().max(255).optional(),
+  mightycallNumber:z.string().regex(/^(\+1\d{10})?$/).optional(),
+  googleReviewLink:z.union([z.string().url(),z.literal('')]).optional(),
+  gbpUrl:z.union([z.string().url(),z.literal('')]).optional(),
+  metaAdAccountId:z.string().max(100).optional(),googleAdsCustomerId:z.string().max(100).optional(),
+  stripeCustomerId:z.string().regex(/^(cus_[a-zA-Z0-9]+)?$/).optional(),
+  goalMetric:z.string().max(100).optional(),goalValue:z.number().int().min(0).max(1_000_000_000).nullable().optional(),
+  launchDate:z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/),z.literal('')]).optional(),
+  addOns:z.array(z.string().max(100)).max(30).optional(),
+}).strict();
+const postSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('switch'), accountId: uuid.nullable(), viewAsClient: z.boolean().default(false) }).strict(),
+  z.object({ action: z.literal('change_lead'), leadId: uuid, stageId: uuid.nullable().optional(), notes: z.string().max(10000).nullable().optional() }).strict(),
+  z.object({ action: z.literal('billing_portal') }).strict(),
+  z.object({action:z.literal('set_feature'),feature:z.enum(['client_portal','client_accounts','landing_page_builder','landing_page_ai','delivery_automation']),
+    enabled:z.boolean(),userId:uuid.nullable().default(null)}).strict(),
+  z.object({action:z.literal('assign_staff'),userId:uuid,
+    role:z.enum(['account_manager','marketing','ads','agent_lead','agent']).nullable()}).strict(),
+  z.object({action:z.literal('invite_staff'),name:z.string().trim().min(1).max(200),email:z.string().email().max(320)}).strict(),
+  z.object({action:z.literal('set_ai_model'),model:z.string().regex(/^[a-zA-Z0-9._:-]+\/[a-zA-Z0-9._:-]+$/).max(150)}).strict(),
+  z.object({action:z.literal('update_account'),settings:accountSettingsSchema}).strict(),
+  z.object({ action: z.literal('create_client'), companyId: uuid,
+    package: z.enum(['starter','scale','domination','overflow','business_hours','coverage_247','appt_part_time','appt_full_time','revive','custom']),
+    ownerEmail: z.string().email().max(320),ownerName: z.string().trim().min(1).max(200) }).strict(),
+  z.object({ action: z.literal('ai_page'), prompt: z.string().trim().min(5).max(4000),
+    currentSections: z.array(sectionSchema).max(40).optional() }).strict(),
+  pageSchema,
+]);
+type PortalCookie = { accountId: string | null; viewAsClient: boolean; userId: string; issuedAt: number };
+type PortalUser = { id: string; email?: string; role: string; token: string };
+
+function send(res: ServerResponse, status: number, value: unknown) {
+  res.statusCode = status;
+  res.setHeader('content-type','application/json; charset=utf-8');
+  res.setHeader('cache-control','no-store');
+  res.end(JSON.stringify(value));
+}
+function header(req: IncomingMessage, name: string) {
+  const value = req.headers[name];
+  return Array.isArray(value) ? value[0] : value;
+}
+async function read(req: IncomingMessage) {
+  let value = '';
+  for await (const chunk of req) {
+    value += chunk;
+    if (value.length > 100_000) throw new Error('Request is too large');
+  }
+  return JSON.parse(value || '{}') as unknown;
+}
+function cookieSecret() {
+  const secret = process.env.PORTAL_COOKIE_SECRET || process.env.SESSION_SECRET;
+  if (!secret || secret.length < 32) throw new Error('Portal cookie secret is not configured');
+  return secret;
+}
+function sign(value: PortalCookie) {
+  const body = Buffer.from(JSON.stringify(value)).toString('base64url');
+  const mac = crypto.createHmac('sha256', cookieSecret()).update(body).digest('base64url');
+  return `${body}.${mac}`;
+}
+function verify(req: IncomingMessage, userId: string): PortalCookie | null {
+  const raw = header(req,'cookie')?.split(';').map(x => x.trim()).find(x => x.startsWith('vs_portal='))?.slice(10);
+  if (!raw) return null;
+  const [body,mac] = raw.split('.');
+  if (!body || !mac) return null;
+  const expected = crypto.createHmac('sha256',cookieSecret()).update(body).digest();
+  const actual = Buffer.from(mac,'base64url');
+  if (actual.length !== expected.length || !crypto.timingSafeEqual(actual,expected)) return null;
+  try {
+    const value = JSON.parse(Buffer.from(body,'base64url').toString()) as PortalCookie;
+    if (value.userId !== userId || Date.now()-value.issuedAt > 7*24*3600_000 ||
+      (value.accountId !== null && !uuid.safeParse(value.accountId).success)) return null;
+    return value;
+  } catch { return null; }
+}
+function setCookie(req: IncomingMessage,res: ServerResponse,value: PortalCookie) {
+  const secure = header(req,'x-forwarded-proto') !== 'http';
+  res.setHeader('set-cookie',`vs_portal=${sign(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800${secure?'; Secure':''}`);
+}
+async function rpc<T>(token: string,name: string,args: Record<string,unknown> = {}): Promise<T> {
+  const base = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  if (!base || !key) throw new Error('Supabase is not configured');
+  const response = await fetch(`${base}/rest/v1/rpc/${name}`, {
+    method:'POST', headers:{apikey:key,authorization:`Bearer ${token}`,'content-type':'application/json'},
+    body:JSON.stringify(args),signal:AbortSignal.timeout(15000),
+  });
+  const data = await response.json().catch(() => null) as T | {message?:string};
+  if (!response.ok) throw new Error(response.status === 403 ? 'Access denied' :
+    (data && typeof data === 'object' && 'message' in data ? String(data.message) : 'Portal request failed'));
+  return data as T;
+}
+async function authenticate(req: IncomingMessage): Promise<PortalUser> {
+  const bearer = header(req,'authorization');
+  const token = bearer?.startsWith('Bearer ') ? bearer.slice(7) : '';
+  const base = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  if (!token || !base || !key) throw new Error('Sign in first');
+  const response = await fetch(`${base}/auth/v1/user`, {
+    headers:{apikey:key,authorization:`Bearer ${token}`},signal:AbortSignal.timeout(10000),
+  });
+  if (!response.ok) throw new Error('Session expired');
+  const user = await response.json() as {id:string;email?:string;factors?:unknown[]};
+  const role = await rpc<string>(token,'auth_role');
+  if (role === 'no_access') throw new Error('Access denied');
+  if (role === 'agency_admin' || role === 'agency_staff') {
+    const claims = JSON.parse(Buffer.from(token.split('.')[1] || '','base64url').toString()) as {aal?:string};
+    if (claims.aal !== 'aal2') throw new Error('Two-step verification is required for agency access');
+  }
+  return {id:user.id,email:user.email,role,token};
+}
+async function account(req: IncomingMessage,user: PortalUser): Promise<{id:string;viewAsClient:boolean}> {
+  const accounts = await rpc<Array<{id:string}>>(user.token,'portal_accounts');
+  const saved = verify(req,user.id);
+  const id = saved?.accountId || (accounts.length === 1 ? accounts[0].id : null);
+  if (!id || !accounts.some(a => a.id === id)) throw new Error('Select a client account');
+  return {id,viewAsClient: Boolean(saved?.viewAsClient && user.role === 'agency_admin')};
+}
+const aiResponseSchema = z.object({ sections: z.array(sectionSchema).min(1).max(40), theme: themeSchema,
+  title: z.string().min(1).max(180), seoDescription: z.string().max(320) }).strict();
+const aiJsonSchema = {
+  type:'object',additionalProperties:false,required:['title','seoDescription','sections','theme'],
+  properties:{
+    title:{type:'string'},seoDescription:{type:'string'},
+    sections:{type:'array',items:{type:'object',additionalProperties:false,
+      required:['id','type','heading','body','buttonText','buttonUrl','imageUrl','formId','items'],
+      properties:{id:{type:'string'},type:{type:'string',enum:['hero','text','features','image','cta','form']},
+        heading:{type:'string'},body:{type:'string'},buttonText:{type:'string'},buttonUrl:{type:'string'},
+        imageUrl:{type:'string'},formId:{type:'string'},items:{type:'array',items:{type:'string'}}}}},
+    theme:{type:'object',additionalProperties:false,required:['background','foreground','accent','font'],
+      properties:{background:{type:'string'},foreground:{type:'string'},accent:{type:'string'},font:{type:'string',enum:['sans','serif']}}},
+  },
+} as const;
+async function generatePage(user: PortalUser, accountId: string, prompt: string, currentSections?: unknown) {
+  const context = await rpc<Record<string,unknown>>(user.token,'portal_ai_context',{p_account:accountId});
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) throw new Error('OpenRouter is not configured');
+  const fallback = 'openai/gpt-4o-mini-2024-07-18';
+  const primary = String(context.model || process.env.OPENROUTER_LANDING_MODEL || 'openai/gpt-4o-mini');
+  const models = [...new Set([primary,fallback])];
+  let lastError: Error = new Error('AI page generation failed');
+  for (const model of models) {
+    try {
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method:'POST',headers:{authorization:`Bearer ${key}`,'content-type':'application/json'},
+        body:JSON.stringify({model,temperature:0.4,max_tokens:2200,
+          response_format:{type:'json_schema',json_schema:{name:'landing_page',strict:true,schema:aiJsonSchema}},
+          messages:[{role:'system',content:'Create or edit a landing page as structured JSON. Use only facts supplied by the client. Never invent reviews, testimonials, ratings, awards, licences, guarantees, prices, results, or business credentials. Use placeholders when facts are missing. No HTML. Keep forms unlinked unless a form ID was supplied.'},
+            {role:'user',content:JSON.stringify({brief:prompt,client:context,currentSections})}]}),
+        signal:AbortSignal.timeout(45000),
+      });
+      const data = await response.json() as {choices?:Array<{message?:{content?:string}}> ;error?:{message?:string}};
+      if (!response.ok) throw new Error(data.error?.message || 'AI provider failed');
+      const parsed = aiResponseSchema.parse(JSON.parse(data.choices?.[0]?.message?.content || '{}'));
+      assertNoUnsupportedProof(parsed.sections);
+      return parsed;
+    } catch (error) { lastError = error instanceof Error ? error : new Error(String(error)); }
+  }
+  throw lastError;
+}
+function csv(rows: Array<Record<string,unknown>>) {
+  const fields = [...new Set(rows.flatMap(row => Object.keys(row)))];
+  const cell = (value: unknown) => `"${String(value ?? '').replace(/"/g,'""')}"`;
+  return [fields.map(cell).join(','),...rows.map(row => fields.map(key => cell(row[key])).join(','))].join('\r\n');
+}
+
+export default async function handler(req: IncomingMessage,res: ServerResponse) {
+  try {
+    const user = await authenticate(req);
+    const url = new URL(req.url || '/api/portal','https://local.invalid');
+    if (req.method === 'GET') {
+      const parsed = querySchema.parse(Object.fromEntries(url.searchParams));
+      if (parsed.action === 'accounts') {
+        const accounts = await rpc<unknown>(user.token,'portal_accounts');
+        return send(res,200,{accounts,selected:verify(req,user.id)});
+      }
+      if (parsed.action === 'closed_companies') return send(res,200,await rpc(user.token,'portal_closed_companies'));
+      if (parsed.action === 'features') return send(res,200,await rpc(user.token,'portal_features'));
+      if (parsed.action === 'ai_model') return send(res,200,{model:await rpc(user.token,'portal_ai_model')});
+      const selected = await account(req,user);
+      if (parsed.action === 'staff') return send(res,200,await rpc(user.token,'portal_staff',{p_account:selected.id}));
+      if (parsed.action === 'export' && selected.viewAsClient) return send(res,403,{error:'Client view is read only'});
+      const data = await rpc<unknown>(user.token,'portal_snapshot',{p_account:selected.id,p_page:parsed.section});
+      if (parsed.action === 'export') {
+        const rows = Array.isArray(data) ? data : (data && typeof data === 'object' ?
+          Object.values(data).find(Array.isArray) as Array<Record<string,unknown>> || [] : []);
+        await rpc(user.token,'portal_log',{p_account:selected.id,p_action:'exported',p_target:parsed.section});
+        res.statusCode=200;res.setHeader('content-type','text/csv; charset=utf-8');
+        res.setHeader('content-disposition',`attachment; filename="${parsed.section}.csv"`);
+        return res.end(csv(rows));
+      }
+      return send(res,200,{accountId:selected.id,readOnly:selected.viewAsClient,data});
+    }
+    if (req.method !== 'POST') return send(res,405,{error:'Method not allowed'});
+    const parsed = postSchema.parse(await read(req));
+    if (parsed.action === 'switch') {
+      const accounts = await rpc<Array<{id:string}>>(user.token,'portal_accounts');
+      if (parsed.accountId && !accounts.some(a => a.id === parsed.accountId)) return send(res,403,{error:'Account unavailable'});
+      if (!parsed.accountId && !['agency_admin','agency_staff'].includes(user.role)) return send(res,403,{error:'Account unavailable'});
+      if (parsed.viewAsClient && (user.role !== 'agency_admin' || !parsed.accountId)) return send(res,403,{error:'Client view is unavailable'});
+      const previous = verify(req,user.id);
+      if (previous?.viewAsClient) await rpc(user.token,'portal_log',{p_account:previous.accountId,p_action:'impersonation_ended'});
+      if (parsed.viewAsClient) await rpc(user.token,'portal_log',{p_account:parsed.accountId,p_action:'impersonation_started'});
+      await rpc(user.token,'portal_log',{p_account:parsed.accountId,p_action:'account_switched'});
+      setCookie(req,res,{accountId:parsed.accountId,viewAsClient:parsed.viewAsClient,userId:user.id,issuedAt:Date.now()});
+      return send(res,200,{accountId:parsed.accountId,viewAsClient:parsed.viewAsClient});
+    }
+    if (parsed.action === 'create_client') {
+      if (!process.env.RESEND_API_KEY || !process.env.INVITE_FROM_EMAIL)
+        return send(res,503,{error:'Invite email is not configured'});
+      const created = await rpc<{accountId:string;inviteCode?:string;existing:boolean;ownerEmail?:string}>(user.token,
+        'portal_create_client',{p_company:parsed.companyId,p_package:parsed.package,
+          p_owner_email:parsed.ownerEmail,p_owner_name:parsed.ownerName});
+      if (!created.existing && created.inviteCode) {
+        const host = header(req,'host');
+        if (!host || !/^[a-z0-9.-]+(?::\d{1,5})?$/i.test(host)) throw new Error('Invalid host');
+        const origin = `${header(req,'x-forwarded-proto') === 'http' ? 'http' : 'https'}://${host}`;
+        const inviteUrl = new URL('/login',origin);
+        inviteUrl.searchParams.set('invite',created.inviteCode);
+        inviteUrl.searchParams.set('email',parsed.ownerEmail);
+        inviteUrl.searchParams.set('name',parsed.ownerName);
+        const emailed=await fetch('https://api.resend.com/emails',{method:'POST',
+          headers:{authorization:`Bearer ${process.env.RESEND_API_KEY}`,'content-type':'application/json'},
+          body:JSON.stringify({from:process.env.INVITE_FROM_EMAIL,to:[parsed.ownerEmail],
+            subject:'Your VictorySync client portal invite',
+            text:`${parsed.ownerName}, your client portal is ready. Create your password with this invitation link: ${inviteUrl.toString()}\n\nThis invitation expires in seven days.`}),
+          signal:AbortSignal.timeout(15000)});
+        if (!emailed.ok) return send(res,502,{error:'Client created, but invite email failed',
+          accountId:created.accountId,inviteCode:created.inviteCode});
+        await rpc(user.token,'portal_mark_invite_sent',{p_account:created.accountId});
+      }
+      if (process.env.SLACK_WEBHOOK_URL) await fetch(process.env.SLACK_WEBHOOK_URL,{method:'POST',
+        headers:{'content-type':'application/json'},body:JSON.stringify({text:`New VictorySync client account: ${parsed.ownerName} (${parsed.package})`}),
+        signal:AbortSignal.timeout(5000)}).catch(()=>undefined);
+      return send(res,201,{accountId:created.accountId,existing:created.existing});
+    }
+    if (parsed.action === 'set_feature') {
+      await rpc(user.token,'portal_set_feature',{p_feature:parsed.feature,p_enabled:parsed.enabled,p_user:parsed.userId});
+      return send(res,200,{ok:true});
+    }
+    if (parsed.action === 'set_ai_model') {
+      await rpc(user.token,'portal_set_ai_model',{p_model:parsed.model});
+      return send(res,200,{ok:true});
+    }
+    const selected = await account(req,user);
+    if (selected.viewAsClient) return send(res,403,{error:'Client view is read only'});
+    if (parsed.action === 'assign_staff') {
+      await rpc(user.token,'portal_assign_staff',{p_account:selected.id,p_user:parsed.userId,p_role:parsed.role});
+      return send(res,200,{ok:true});
+    }
+    if (parsed.action === 'update_account') {
+      const mapped=Object.fromEntries(Object.entries(parsed.settings).map(([key,value])=>
+        [key.replace(/[A-Z]/g,letter=>`_${letter.toLowerCase()}`),value]));
+      const data=await rpc(user.token,'portal_update_account',{p_account:selected.id,p_data:mapped});
+      return send(res,200,data);
+    }
+    if (parsed.action === 'invite_staff') {
+      if (!process.env.RESEND_API_KEY || !process.env.INVITE_FROM_EMAIL)
+        return send(res,503,{error:'Invite email is not configured'});
+      const code=await rpc<string>(user.token,'portal_invite_client_staff',{p_account:selected.id,
+        p_email:parsed.email,p_name:parsed.name});
+      const host=header(req,'host');
+      if(!host||!/^[a-z0-9.-]+(?::\d{1,5})?$/i.test(host))throw Error('Invalid host');
+      const origin=`${header(req,'x-forwarded-proto')==='http'?'http':'https'}://${host}`;
+      const link=new URL('/login',origin);link.searchParams.set('invite',code);
+      link.searchParams.set('email',parsed.email);link.searchParams.set('name',parsed.name);
+      const sent=await fetch('https://api.resend.com/emails',{method:'POST',headers:{
+        authorization:`Bearer ${process.env.RESEND_API_KEY}`,'content-type':'application/json'},
+        body:JSON.stringify({from:process.env.INVITE_FROM_EMAIL,to:[parsed.email],
+          subject:'Your VictorySync client portal invite',
+          text:`${parsed.name}, you have been invited to the client portal. Create your password here: ${link.toString()}\n\nThis invitation expires in seven days.`}),
+        signal:AbortSignal.timeout(15000)});
+      if(!sent.ok)return send(res,502,{error:'Invite created, but email failed',inviteCode:code});
+      return send(res,201,{invited:true});
+    }
+    if (parsed.action === 'change_lead') {
+      const data = await rpc(user.token,'portal_change_lead',{p_account:selected.id,p_lead:parsed.leadId,
+        p_stage:parsed.stageId ?? null,p_notes:parsed.notes ?? null,
+        p_clear_stage:parsed.stageId === null});
+      return send(res,200,data);
+    }
+    if (parsed.action === 'save_page') {
+      const data = await rpc(user.token,'portal_save_page',{p_account:selected.id,p_page:parsed.id,
+        p_title:parsed.title,p_slug:parsed.slug,p_sections:parsed.sections,p_theme:parsed.theme,
+        p_seo_description:parsed.seoDescription,p_status:parsed.status});
+      return send(res,200,data);
+    }
+    if (parsed.action === 'ai_page') return send(res,200,await generatePage(user,selected.id,parsed.prompt,parsed.currentSections));
+    if (parsed.action === 'billing_portal') {
+      const customer = await rpc<string|null>(user.token,'portal_billing_customer',{p_account:selected.id});
+      if (!customer || !process.env.STRIPE_SECRET_KEY) return send(res,503,{error:'Billing portal is not configured'});
+      const host = header(req,'host');
+      if (!host || !/^[a-z0-9.-]+(?::\d{1,5})?$/i.test(host)) return send(res,400,{error:'Invalid host'});
+      const origin = `${header(req,'x-forwarded-proto') === 'http' ? 'http' : 'https'}://${host}`;
+      const stripe = await fetch('https://api.stripe.com/v1/billing_portal/sessions', {
+        method:'POST',headers:{authorization:`Bearer ${process.env.STRIPE_SECRET_KEY}`,'content-type':'application/x-www-form-urlencoded'},
+        body:new URLSearchParams({customer,return_url:`${origin}/client-portal/billing`}),signal:AbortSignal.timeout(15000),
+      });
+      const data = await stripe.json() as {url?:string;error?:{message?:string}};
+      if (!stripe.ok || !data.url) throw new Error(data.error?.message || 'Stripe portal failed');
+      await rpc(user.token,'portal_log',{p_account:selected.id,p_action:'billing_portal_opened'});
+      return send(res,200,{url:data.url});
+    }
+  } catch (error) {
+    if (error instanceof z.ZodError || error instanceof SyntaxError) return send(res,400,{error:'Invalid request'});
+    const message = error instanceof Error ? error.message : 'Portal request failed';
+    return send(res,/Sign in|Session expired/.test(message)?401:/Access denied|unavailable|disabled|verification|read only/.test(message)?403:500,{error:message});
+  }
+}

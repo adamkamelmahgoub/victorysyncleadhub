@@ -34,6 +34,16 @@ export function permissionForPath(path: string) {
 
 export function canAccessPath(path: string, permissions: string[] | null, role?: string) {
   const normalized = path.replace(/^\/leadgen(?=\/|$)/, "") || "/";
+  if (normalized === "/client-portal" || normalized.startsWith("/client-portal/")) {
+    if (role === "no_access") return false;
+    const page = normalized.split("/")[2] || "dashboard";
+    const portalKeys = ["dashboard", "leads", "calls", "pages", "forms", "reviews", "reports", "billing", "settings"];
+    if (!portalKeys.includes(page)) return false;
+    if (role === "client_staff" && !["dashboard", "leads", "calls"].includes(page)) return false;
+    if (["agency_staff", "member", "viewer", "agent"].includes(role ?? "") && page === "billing") return false;
+    return permissions === null || !permissions.some(key => portalKeys.includes(key)) || permissions.includes(page);
+  }
+  if (role === "client_owner" || role === "client_staff") return false;
   if (normalized === "/ai-assistant") return role === "owner" || role === "admin";
   if (role === "no_access") return false;
   if (role === "client" && path === "/victorysync") return true;

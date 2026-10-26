@@ -29,6 +29,7 @@ import { useAuth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
 import { apiFetch } from "@/lib/api";
 import { asArray } from "@/lib/data-shape";
+import { AccountSwitcher } from "@/components/account-switcher";
 type Item = { href: string; label: string; icon: ElementType };
 const pageModules = import.meta.glob("../pages/*.tsx");
 function prefetchPage(href: string) {
@@ -37,6 +38,7 @@ function prefetchPage(href: string) {
   void pageModules[`../pages/${name}.tsx`]?.();
 }
 const core: Item[] = [
+  { href: "/client-portal", label: "Client portal", icon: Building2 },
   { href: "/ai-assistant", label: "AI assistant", icon: Sparkles },
   { href: "/call-queue", label: "Call queue", icon: Phone },
   { href: "/companies", label: "Companies", icon: Building2 },
@@ -300,6 +302,7 @@ export function Layout({ children }: { children: ReactNode }) {
               />
             </form>
           )}
+          <AccountSwitcher />
         </header>
         <main id="workspace-content" className="workspace-content min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8 sm:py-8">
           <div className="mx-auto w-full max-w-[1600px]">{children}</div>

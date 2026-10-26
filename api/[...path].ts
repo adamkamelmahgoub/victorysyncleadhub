@@ -534,7 +534,7 @@ async function authenticateRequest(req: VercelRequest): Promise<AuthenticatedUse
     const claims = JSON.parse(Buffer.from(authorization.slice(7).split(".")[1] ?? "", "base64url").toString("utf8")) as Record<string, unknown>;
     if (claims.sub !== user.id) throw new Error("Session identity mismatch");
     user.crmRoleVerified = typeof claims.crm_role === "string" &&
-      ["owner", "admin", "agent", "member", "viewer", "client"].includes(claims.crm_role);
+      ["owner", "admin", "agent", "member", "viewer", "client", "agency_admin", "agency_staff", "client_owner", "client_staff"].includes(claims.crm_role);
     user.user_metadata = { ...user.user_metadata,
       ...(typeof claims.crm_role === "string" ? { role: claims.crm_role } : {}),
       ...(typeof claims.crm_client_account_id === "string" ? { client_account_id: claims.crm_client_account_id } : {}),
@@ -545,6 +545,19 @@ async function authenticateRequest(req: VercelRequest): Promise<AuthenticatedUse
     if (error instanceof Error && error.message === "Session identity mismatch") throw error;
   }
   return user;
+}
+
+async function portalEnabledForUser(req: VercelRequest) {
+  if (!supabaseUrl || !supabaseAnonKey) return false;
+  const authorization = getHeader(req, "authorization");
+  if (!authorization) return false;
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/client_feature_enabled`, {
+    method: "POST",
+    headers: { apikey: supabaseAnonKey, authorization, "content-type": "application/json" },
+    body: JSON.stringify({ p_feature: "client_portal" }),
+    signal: AbortSignal.timeout(5000),
+  });
+  return response.ok && await response.json() === true;
 }
 
 type PortalActivityEvent = {eventType:string;action:string;pagePath?:string|null;target?:string|null;requestMethod?:string|null;requestStatus?:number|null;sessionId?:string|null;metadata?:Record<string,unknown>};
@@ -3351,6 +3364,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const currentUser = await authenticateRequest(req);
+    const claimedRole = String(currentUser.user_metadata?.role ?? "");
+    if (path !== "/api/auth/sync-session" && path !== "/api/activity/events" &&
+      (["agency_staff", "client_owner", "client_staff"].includes(claimedRole) ||
+        (["member", "viewer", "agent", "client"].includes(claimedRole) && await portalEnabledForUser(req)))) {
+      sendJson(res, 403, { message: "Use the client portal for this account" }); return;
+    }
     if(path==='/api/activity/events'&&method==='POST'){
       const body=await readJson(req) as Record<string,unknown> | null;
       const entries=Array.isArray(body?.events)?body.events:[body];

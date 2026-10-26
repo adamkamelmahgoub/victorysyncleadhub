@@ -141,10 +141,10 @@ test("reports count real records, blank sources, unassigned campaigns and UTC da
 });
 
 test("production analytics endpoints page through records and retain client scope", async () => {
-  const token=`header.${Buffer.from(JSON.stringify({sub:'user-id',crm_role:'owner',crm_client_account_id:'client-id'})).toString('base64url')}.signature`;
   process.env.SUPABASE_URL = "https://reports-test.invalid";
   process.env.SUPABASE_ANON_KEY = "test-key";
   const { default: handler } = await import("../api/[...path].js");
+  const token = `e30.${Buffer.from(JSON.stringify({ sub: "user-id", crm_role: "owner", crm_client_account_id: "client-id" })).toString("base64url")}.sig`;
   const previous = globalThis.fetch;
   let pages = 0;
   globalThis.fetch = async (input) => {

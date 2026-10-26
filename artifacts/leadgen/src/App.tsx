@@ -1,6 +1,6 @@
 import { ContactErrorBoundary } from "@/components/contact-error-boundary";
  import { Component, Suspense, lazy, type ErrorInfo, type ReactNode } from "react";
-import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { Switch, Route, Redirect, Router as WouterRouter, useLocation } from "wouter";
 import { MutationCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -51,6 +51,7 @@ const Webhooks = lazy(() => import("@/pages/webhooks"));
 const EmailTemplatesPage = lazy(() => import("@/pages/email-templates"));
 const SubAccounts = lazy(() => import("@/pages/sub-accounts"));
 const ClientWorkspace = lazy(() => import("@/pages/client-workspace"));
+const ClientPortal = lazy(() => import("@/pages/client-portal"));
 const ProspectSearch = lazy(() => import("@/pages/prospect-search"));
 const MeetingScheduler = lazy(() => import("@/pages/meeting-scheduler"));
 const SequenceAnalytics = lazy(() => import("@/pages/sequence-analytics"));
@@ -68,6 +69,7 @@ import { useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { canAccessPath } from "@/lib/permissions";
 import {ActivityTracker} from '@/components/activity-tracker';
+import { MfaGate } from '@/components/mfa-gate';
 import { clearApiCache } from "@/lib/api-cache";
 
 const queryClient = new QueryClient({
@@ -102,6 +104,8 @@ function Router() {
       <Route path="/leadgen/trial-queue" component={TrialQueue} />
       <Route path="/leadgen/company-kpis" component={CompanyKpis} />
       <Route path="/leadgen" component={Dashboard} />
+      <Route path="/leadgen/client-portal" component={ClientPortal} />
+      <Route path="/leadgen/client-portal/:section" component={ClientPortal} />
       <Route path="/leadgen/leads" component={Leads} />
       <Route path="/leadgen/call-queue" component={CallQueue} />
       <Route path="/leadgen/leads/:id" component={() => <ContactErrorBoundary fallback={<div role="alert" className="p-6">Could not display this contact.</div>}><LeadDetail /></ContactErrorBoundary>} />
@@ -145,6 +149,8 @@ function Router() {
       <Route path="/leadgen/training" component={AgentTraining} />
 
       <Route path="/dashboard" component={Companies} />
+      <Route path="/client-portal" component={ClientPortal} />
+      <Route path="/client-portal/:section" component={ClientPortal} />
       <Route path="/leads" component={Leads} />
       <Route path="/call-queue" component={CallQueue} />
       <Route path="/leads/:id" component={() => <ContactErrorBoundary fallback={<div role="alert" className="p-6">Could not display this contact.</div>}><LeadDetail /></ContactErrorBoundary>} />
@@ -299,6 +305,11 @@ function AuthenticatedApp() {
     return <Login />;
   }
 
+  const agencyMfaRequired = ["owner", "admin", "member", "viewer", "agent", "agency_admin", "agency_staff"].includes(role);
+  if (["client_owner", "client_staff"].includes(role) && ["/", "/dashboard", "/victorysync", "/leadgen"].includes(location)) {
+    return <Redirect to="/client-portal/dashboard" />;
+  }
+
   if ((role === "client" && !clientAccountId) || !canAccessPath(location, pagePermissions, role)) {
     return (
       <Layout>
@@ -310,7 +321,7 @@ function AuthenticatedApp() {
     );
   }
 
-  return (
+  return <MfaGate required={agencyMfaRequired}>
     <AppErrorBoundary resetKey={location}>
       <ActivityTracker />
       <Layout>
@@ -318,7 +329,7 @@ function AuthenticatedApp() {
       </Layout>
       <AssistantLauncher />
     </AppErrorBoundary>
-  );
+  </MfaGate>;
 }
 
 export default App;

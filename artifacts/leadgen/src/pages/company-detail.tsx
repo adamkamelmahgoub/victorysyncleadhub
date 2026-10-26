@@ -1,5 +1,4 @@
 import { DeleteCompanies } from "@/components/company-trash";
-import { SocialsSection } from "@/components/socials-section";
 import { useState } from "react";
 import { Link, useRoute, useLocation } from "wouter";
 import {
@@ -30,6 +29,7 @@ import {
 } from "@/lib/company-crm";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { SocialsSection } from "@/components/socials-section";
 
 const selectClass =
   "mt-1 h-10 w-full rounded-md border bg-white px-3 text-sm disabled:opacity-60";

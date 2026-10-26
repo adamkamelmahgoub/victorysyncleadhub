@@ -106,13 +106,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthContextValue>(
     () => {
       const claims = sessionClaims(session);
-      const role = typeof claims.crm_role === "string" && ["owner", "admin", "agent", "member", "viewer", "client"].includes(claims.crm_role)
+      const role = typeof claims.crm_role === "string" && ["owner", "admin", "agent", "member", "viewer", "client", "agency_admin", "agency_staff", "client_owner", "client_staff"].includes(claims.crm_role)
         ? claims.crm_role
         : "no_access";
       const clientAccountId = typeof claims.crm_client_account_id === "string"
         ? claims.crm_client_account_id
         : null;
-      const configuredPermissions = role === "owner"
+      const configuredPermissions = role === "owner" || role === "agency_admin"
         ? null
         : Array.isArray(claims.crm_page_permissions)
           ? claims.crm_page_permissions.filter((permission): permission is string => typeof permission === "string")

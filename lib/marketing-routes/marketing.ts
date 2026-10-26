@@ -13,7 +13,7 @@ export const pageDailyStatsSql=`select created_at::date AS day,count(*) filter(w
         count(*) filter(where event_type='form_submit')::integer submissions from public.landing_page_events
         where landing_page_id=$1 and organization_id=$2 and created_at>=now()-interval '30 days' group by 1 order by 1`;
 type Field={id:string;label:string;fieldType:string;required:boolean;order:number;placeholder:string|null;options:string[];mappedLeadField:string|null};
-type FormRow={id:string;name:string;description:string|null;status:string;slug:string;campaign_id:string|null;fields:Field[];success_message:string|null;submit_button_text:string;redirect_url:string|null;created_at:string;updated_at:string;submission_count?:number};
+type FormRow={id:string;name:string;description:string|null;status:string;slug:string;campaign_id:string|null;client_account_id:string|null;fields:Field[];success_message:string|null;submit_button_text:string;redirect_url:string|null;created_at:string;updated_at:string;submission_count?:number};
 type PageRow={id:string;name:string;slug:string;status:string;sections:Array<Record<string,unknown>>;theme:Record<string,unknown>;seo_title:string|null;seo_description:string|null;form_id:string|null;visits:number;published_at:string|null;created_at:string;updated_at:string};
 const json=(res:ServerResponse,status:number,value:unknown)=>{res.statusCode=status;res.setHeader('content-type','application/json; charset=utf-8');res.setHeader('cache-control','no-store');res.end(JSON.stringify(value));};
 const html=(value:unknown)=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]||char));
@@ -133,19 +133,28 @@ async function publicForm(req:IncomingMessage,res:ServerResponse,slug:string,sub
     if(duplicate.rows[0]){submissionId=duplicate.rows[0].id;await db.query('commit');}
     else{
       const mapped=validated.mapped,email=plain(mapped.email,320).toLowerCase(),phone=plain(mapped.phone,80);
-      const existing=email?await db.query<{id:string}>(`select id from public.leads where organization_id=$1 and lower(email)=$2 order by created_at desc limit 1`,[org,email]):{rows:[] as {id:string}[]};
+      const existing=email?await db.query<{id:string}>(`select id from public.leads where organization_id=$1 and lower(email)=$2
+        and client_account_id is not distinct from $3::uuid order by created_at desc limit 1`,[org,email,form.client_account_id]):{rows:[] as {id:string}[]};
       let leadId=existing.rows[0]?.id;
-      if(!leadId){const lead=await db.query<{id:string}>(`insert into public.leads(organization_id,first_name,last_name,email,phone,company,title,source,status,form_id,campaign_id,custom_fields)
-        values($1,$2,$3,$4,$5,$6,$7,'form','new',$8,$9,$10) returning id`,[org,plain(mapped.firstName,120)||'Unknown',plain(mapped.lastName,120),email,phone,plain(mapped.company,200)||null,plain(mapped.title,200)||null,form.id,form.campaign_id,JSON.stringify(validated.data)]);
+      if(!leadId){const lead=await db.query<{id:string}>(`insert into public.leads(organization_id,client_account_id,first_name,last_name,email,phone,company,title,source,status,form_id,campaign_id,custom_fields)
+        values($1,$2,$3,$4,$5,$6,$7,$8,'form','new',$9,$10,$11) returning id`,[org,form.client_account_id,plain(mapped.firstName,120)||'Unknown',plain(mapped.lastName,120),email,phone,plain(mapped.company,200)||null,plain(mapped.title,200)||null,form.id,form.campaign_id,JSON.stringify(validated.data)]);
         leadId=lead.rows[0].id;}
+      else if(phone)await db.query(`update public.leads set phone=$2 where id=$1 and (phone is null or phone='')`,[leadId,phone]);
       const landing=pageId?await db.query(`select 1 from public.landing_pages where id=$1 and organization_id=$2 and status='published' and form_id=$3`,[pageId,org,form.id]):null;
       const resolvedPage=landing?.rowCount?pageId:null;
-      const result=await db.query<{id:string}>(`insert into public.form_submissions(form_id,lead_id,organization_id,data,source_url,submission_key,utm,landing_page_id)
-        values($1,$2,$3,$4,$5,$6,$7,$8) returning id`,[form.id,leadId,org,JSON.stringify(validated.data),plain(req.headers.referer,1000)||null,key,JSON.stringify(utm),resolvedPage]);
+      const marketingPage=pageId&&!resolvedPage?await db.query(`select 1 from public.marketing_landing_pages p where p.id=$1 and p.organization_id=$2
+        and p.status='published' and p.client_account_id is not distinct from $4::uuid
+        and exists(select 1 from jsonb_array_elements(p.sections) section where section->>'type'='form' and section->>'formId'=$3)`,
+        [pageId,org,form.id,form.client_account_id]):null;
+      const resolvedMarketingPage=marketingPage?.rowCount?pageId:null;
+      const result=await db.query<{id:string}>(`insert into public.form_submissions(form_id,lead_id,organization_id,client_account_id,data,source_url,submission_key,utm,landing_page_id,marketing_page_id)
+        values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id`,[form.id,leadId,org,form.client_account_id,JSON.stringify(validated.data),plain(req.headers.referer,1000)||null,key,JSON.stringify(utm),resolvedPage,resolvedMarketingPage]);
       submissionId=result.rows[0].id;
       await db.query(`insert into public.activities(lead_id,type,description) values($1,'form_submission',$2)`,[leadId,`Lead submitted form: ${form.name}`]);
       if(resolvedPage)await db.query(`insert into public.landing_page_events(organization_id,landing_page_id,event_type,utm)
         values($1,$2,'form_submit',$3)`,[org,resolvedPage,JSON.stringify(utm)]);
+      if(resolvedMarketingPage)await db.query(`insert into public.marketing_landing_page_events(page_id,event_type,client_account_id)
+        values($1,'form_submission',$2)`,[resolvedMarketingPage,form.client_account_id]);
       await db.query('commit');
     }
   }catch(error){await db.query('rollback').catch(()=>{});throw error;}finally{db.release();}

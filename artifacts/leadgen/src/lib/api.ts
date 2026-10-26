@@ -44,6 +44,7 @@ export async function apiFetch(path: string, opts?: RequestInit) {
   return result;
 }
 
+
 export async function apiDownloadCsv(path: string, body: unknown, filename = "contacts.csv") {
   const { data } = await supabase.auth.getSession();
   const response = await fetch(`${BASE}${path}`, {
