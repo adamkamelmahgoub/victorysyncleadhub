@@ -133,13 +133,22 @@ async function publicForm(req:IncomingMessage,res:ServerResponse,slug:string,sub
     if(duplicate.rows[0]){submissionId=duplicate.rows[0].id;await db.query('commit');}
     else{
       const mapped=validated.mapped,email=plain(mapped.email,320).toLowerCase(),phone=plain(mapped.phone,80);
-      const existing=email?await db.query<{id:string}>(`select id from public.leads where organization_id=$1 and lower(email)=$2
-        and client_account_id is not distinct from $3::uuid order by created_at desc limit 1`,[org,email,form.client_account_id]):{rows:[] as {id:string}[]};
+      const digits=phone.replace(/\D/g,'').slice(-10);
+      const utmSource=String(utm.utm_source||'').toLowerCase();
+      const source=/google.*ads|gads/.test(utmSource)?'google_ads':/meta|facebook|instagram/.test(utmSource)?'meta_ads':/local.*service|lsa/.test(utmSource)?'local_services':/google|gbp/.test(utmSource)?'google_profile':utmSource==='referral'?'referral':'website';
+      const existing=digits.length===10?await db.query<{id:string}>(`select id from public.leads where organization_id=$1
+        and client_account_id is not distinct from $2::uuid and right(regexp_replace(coalesce(phone,''),'[^0-9]','','g'),10)=$3
+        order by created_at desc limit 1`,[org,form.client_account_id,digits]):{rows:[] as {id:string}[]};
+      if(!existing.rows[0]&&email){const byEmail=await db.query<{id:string}>(`select id from public.leads where organization_id=$1 and lower(email)=$2
+        and client_account_id is not distinct from $3::uuid order by created_at desc limit 1`,[org,email,form.client_account_id]);existing.rows=byEmail.rows;}
       let leadId=existing.rows[0]?.id;
-      if(!leadId){const lead=await db.query<{id:string}>(`insert into public.leads(organization_id,client_account_id,first_name,last_name,email,phone,company,title,source,status,form_id,campaign_id,custom_fields)
-        values($1,$2,$3,$4,$5,$6,$7,$8,'form','new',$9,$10,$11) returning id`,[org,form.client_account_id,plain(mapped.firstName,120)||'Unknown',plain(mapped.lastName,120),email,phone,plain(mapped.company,200)||null,plain(mapped.title,200)||null,form.id,form.campaign_id,JSON.stringify(validated.data)]);
+      if(!leadId){const lead=await db.query<{id:string}>(`insert into public.leads(organization_id,client_account_id,first_name,last_name,email,phone,company,title,source,opt_in_source,status,form_id,campaign_id,custom_fields)
+        values($1,$2,$3,$4,$5,$6,$7,$8,$9,'form','new',$10,$11,$12) returning id`,[org,form.client_account_id,plain(mapped.firstName,120)||'Unknown',plain(mapped.lastName,120),email,phone,plain(mapped.company,200)||null,plain(mapped.title,200)||null,form.client_account_id?source:'form',form.id,form.campaign_id,JSON.stringify({...validated.data,utm})]);
         leadId=lead.rows[0].id;}
-      else if(phone)await db.query(`update public.leads set phone=$2 where id=$1 and (phone is null or phone='')`,[leadId,phone]);
+      else await db.query(`update public.leads set phone=case when phone is null or phone='' then $2 else phone end,
+        email=case when email is null or email='' then $3 else email end,
+        custom_fields=coalesce(custom_fields,'{}'::jsonb)||$4::jsonb,updated_at=now()
+        where id=$1`,[leadId,phone,email,JSON.stringify({utm})]);
       const landing=pageId?await db.query(`select 1 from public.landing_pages where id=$1 and organization_id=$2 and status='published' and form_id=$3`,[pageId,org,form.id]):null;
       const resolvedPage=landing?.rowCount?pageId:null;
       const marketingPage=pageId&&!resolvedPage?await db.query(`select 1 from public.marketing_landing_pages p where p.id=$1 and p.organization_id=$2

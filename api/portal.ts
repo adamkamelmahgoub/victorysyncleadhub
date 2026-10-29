@@ -13,6 +13,18 @@ const querySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('features') }),
   z.object({ action: z.literal('staff') }),
   z.object({ action: z.literal('ai_model') }),
+  z.object({ action: z.literal('metrics'), from: z.string().datetime(), to: z.string().datetime() }),
+  z.object({ action: z.literal('lead_timeline'), leadId: uuid }),
+  z.object({ action: z.literal('ad_spend') }),
+  z.object({ action: z.literal('page_stats') }),
+  z.object({ action: z.literal('report_file'), reportId:uuid }),
+  z.object({ action: z.literal('reports') }),
+  z.object({ action: z.literal('billing_summary') }),
+  z.object({ action: z.literal('branding') }),
+  z.object({ action: z.literal('client_settings') }),
+  z.object({ action: z.literal('usage') }),
+  z.object({ action: z.literal('calls'), from:z.string().datetime(),to:z.string().datetime(),
+    outcome:z.enum(['booked','message_taken','spam','existing_customer','other']).optional() }),
   z.object({ action: z.literal('snapshot'), section }),
   z.object({ action: z.literal('export'), section: z.enum(['leads','calls','reviews','reports']) }),
 ]);
@@ -55,7 +67,19 @@ const postSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('switch'), accountId: uuid.nullable(), viewAsClient: z.boolean().default(false) }).strict(),
   z.object({ action: z.literal('change_lead'), leadId: uuid, stageId: uuid.nullable().optional(), notes: z.string().max(10000).nullable().optional() }).strict(),
   z.object({ action: z.literal('billing_portal') }).strict(),
-  z.object({action:z.literal('set_feature'),feature:z.enum(['client_portal','client_accounts','landing_page_builder','landing_page_ai','delivery_automation']),
+  z.object({action:z.literal('set_ad_spend'),platform:z.enum(['google_ads','meta_ads','local_services','other']),
+    month:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-01$/),amountCents:z.number().int().min(0).max(1_000_000_000)}).strict(),
+  z.object({action:z.literal('request_review'),name:z.string().trim().min(1).max(200),
+    phone:z.string().regex(/^\+1\d{10}$/),leadId:uuid.nullable().default(null)}).strict(),
+  z.object({action:z.literal('set_job_value'),leadId:uuid,value:z.number().min(0).max(100_000_000)}).strict(),
+  z.object({action:z.literal('update_call'),callId:uuid,outcome:z.enum(['booked','message_taken','spam','existing_customer','other']),
+    summary:z.string().max(5000),booked:z.boolean()}).strict(),
+  z.object({action:z.literal('update_report'),reportId:uuid,workDone:z.string().max(5000),whatsNext:z.string().max(5000),send:z.boolean()}).strict(),
+  z.object({action:z.literal('update_client_settings'),phone:z.string().max(30),website:z.union([z.string().url(),z.literal('')]),
+    notifications:z.object({email:z.boolean(),text:z.boolean(),phone:z.union([z.string().regex(/^\+1\d{10}$/),z.literal('')])}).strict()}).strict(),
+  z.object({action:z.literal('set_usage_limit'),minutes:z.number().int().min(0).max(1_000_000)}).strict(),
+  z.object({action:z.literal('set_review_delay'),hours:z.number().int().min(0).max(168)}).strict(),
+  z.object({action:z.literal('set_feature'),feature:z.enum(['client_portal','client_accounts','landing_page_builder','landing_page_ai','delivery_automation','client_page_editing']),
     enabled:z.boolean(),userId:uuid.nullable().default(null)}).strict(),
   z.object({action:z.literal('assign_staff'),userId:uuid,
     role:z.enum(['account_manager','marketing','ads','agent_lead','agent']).nullable()}).strict(),
@@ -225,6 +249,39 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
       if (parsed.action === 'features') return send(res,200,await rpc(user.token,'portal_features'));
       if (parsed.action === 'ai_model') return send(res,200,{model:await rpc(user.token,'portal_ai_model')});
       const selected = await account(req,user);
+      if (parsed.action === 'metrics') return send(res,200,await rpc(user.token,'portal_dashboard_metrics',
+        {p_account:selected.id,p_start:parsed.from,p_end:parsed.to}));
+      if (parsed.action === 'lead_timeline') return send(res,200,await rpc(user.token,'portal_lead_timeline',
+        {p_account:selected.id,p_lead:parsed.leadId}));
+      if (parsed.action === 'ad_spend') return send(res,200,await rpc(user.token,'portal_ad_spend',
+        {p_account:selected.id}));
+      if (parsed.action === 'page_stats') return send(res,200,await rpc(user.token,'portal_page_stats',
+        {p_account:selected.id}));
+      if (parsed.action === 'report_file') {
+        const path=await rpc<string|null>(user.token,'portal_report_file',{p_account:selected.id,p_report:parsed.reportId});
+        if(!path)return send(res,404,{error:'Report file unavailable'});
+        const base=process.env.SUPABASE_URL;
+        const key=process.env.SUPABASE_SERVICE_ROLE_KEY||process.env.SUPABASE_SERVICE_KEY;
+        if(!base||!key)throw Error('Storage unavailable');
+        const signed=await fetch(`${base}/storage/v1/object/sign/client-reports/${path}`,{method:'POST',
+          headers:{apikey:key,authorization:`Bearer ${key}`,'content-type':'application/json'},
+          body:JSON.stringify({expiresIn:300}),signal:AbortSignal.timeout(10000)});
+        const data=await signed.json() as {signedURL?:string};
+        if(!signed.ok||!data.signedURL)throw Error('Report link unavailable');
+        return send(res,200,{url:`${base}/storage/v1${data.signedURL}`});
+      }
+      if (parsed.action === 'reports') return send(res,200,await rpc(user.token,'portal_reports',
+        {p_account:selected.id}));
+      if (parsed.action === 'billing_summary') return send(res,200,await rpc(user.token,'portal_billing_summary',
+        {p_account:selected.id}));
+      if (parsed.action === 'branding') return send(res,200,await rpc(user.token,'portal_branding',
+        {p_account:selected.id}));
+      if (parsed.action === 'client_settings') return send(res,200,await rpc(user.token,'portal_client_settings',
+        {p_account:selected.id}));
+      if (parsed.action === 'usage') return send(res,200,await rpc(user.token,'portal_usage',
+        {p_account:selected.id}));
+      if (parsed.action === 'calls') return send(res,200,await rpc(user.token,'portal_calls',
+        {p_account:selected.id,p_start:parsed.from,p_end:parsed.to,p_outcome:parsed.outcome||null}));
       if (parsed.action === 'staff') return send(res,200,await rpc(user.token,'portal_staff',{p_account:selected.id}));
       if (parsed.action === 'export' && selected.viewAsClient) return send(res,403,{error:'Client view is read only'});
       const data = await rpc<unknown>(user.token,'portal_snapshot',{p_account:selected.id,p_page:parsed.section});
@@ -236,7 +293,9 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
         res.setHeader('content-disposition',`attachment; filename="${parsed.section}.csv"`);
         return res.end(csv(rows));
       }
-      return send(res,200,{accountId:selected.id,readOnly:selected.viewAsClient,data});
+      const clientPagesReadOnly=parsed.section==='pages'&&user.role==='client_owner'&&
+        !await rpc<boolean>(user.token,'client_feature_enabled',{p_feature:'client_page_editing'});
+      return send(res,200,{accountId:selected.id,readOnly:selected.viewAsClient||clientPagesReadOnly,data});
     }
     if (req.method !== 'POST') return send(res,405,{error:'Method not allowed'});
     const parsed = postSchema.parse(await read(req));
@@ -291,6 +350,39 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
     }
     const selected = await account(req,user);
     if (selected.viewAsClient) return send(res,403,{error:'Client view is read only'});
+    if (parsed.action === 'set_ad_spend') {
+      await rpc(user.token,'portal_set_ad_spend',{p_account:selected.id,p_platform:parsed.platform,
+        p_month:parsed.month,p_amount_cents:parsed.amountCents});return send(res,200,{ok:true});
+    }
+    if (parsed.action === 'request_review') {
+      const id=await rpc(user.token,'portal_request_review',{p_account:selected.id,p_name:parsed.name,
+        p_phone:parsed.phone,p_lead:parsed.leadId});return send(res,201,{id});
+    }
+    if (parsed.action === 'set_job_value') {
+      await rpc(user.token,'portal_set_job_value',{p_account:selected.id,p_lead:parsed.leadId,p_value:parsed.value});
+      return send(res,200,{ok:true});
+    }
+    if (parsed.action === 'update_call') {
+      await rpc(user.token,'portal_update_call',{p_account:selected.id,p_call:parsed.callId,
+        p_outcome:parsed.outcome,p_summary:parsed.summary,p_booked:parsed.booked});return send(res,200,{ok:true});
+    }
+    if (parsed.action === 'update_report') {
+      await rpc(user.token,'portal_update_report',{p_account:selected.id,p_report:parsed.reportId,
+        p_work_done:parsed.workDone,p_whats_next:parsed.whatsNext,p_send:parsed.send});
+      return send(res,200,{ok:true});
+    }
+    if (parsed.action === 'update_client_settings') {
+      await rpc(user.token,'portal_update_client_settings',{p_account:selected.id,p_phone:parsed.phone,
+        p_website:parsed.website,p_notifications:parsed.notifications});return send(res,200,{ok:true});
+    }
+    if (parsed.action === 'set_usage_limit') {
+      await rpc(user.token,'portal_set_usage_limit',{p_account:selected.id,p_minutes:parsed.minutes});
+      return send(res,200,{ok:true});
+    }
+    if (parsed.action === 'set_review_delay') {
+      await rpc(user.token,'portal_set_review_delay',{p_account:selected.id,p_hours:parsed.hours});
+      return send(res,200,{ok:true});
+    }
     if (parsed.action === 'assign_staff') {
       await rpc(user.token,'portal_assign_staff',{p_account:selected.id,p_user:parsed.userId,p_role:parsed.role});
       return send(res,200,{ok:true});

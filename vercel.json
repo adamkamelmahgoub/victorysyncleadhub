@@ -12,6 +12,7 @@
     { "src": "^/api/client-stripe-webhook$", "dest": "/api/client-stripe-webhook.ts" },
     { "src": "^/api/client-delivery-worker$", "dest": "/api/client-delivery-worker.ts" },
     { "src": "^/api/public/(?:landing|forms)/[^/]+$", "dest": "/api/client-landing.ts" },
+    { "src": "^/r/[0-9a-fA-F-]{36}$", "dest": "/api/client-review-click.ts" },
     { "src": "^/api/assistant$", "dest": "/api/assistant.ts" },
     { "src": "^/leadgen/api/assistant$", "dest": "/api/assistant.ts" },
     { "src": "^/api/enrichment$", "dest": "/api/enrichment.ts" },
