@@ -2,6 +2,9 @@ import type {IncomingMessage,ServerResponse} from 'node:http';
 import {createHmac,randomUUID} from 'node:crypto';
 import {mcpPool} from '../mcp-auth.js';
 import {SOCIAL_WORKSPACE_ORG_ID} from '../social-workspace-auth.js';
+import {sectionTypes as registeredSectionTypes,sectionsSchema,themeSchema} from '../landing-section-registry.js';
+import {renderPage,type RenderPage} from '../landing-renderer.js';
+import {z} from 'zod';
 
 export const config={api:{bodyParser:false},maxDuration:30};
 const org=SOCIAL_WORKSPACE_ORG_ID;
@@ -14,7 +17,7 @@ export const pageDailyStatsSql=`select created_at::date AS day,count(*) filter(w
         where landing_page_id=$1 and organization_id=$2 and created_at>=now()-interval '30 days' group by 1 order by 1`;
 type Field={id:string;label:string;fieldType:string;required:boolean;order:number;placeholder:string|null;options:string[];mappedLeadField:string|null};
 type FormRow={id:string;name:string;description:string|null;status:string;slug:string;campaign_id:string|null;client_account_id:string|null;fields:Field[];success_message:string|null;submit_button_text:string;redirect_url:string|null;created_at:string;updated_at:string;submission_count?:number};
-type PageRow={id:string;name:string;slug:string;status:string;sections:Array<Record<string,unknown>>;theme:Record<string,unknown>;seo_title:string|null;seo_description:string|null;form_id:string|null;visits:number;published_at:string|null;created_at:string;updated_at:string};
+type PageRow={id:string;client_account_id:string|null;name:string;slug:string;status:string;sections:Array<Record<string,unknown>>;theme:Record<string,unknown>;draft_sections:Array<Record<string,unknown>>|null;draft_theme:Record<string,unknown>|null;published_sections:Array<Record<string,unknown>>|null;published_theme:Record<string,unknown>|null;version:number;template_key:string|null;tracking:Record<string,unknown>;social_image_url:string|null;custom_domain:string|null;subdomain:string|null;traffic_split:number;variant_of:string|null;seo_title:string|null;seo_description:string|null;form_id:string|null;visits:number;published_at:string|null;created_at:string;updated_at:string};
 const json=(res:ServerResponse,status:number,value:unknown)=>{res.statusCode=status;res.setHeader('content-type','application/json; charset=utf-8');res.setHeader('cache-control','no-store');res.end(JSON.stringify(value));};
 const html=(value:unknown)=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]||char));
 const plain=(value:unknown,max=500)=>String(value??'').trim().slice(0,max);
@@ -31,12 +34,18 @@ async function actor(req:IncomingMessage,permission:'forms'|'landing-pages'){
   if(!response.ok)throw new Error('Session expired');
   const user=await response.json() as{id:string;email_confirmed_at?:string};
   if(!user.email_confirmed_at)throw new Error('Confirm your email first');
+  if(permission==='landing-pages'){
+    const feature=await mcpPool.query<{enabled:boolean}>(`select coalesce(
+      (select enabled from public.user_feature_access where org_id=$1 and user_id=$2 and feature_key='landing_page_builder' limit 1),
+      (select enabled from public.user_feature_access where org_id=$1 and user_id is null and feature_key='landing_page_builder' limit 1),false) enabled`,[org,user.id]);
+    if(!feature.rows[0]?.enabled)throw new Error('Landing page builder access is disabled');
+  }
   const membership=await mcpPool.query<{role:string;page_permissions:string[]|null}>(`select role,page_permissions from public.team_members where auth_user_id=$1 and org_id=$2
-    and status='active' and client_account_id is null and role in ('owner','admin','member') limit 1`,[user.id,org]);
+    and status='active' and client_account_id is null and role in ('owner','admin','member','agency_admin') limit 1`,[user.id,org]);
   const platform=await mcpPool.query(`select 1 from public.profiles where id=$1 and global_role='platform_admin'`,[user.id]);
   if(!membership.rowCount&&!platform.rowCount)throw new Error('Internal workspace access required');
   const permissions=membership.rows[0]?.page_permissions;
-  if(!platform.rowCount&&!['owner','admin'].includes(membership.rows[0]?.role||'')&&Array.isArray(permissions)
+  if(!platform.rowCount&&!['owner','admin','agency_admin'].includes(membership.rows[0]?.role||'')&&Array.isArray(permissions)
     &&!permissions.includes('forms'))
     throw new Error(`${permission} access is disabled for this account`);
   return user;
@@ -57,7 +66,7 @@ function formShape(row:FormRow,req:IncomingMessage){const base=origin(req),url=`
   fields:validatedFields(row.fields||[]),successMessage:row.success_message,submitButtonText:row.submit_button_text,redirectUrl:row.redirect_url,
   submissionCount:Number(row.submission_count||0),publicUrl:url,embedCode:`<iframe src="${url}" title="${html(row.name)}" loading="lazy" style="width:100%;min-height:560px;border:0" referrerpolicy="strict-origin-when-cross-origin"></iframe>`,
   createdAt:row.created_at,updatedAt:row.updated_at};}
-function pageShape(row:PageRow,req:IncomingMessage,stats?:Record<string,unknown>){return {...row,publicUrl:`${origin(req)}/p/${row.slug}`,stats:stats||null};}
+function pageShape(row:PageRow,req:IncomingMessage,stats?:Record<string,unknown>){return {...row,sections:row.draft_sections||row.sections,theme:row.draft_theme||row.theme,publicUrl:`${origin(req)}/p/${row.slug}`,stats:stats||null};}
 function securityHeaders(res:ServerResponse,embed=false){res.setHeader('content-type','text/html; charset=utf-8');res.setHeader('x-content-type-options','nosniff');
   res.setHeader('referrer-policy','strict-origin-when-cross-origin');res.setHeader('content-security-policy',`default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; frame-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors ${embed?'*':"'self'"}`);}
 function fieldHtml(field:Field){const id=`field-${field.id}`,name=`field_${field.id}`,required=field.required?' required':'',placeholder=field.placeholder?` placeholder="${html(field.placeholder)}"`:'';
@@ -81,18 +90,24 @@ export function validateSubmission(fields:Field[],input:Record<string,unknown>){
     data[field.id]=value;if(field.mappedLeadField&&typeof value==='string')mapped[field.mappedLeadField]=value;
   }
   return {data,mapped};}
-const sectionTypes=new Set(['hero','text','features','testimonial','faq','image','cta','form','spacer']);
+const sectionTypes=new Set<string>([...registeredSectionTypes,'testimonial']);
 export function validatedSections(value:unknown){if(!Array.isArray(value)||value.length>60)throw new Error('A page can have up to 60 sections');
-  return value.map((entry,index)=>{if(!entry||typeof entry!=='object')throw new Error(`Section ${index+1} is invalid`);
+  const normalized=value.map(item=>item&&typeof item==='object'?{...item,id:(item as Record<string,unknown>).id||randomUUID()}:item);
+  for(const [index,item] of normalized.entries())if(item&&typeof item==='object'&&!sectionTypes.has(String((item as Record<string,unknown>).type||'')))throw new Error(`Section ${index+1} has an unsupported type`);
+  const checked=sectionsSchema.safeParse(normalized);if(!checked.success)throw new Error(`Invalid sections: ${checked.error.issues[0]?.message||'check content'}`);
+  return normalized.map((entry:unknown,index:number)=>{if(!entry||typeof entry!=='object')throw new Error(`Section ${index+1} is invalid`);
     const item=entry as Record<string,unknown>,type=plain(item.type,30);if(!sectionTypes.has(type))throw new Error(`Section ${index+1} has an unsupported type`);
     const content:Record<string,unknown>={};for(const key of ['eyebrow','heading','body','buttonText','buttonUrl','imageUrl','imageAlt','quote','author'])
       if(item[key]!==undefined)content[key]=plain(item[key],key==='body'?5000:500);
-    if(item.items!==undefined){if(!Array.isArray(item.items)||item.items.length>20)throw new Error(`Section ${index+1} has too many items`);
+    if(item.items!==undefined){if(!Array.isArray(item.items)||item.items.length>30)throw new Error(`Section ${index+1} has too many items`);
       content.items=item.items.map(value=>plain(value,500));}
+    if(item.blocks!==undefined)content.blocks=item.blocks;
+    if(item.hidden!==undefined)content.hidden=item.hidden===true;
     return {id:plain(item.id,60)||randomUUID(),type,...content};});}
 function validatedTheme(value:unknown){const data=value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:{};
   const color=(v:unknown,fallback:string)=>/^#[0-9a-fA-F]{6}$/.test(String(v||''))?String(v):fallback;
-  return {primary:color(data.primary,'#245eea'),background:color(data.background,'#ffffff'),text:color(data.text,'#17243d'),font:['system','serif'].includes(String(data.font))?String(data.font):'system'};}
+  const result={primary:color(data.primary,'#245eea'),background:color(data.background,'#ffffff'),text:color(data.text,'#17243d'),accent:color(data.accent,'#245eea'),font:['system','serif','inter','poppins','lato','montserrat'].includes(String(data.font))?String(data.font):'system',buttonRadius:Number(data.buttonRadius??8),spacing:Number(data.spacing??1),logoUrl:plain(data.logoUrl,1000)};
+  const checked=themeSchema.safeParse(result);if(!checked.success)throw new Error('Invalid theme settings');return checked.data;}
 export function safeHref(value:unknown){const raw=plain(value,1000);if(/^#[a-zA-Z0-9_-]{1,80}$/.test(raw))return raw;if(raw.startsWith('/')&&!raw.startsWith('//'))return raw;
   try{const url=new URL(raw);return url.protocol==='https:'?url.toString():'#';}catch{return '#';}}
 function sectionHtml(section:Record<string,unknown>,formSlug:string|null,formQuery:string){const type=String(section.type),heading=html(section.heading),body=html(section.body),items=Array.isArray(section.items)?section.items:[];
@@ -173,18 +188,30 @@ async function publicForm(req:IncomingMessage,res:ServerResponse,slug:string,sub
 }
 async function publicPage(req:IncomingMessage,res:ServerResponse,slug:string){
   const pages=await mcpPool.query<PageRow>(`select * from public.landing_pages where organization_id=$1 and slug=$2 and status='published' limit 1`,[org,slug]);
-  const page=pages.rows[0];if(!page)return json(res,404,{error:'Page unavailable'});
+  const base=pages.rows[0];if(!base)return json(res,404,{error:'Page unavailable'});
+  let found=base;
+  if(!base.variant_of){const variants=await mcpPool.query<PageRow>(`select * from public.landing_pages where variant_of=$1 and organization_id=$2 and status='published' order by created_at limit 1`,[base.id,org]);
+    const variant=variants.rows[0];if(variant){const cookie=String(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(`lp_variant_${base.id}=`))?.split('=')[1];
+      const selected=cookie===base.id||cookie===variant.id?cookie:(Math.random()*100<variant.traffic_split?variant.id:base.id);
+      found=selected===variant.id?variant:base;res.setHeader('set-cookie',`lp_variant_${base.id}=${selected}; Path=/p/${base.slug}; Max-Age=2592000; SameSite=Lax; Secure; HttpOnly`);}}
+  const page={...found,sections:found.published_sections||found.sections,theme:found.published_theme||found.theme};
   const linked=page.form_id?await mcpPool.query<{slug:string}>(`select slug from public.forms where id=$1 and organization_id=$2 and status='active' limit 1`,[page.form_id,org]):null;
   const referrer=plain(req.headers.referer,1000);let referrerDomain:string|null=null;
   try{if(referrer)referrerDomain=new URL(referrer).hostname.slice(0,200);}catch{}
   const url=new URL(req.url||'/','https://local.invalid');const utm=Object.fromEntries(['utm_source','utm_medium','utm_campaign'].map(key=>[key,plain(url.searchParams.get(key),120)]).filter(([,value])=>value));
   await mcpPool.query(`update public.landing_pages set visits=visits+1 where id=$1`,[page.id]);
-  await mcpPool.query(`insert into public.landing_page_events(organization_id,landing_page_id,event_type,referrer_domain,utm)
-    values($1,$2,'view',$3,$4)`,[org,page.id,referrerDomain,JSON.stringify(utm)]);
-  securityHeaders(res);res.setHeader('cache-control','no-store');res.end(pageHtml(page,linked?.rows[0]?.slug||null,utm));
+  await mcpPool.query(`insert into public.landing_page_events(organization_id,landing_page_id,variant_page_id,client_account_id,event_type,referrer_domain,utm)
+    values($1,$2,$3,$4,'view',$5,$6)`,[org,page.id,page.id!==base.id?page.id:null,page.client_account_id||null,referrerDomain,JSON.stringify(utm)]);
+  securityHeaders(res);res.setHeader('content-security-policy',"default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; frame-src 'self' https://www.youtube.com https://player.vimeo.com; script-src 'unsafe-inline' https://www.googletagmanager.com https://connect.facebook.net; connect-src 'self' https://www.google-analytics.com https://www.facebook.com; form-action 'self'; base-uri 'none'; frame-ancestors 'self'");res.setHeader('cache-control','no-store');res.end(renderPage(page as unknown as RenderPage,linked?.rows[0]?.slug||null));
 }
 export default async function handler(req:IncomingMessage,res:ServerResponse){try{
   const url=new URL(req.url||'/','https://local.invalid'),path=url.pathname,method=req.method||'GET';
+  if(path==='/api/landing-pages/event'&&method==='POST'){
+    const input=z.object({pageId:z.string().uuid(),event:z.enum(['form_start','phone_click'])}).strict().parse(await body(req,4096));
+    await mcpPool.query(`insert into public.landing_page_events(organization_id,landing_page_id,client_account_id,event_type)
+      select organization_id,id,client_account_id,$2 from public.landing_pages where id=$1 and status='published'`,[input.pageId,input.event]);
+    return json(res,200,{ok:true});
+  }
   let match=path.match(/^\/f\/([a-z0-9-]+)$/);if(match&&['GET','POST'].includes(method))return await publicForm(req,res,match[1],method==='POST');
   match=path.match(/^\/p\/([a-z0-9-]+)$/);if(match&&method==='GET')return await publicPage(req,res,match[1]);
   if(path==='/api/marketing/reports'){
@@ -209,6 +236,20 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
   }
   if(!path.startsWith('/api/forms')&&!path.startsWith('/api/landing-pages'))return json(res,404,{error:'Not found'});
   const isForms=path.startsWith('/api/forms'),user=await actor(req,isForms?'forms':'landing-pages');
+  if(path==='/api/landing-pages/media'&&method==='POST'){
+    const input=z.object({pageId:z.string().uuid(),mime:z.enum(['image/jpeg','image/png','image/webp']),data:z.string().min(100).max(7500000)}).strict().parse(await body(req,8000000));
+    const owned=await mcpPool.query(`select 1 from public.landing_pages where id=$1 and organization_id=$2`,[input.pageId,org]);
+    if(!owned.rowCount)return json(res,404,{error:'Page not found'});
+    const bytes=Buffer.from(input.data,'base64');if(bytes.length>5242880||bytes.length<64)throw new Error('Invalid image size');
+    const valid=input.mime==='image/png'?bytes.subarray(0,8).equals(Buffer.from('89504e470d0a1a0a','hex')):input.mime==='image/jpeg'?bytes.subarray(0,3).equals(Buffer.from('ffd8ff','hex')):bytes.toString('ascii',0,4)==='RIFF'&&bytes.toString('ascii',8,12)==='WEBP';
+    if(!valid)throw new Error('Invalid image format');
+    const base=process.env.SUPABASE_URL,key=process.env.SUPABASE_SERVICE_ROLE_KEY||process.env.SUPABASE_SERVICE_KEY;
+    if(!base||!key)throw new Error('Image storage is unavailable');
+    const extension=input.mime==='image/png'?'png':input.mime==='image/webp'?'webp':'jpg';
+    const object=`${input.pageId}/${randomUUID()}.${extension}`;
+    const uploaded=await fetch(`${base}/storage/v1/object/landing-media/${object}`,{method:'POST',headers:{apikey:key,authorization:`Bearer ${key}`,'content-type':input.mime,'x-upsert':'false'},body:bytes,signal:AbortSignal.timeout(15000)});
+    if(!uploaded.ok)throw new Error('Image upload failed');return json(res,201,{url:`${base}/storage/v1/object/public/landing-media/${object}`});
+  }
   const root=isForms?'/api/forms':'/api/landing-pages',parts=path.slice(root.length).split('/').filter(Boolean),id=parts[0];
   if(id&&!uuid.test(id))return json(res,400,{error:'Invalid ID'});
   if(isForms){
@@ -255,8 +296,9 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
     if(method==='GET'&&!id){const pages=await mcpPool.query<PageRow>(`select * from public.landing_pages where organization_id=$1 order by updated_at desc limit 500`,[org]);return json(res,200,{pages:pages.rows.map(row=>pageShape(row,req))});}
     if(method==='POST'&&!id){const data=await body(req),name=plain(data.name,150),slug=safeSlug(data.slug||name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''));if(!name)throw new Error('Page name is required');
       const sections=validatedSections(data.sections||[{id:randomUUID(),type:'hero',eyebrow:'Welcome',heading:name,body:'Tell visitors how you help.',buttonText:'Get in touch',buttonUrl:'#contact'}]);
-      const result=await mcpPool.query<PageRow>(`insert into public.landing_pages(organization_id,name,slug,sections,theme,created_by,seo_title)
-        values($1,$2,$3,$4,$5,$6,$2) returning *`,[org,name,slug,JSON.stringify(sections),JSON.stringify(validatedTheme(data.theme)),user.id]);return json(res,201,pageShape(result.rows[0],req));}
+      const theme=validatedTheme(data.theme);
+      const result=await mcpPool.query<PageRow>(`insert into public.landing_pages(organization_id,name,slug,sections,theme,draft_sections,draft_theme,created_by,seo_title,template_key)
+        values($1,$2,$3,$4,$5,$4,$5,$6,$2,$7) returning *`,[org,name,slug,JSON.stringify(sections),JSON.stringify(theme),user.id,plain(data.templateKey,80)||null]);return json(res,201,pageShape(result.rows[0],req));}
     if(!id)return json(res,405,{error:'Method not allowed'});
     if(method==='GET'&&parts[1]==='stats'){
       const stats=await mcpPool.query(`select count(*) filter(where event_type='view')::integer views,
@@ -267,36 +309,56 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
       const top=await mcpPool.query(`select referrer_domain,count(*)::integer views from public.landing_page_events
         where landing_page_id=$1 and organization_id=$2 and event_type='view' and referrer_domain is not null
         group by referrer_domain order by views desc limit 10`,[id,org]);return json(res,200,{...stats.rows[0],daily:daily.rows,referrers:top.rows});}
+    if(method==='GET'&&parts[1]==='variants'){const rows=await mcpPool.query(`select p.id,p.name,p.slug,p.status,
+      (select count(*)::integer from public.landing_page_events e where e.landing_page_id=p.id and e.event_type='view') views,
+      (select count(*)::integer from public.form_submissions s where s.landing_page_id=p.id) submissions
+      from public.landing_pages p where p.organization_id=$2 and (p.id=$1 or p.variant_of=$1) order by p.created_at`,[id,org]);
+      return json(res,200,{variants:rows.rows.map(row=>({...row,conversionRate:Number(row.views)?Number(row.submissions)/Number(row.views)*100:0}))});}
     if(method==='GET'&&!parts[1]){const found=await mcpPool.query<PageRow>(`select * from public.landing_pages where id=$1 and organization_id=$2`,[id,org]);return found.rows[0]?json(res,200,pageShape(found.rows[0],req)):json(res,404,{error:'Page not found'});}
+    if(method==='GET'&&parts[1]==='versions'){const versions=await mcpPool.query(`select version,published_at,note,published_by from public.landing_page_versions where page_id=$1 order by version desc limit 50`,[id]);return json(res,200,{versions:versions.rows});}
+    if(method==='POST'&&parts[1]==='restore'){const data=await body(req);const version=Number(data.version);if(!Number.isInteger(version)||version<1)throw new Error('Invalid version');
+      const restored=await mcpPool.query<PageRow>(`update public.landing_pages p set draft_sections=v.sections,draft_theme=v.theme,sections=v.sections,theme=v.theme,updated_at=now()
+        from public.landing_page_versions v where p.id=$1 and p.organization_id=$2 and v.page_id=p.id and v.version=$3 returning p.*`,[id,org,version]);return restored.rows[0]?json(res,200,pageShape(restored.rows[0],req)):json(res,404,{error:'Version not found'});}
     if(method==='PATCH'&&!parts[1]){const data=await body(req),updates:Record<string,unknown>={updated_at:new Date()};
       if('name'in data){updates.name=plain(data.name,150);if(!updates.name)throw new Error('Page name is required');}
       if('slug'in data)updates.slug=safeSlug(data.slug);
-      if('sections'in data)updates.sections=JSON.stringify(validatedSections(data.sections));
-      if('theme'in data)updates.theme=JSON.stringify(validatedTheme(data.theme));
+      if('sections'in data){updates.draft_sections=JSON.stringify(validatedSections(data.sections));updates.sections=updates.draft_sections;}
+      if('theme'in data){updates.draft_theme=JSON.stringify(validatedTheme(data.theme));updates.theme=updates.draft_theme;}
       if('seoTitle'in data)updates.seo_title=plain(data.seoTitle,160)||null;
       if('seoDescription'in data)updates.seo_description=plain(data.seoDescription,300)||null;
+      if('socialImageUrl'in data)updates.social_image_url=plain(data.socialImageUrl,1000)||null;
+      if('tracking'in data){const tracking=data.tracking as Record<string,unknown>;if(!tracking||typeof tracking!=='object')throw new Error('Invalid tracking');updates.tracking=JSON.stringify(Object.fromEntries(['gtm_id','ga4_id','meta_pixel_id'].map(key=>[key,plain(tracking[key],80)])));}
+      if('trafficSplit'in data){const split=Number(data.trafficSplit);if(!Number.isInteger(split)||split<0||split>100)throw new Error('Invalid traffic split');updates.traffic_split=split;}
       if('formId'in data){if(data.formId&&!uuid.test(String(data.formId)))throw new Error('Invalid form');
         if(data.formId){const form=await mcpPool.query(`select 1 from public.forms where id=$1 and organization_id=$2`,[data.formId,org]);if(!form.rowCount)throw new Error('Form not found');}updates.form_id=data.formId||null;}
       const keys=Object.keys(updates),result=await mcpPool.query<PageRow>(`update public.landing_pages set ${keys.map((key,i)=>`${key}=$${i+3}`).join(',')}
         where id=$1 and organization_id=$2 returning *`,[id,org,...Object.values(updates)]);return result.rows[0]?json(res,200,pageShape(result.rows[0],req)):json(res,404,{error:'Page not found'});}
     if(method==='POST'&&parts[1]==='publish'){
       const found=await mcpPool.query<PageRow>(`select * from public.landing_pages where id=$1 and organization_id=$2`,[id,org]);const page=found.rows[0];if(!page)return json(res,404,{error:'Page not found'});
-      if(!Array.isArray(page.sections)||!page.sections.length)throw new Error('Add at least one section before publishing');
-      if(page.sections.some(section=>section.type==='form')&&!page.form_id)throw new Error('Choose an active form before publishing a form section');
+      const draftSections=page.draft_sections||page.sections,draftTheme=page.draft_theme||page.theme;
+      if(!Array.isArray(draftSections)||!draftSections.length)throw new Error('Add at least one section before publishing');
+      if(draftSections.some(section=>section.type==='form')&&!page.form_id)throw new Error('Choose an active form before publishing a form section');
       if(page.form_id){const form=await mcpPool.query(`select 1 from public.forms where id=$1 and organization_id=$2 and status='active'`,[page.form_id,org]);if(!form.rowCount)throw new Error('Linked form is inactive');}
-      const updated=await mcpPool.query<PageRow>(`update public.landing_pages set status='published',published_at=now(),updated_at=now()
-        where id=$1 and organization_id=$2 returning *`,[id,org]);return json(res,200,pageShape(updated.rows[0],req));}
+      const db=await mcpPool.connect();try{await db.query('begin');const updated=await db.query<PageRow>(`update public.landing_pages set status='published',published_at=now(),updated_at=now(),
+        published_sections=$3,published_theme=$4,version=version+1 where id=$1 and organization_id=$2 returning *`,[id,org,JSON.stringify(draftSections),JSON.stringify(draftTheme)]);
+        await db.query(`insert into public.landing_page_versions(page_id,version,sections,theme,published_by)
+          values($1,$2,$3,$4,$5) on conflict(page_id,version) do nothing`,[id,updated.rows[0].version,JSON.stringify(draftSections),JSON.stringify(draftTheme),user.id]);await db.query('commit');return json(res,200,pageShape(updated.rows[0],req));}
+      catch(error){await db.query('rollback');throw error}finally{db.release()}}
     if(method==='POST'&&parts[1]==='unpublish'){const updated=await mcpPool.query<PageRow>(`update public.landing_pages set status='draft',updated_at=now()
       where id=$1 and organization_id=$2 returning *`,[id,org]);return updated.rows[0]?json(res,200,pageShape(updated.rows[0],req)):json(res,404,{error:'Page not found'});}
     if(method==='POST'&&parts[1]==='duplicate'){const source=await mcpPool.query<PageRow>(`select * from public.landing_pages where id=$1 and organization_id=$2`,[id,org]);if(!source.rows[0])return json(res,404,{error:'Page not found'});
       const page=source.rows[0],slug=`${page.slug}-copy-${randomUUID().slice(0,6)}`;
       const result=await mcpPool.query<PageRow>(`insert into public.landing_pages(organization_id,name,slug,sections,theme,seo_title,seo_description,form_id,created_by)
         values($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *`,[org,`${page.name} copy`,slug,JSON.stringify(page.sections),JSON.stringify(page.theme),page.seo_title,page.seo_description,page.form_id,user.id]);return json(res,201,pageShape(result.rows[0],req));}
+    if(method==='POST'&&parts[1]==='variant'){const source=await mcpPool.query<PageRow>(`select * from public.landing_pages where id=$1 and organization_id=$2 and variant_of is null`,[id,org]);
+      const page=source.rows[0];if(!page)return json(res,404,{error:'Base page not found'});
+      const created=await mcpPool.query<PageRow>(`insert into public.landing_pages(organization_id,client_account_id,name,slug,sections,theme,draft_sections,draft_theme,seo_title,seo_description,form_id,created_by,variant_of,traffic_split)
+        values($1,$2,$3,$4,$5,$6,$5,$6,$7,$8,$9,$10,$11,50) returning *`,[org,page.client_account_id,`${page.name} variant`,`${page.slug}-b-${randomUUID().slice(0,6)}`,JSON.stringify(page.draft_sections||page.sections),JSON.stringify(page.draft_theme||page.theme),page.seo_title,page.seo_description,page.form_id,user.id,page.id]);return json(res,201,pageShape(created.rows[0],req));}
     if(method==='DELETE'&&!parts[1]){const updated=await mcpPool.query(`update public.landing_pages set status='archived',updated_at=now()
       where id=$1 and organization_id=$2 returning id`,[id,org]);return updated.rowCount?json(res,200,{archived:true}):json(res,404,{error:'Page not found'});}
   }
   json(res,405,{error:'Method not allowed'});
-}catch(error){const message=error instanceof Error?error.message:'Request failed';const status=message.includes('access')?403:message.includes('Sign in')||message.includes('Session')?401:
+}catch(error){const message=error instanceof Error?error.message:'Request failed';const status=error instanceof z.ZodError?400:message.includes('access')?403:message.includes('Sign in')||message.includes('Session')?401:
   message.includes('Too many submissions')?429:message.includes('duplicate key')?409:message.includes('required')||message.includes('Invalid')||message.includes('unsupported')||message.includes('Add at least')||message.includes('needs options')||message.includes('must be')?400:500;
   if(status===500)console.error('Marketing route failed',req.method,req.url,error instanceof Error?error.name:'unknown');
   if(req.url?.startsWith('/f/')&&String(req.headers['content-type']||'').includes('application/x-www-form-urlencoded')){

@@ -1,0 +1,51 @@
+import type {SectionType} from './landing-section-registry.js';
+
+export type RenderSection={id:string;type:SectionType;hidden?:boolean;eyebrow?:string;heading?:string;body?:string;buttonText?:string;buttonUrl?:string;imageUrl?:string;imageAlt?:string;quote?:string;author?:string;items?:string[];blocks?:Array<{id:string;type:string;heading?:string;body?:string;imageUrl?:string;attested?:boolean}>};
+export type RenderTheme={primary?:string;background?:string;text?:string;foreground?:string;accent?:string;font?:string;buttonRadius?:number;spacing?:number;logoUrl?:string};
+export type RenderPage={id?:string;name:string;seo_title?:string|null;seo_description?:string|null;social_image_url?:string|null;sections:RenderSection[];theme:RenderTheme;form_id?:string|null;tracking?:Record<string,unknown>};
+const esc=(value:unknown)=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]||c));
+const color=(value:unknown,fallback:string)=>/^#[0-9a-f]{6}$/i.test(String(value||''))?String(value):fallback;
+const href=(value:unknown)=>{const raw=String(value||'').trim();return /^(https:\/\/|tel:|mailto:|\/(?!\/)|#[a-z\d_-]+)/i.test(raw)?esc(raw):'#'};
+const image=(src:unknown,alt:unknown)=>src&&href(src)!=='#'?`<img src="${href(src)}" alt="${esc(alt)}" loading="lazy" decoding="async">`:'';
+const button=(text:unknown,url:unknown)=>text?`<a class="button" href="${href(url)}">${esc(text)}</a>`:'';
+const blocks=(s:RenderSection)=>s.blocks||[];
+function sectionHtml(s:RenderSection,formSlug:string|null,pageId:string|null,editor:boolean){
+  if(s.hidden)return '';
+  const id=esc(s.id),head=esc(s.heading),body=esc(s.body),block=blocks(s),attrs=editor?` data-section="${id}" tabindex="0"`:'';
+  const title=(tag:'h1'|'h2'='h2')=>head?`<${tag}>${head}</${tag}>`:'';
+  const intro=body?`<p>${body}</p>`:'';
+  const list=(s.items||[]).map(item=>`<article>${esc(item)}</article>`).join('');
+  const cards=(contents:string)=>`<div class="cards">${contents}</div>`;
+  let content='';
+  switch(s.type){
+    case 'announcement':content=`<p>${head}</p>${s.buttonUrl?`<a href="${href(s.buttonUrl)}">Learn more</a>`:''}`;break;
+    case 'header':content=`${image(s.imageUrl,s.heading)}<strong>${head}</strong><span>${body}</span>${button(s.buttonText,s.buttonUrl)}`;break;
+    case 'hero':content=`<span class="eyebrow">${esc(s.eyebrow)}</span>${title('h1')}${intro}${button(s.buttonText,s.buttonUrl)}${image(s.imageUrl,s.imageAlt||s.heading)}${block.length?cards(block.map(b=>`<article>${esc(b.heading)}</article>`).join('')):''}`;break;
+    case 'trust_bar':content=`${title()}${cards(block.length?block.map(b=>`<article>${esc(b.heading)}</article>`).join(''):list)}`;break;
+    case 'services':case 'features':case 'steps':content=`${title()}${intro}${cards(block.length?block.map(b=>`<article><h3>${esc(b.heading)}</h3><p>${esc(b.body)}</p>${image(b.imageUrl,b.heading)}</article>`).join(''):list)}`;break;
+    case 'gallery':content=`${title()}${cards(block.map(b=>`<article>${image(b.imageUrl,b.heading)}<p>${esc(b.heading)}</p></article>`).join(''))}`;break;
+    case 'image_text':content=`<div class="split">${image(s.imageUrl,s.imageAlt||s.heading)}<div>${title()}${intro}${button(s.buttonText,s.buttonUrl)}</div></div>`;break;
+    case 'reviews':content=`${title()}${intro}${cards(block.filter(b=>b.attested).map(b=>`<blockquote><p>${esc(b.body)}</p><cite>${esc(b.heading)}</cite></blockquote>`).join(''))}`;break;
+    case 'testimonial':content=`<blockquote><p>${esc(s.quote||s.body)}</p><cite>${esc(s.author)}</cite></blockquote>`;break;
+    case 'offer':case 'cta':content=`${title()}${intro}${button(s.buttonText,s.buttonUrl)}`;break;
+    case 'service_area':content=`${title()}${intro}${cards(list)}`;break;
+    case 'faq':content=`${title()}${(block.length?block.map(b=>({q:b.heading,a:b.body})):(s.items||[]).map(item=>{const [q,...a]=item.split('|');return{q,a:a.join('|')}})).map(x=>`<details><summary>${esc(x.q)}</summary><p>${esc(x.a)}</p></details>`).join('')}`;break;
+    case 'form':content=`${title()}${intro}${formSlug&&!editor?`<iframe title="Lead capture form" src="/f/${encodeURIComponent(formSlug)}?lp=${encodeURIComponent(pageId||'')}" loading="lazy"></iframe>`:'<div class="form-placeholder">Lead form preview</div>'}`;break;
+    case 'video':{const video=String(s.buttonUrl||'');const embed=/^https:\/\/(www\.)?(youtube\.com\/embed\/|player\.vimeo\.com\/video\/)/i.test(video)?`<iframe src="${href(video)}" title="${head||'Video'}" loading="lazy" allowfullscreen></iframe>`:'';content=`${title()}${embed||'<p>Add an HTTPS embed URL.</p>'}`;break;}
+    case 'footer':content=`${title()}${intro}`;break;
+    case 'image':content=`${title()}${image(s.imageUrl,s.imageAlt||s.heading)}${intro}`;break;
+    case 'spacer':content='';break;
+    default:content=`${title()}${intro}`;
+  }
+  return `<section class="section section-${esc(s.type)}" id="section-${id}"${attrs}>${content}</section>`;
+}
+export function renderPage(page:RenderPage,formSlug:string|null=null,editor=false){
+  const t=page.theme||{},primary=color(t.primary,'#245eea'),background=color(t.background,'#ffffff'),foreground=color(t.text,'#17243d');
+  const font=t.font==='serif'?'Georgia,serif':t.font==='poppins'?'Poppins,Arial,sans-serif':t.font==='montserrat'?'Montserrat,Arial,sans-serif':t.font==='lato'?'Lato,Arial,sans-serif':'Inter,Arial,sans-serif';
+  const radius=Math.max(0,Math.min(32,Number(t.buttonRadius)||8)),spacing=Math.max(.75,Math.min(1.5,Number(t.spacing)||1));
+  const style=`*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:${background};color:${foreground};font-family:${font};line-height:1.55}.section{padding:calc(64px * ${spacing}) 24px}.section>*,.section .split{max-width:1120px;margin-left:auto;margin-right:auto}.section h1{font-size:clamp(2.35rem,6vw,5rem);line-height:1.08;letter-spacing:-.035em;margin:12px auto 18px}.section h2{font-size:clamp(1.8rem,4vw,3rem);line-height:1.15;letter-spacing:-.025em;margin:0 auto 18px}.section p{font-size:1.08rem;max-width:750px}.section img{display:block;max-width:100%;height:auto;border-radius:16px;object-fit:cover}.section-hero,.section-cta,.section-offer{text-align:center;background:color-mix(in srgb,${primary} 7%,${background})}.section-hero p,.section-cta p,.section-offer p{margin:0 auto 22px}.section-hero img{max-height:540px;margin-top:32px}.eyebrow{color:${primary};font-weight:700;text-transform:uppercase;letter-spacing:.12em;font-size:.78rem}.button{display:inline-block;background:${primary};color:#fff;padding:13px 24px;border-radius:${radius}px;text-decoration:none;font-weight:700;box-shadow:0 8px 20px #0002}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:18px;margin-top:28px}.cards article,.cards blockquote,details{border:1px solid #8884;border-radius:14px;padding:22px;margin:0}.cards img{width:100%;aspect-ratio:4/3}.split{display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:48px}.section-header{display:flex;align-items:center;gap:20px;padding:16px 24px}.section-header img{height:44px;width:auto}.section-header .button{margin-left:auto}.section-announcement{text-align:center;padding:8px 20px;background:${primary};color:#fff}.section-announcement p{font-size:.88rem;margin:0 auto}.section-form iframe{width:100%;min-height:620px;border:1px solid #8884;border-radius:14px}.form-placeholder{border:1px dashed #999;padding:48px;text-align:center;border-radius:12px}.section-footer{background:#111;color:#fff}.section-spacer{height:32px;padding:0}.section-video iframe{width:100%;aspect-ratio:16/9;border:0}details+details{margin-top:10px}summary{cursor:pointer;font-weight:650}blockquote p{font-size:1.25rem}.section[data-section]:hover{outline:2px solid ${primary};outline-offset:-2px;cursor:pointer}@media(max-width:700px){.section{padding:42px 20px}.section-header{flex-wrap:wrap}.split{grid-template-columns:1fr;gap:24px}.section-hero img{margin-top:24px}}`;
+  const interaction=editor?`<script>document.addEventListener('click',e=>{let section=e.target.closest('[data-section]');if(section){e.preventDefault();parent.postMessage({type:'landing-select',id:section.dataset.section},'*')}})</script>`:page.id?`<script>document.addEventListener('click',e=>{let link=e.target.closest('a[href^="tel:"]');if(link)navigator.sendBeacon('/api/landing-pages/event',new Blob([JSON.stringify({pageId:'${esc(page.id)}',event:'phone_click'})],{type:'application/json'}))});document.addEventListener('focusin',e=>{if(e.target.closest('iframe'))navigator.sendBeacon('/api/landing-pages/event',new Blob([JSON.stringify({pageId:'${esc(page.id)}',event:'form_start'})],{type:'application/json'}))})</script>`:'';
+  const ga4=String(page.tracking?.ga4_id||''),gtm=String(page.tracking?.gtm_id||''),pixel=String(page.tracking?.meta_pixel_id||'');
+  const analytics=editor?'':`${/^G-[A-Z0-9]+$/.test(ga4)?`<script async src="https://www.googletagmanager.com/gtag/js?id=${ga4}"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','${ga4}')</script>`:''}${/^GTM-[A-Z0-9]+$/.test(gtm)?`<script>window.dataLayer=window.dataLayer||[];window.dataLayer.push({'gtm.start':Date.now(),event:'gtm.js'})</script><script async src="https://www.googletagmanager.com/gtm.js?id=${gtm}"></script>`:''}${/^\d{8,20}$/.test(pixel)?`<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};n.queue=[];t=b.createElement(e);t.async=true;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${pixel}');fbq('track','PageView')</script>`:''}`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(page.seo_title||page.name)}</title><meta name="description" content="${esc(page.seo_description)}">${page.social_image_url?`<meta property="og:image" content="${href(page.social_image_url)}">`:''}<style>${style}</style>${analytics}</head><body><main>${(page.sections||[]).map(s=>sectionHtml(s,formSlug,page.id||null,editor)).join('')}</main>${interaction}</body></html>`;
+}

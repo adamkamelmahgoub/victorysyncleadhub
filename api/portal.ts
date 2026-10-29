@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 import { assertNoUnsupportedProof } from '../lib/landing-ai-policy.js';
+import {mcpPool} from '../lib/mcp-auth.js';
+import {registry,sectionTypes} from '../lib/landing-section-registry.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const ORG = 'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
@@ -30,7 +32,7 @@ const querySchema = z.discriminatedUnion('action', [
 ]);
 const sectionSchema = z.object({
   id: z.string().min(1).max(100),
-  type: z.enum(['hero','text','features','image','cta','form']),
+  type: z.enum(sectionTypes),
   heading: z.string().max(5000).optional(), body: z.string().max(5000).optional(),
   buttonText: z.string().max(200).optional(), buttonUrl: z.string().max(2000).optional(),
   imageUrl: z.string().max(2000).optional(), formId: z.union([z.string().uuid(),z.literal('')]).optional(),
@@ -195,7 +197,7 @@ const aiJsonSchema = {
     title:{type:'string'},seoDescription:{type:'string'},
     sections:{type:'array',items:{type:'object',additionalProperties:false,
       required:['id','type','heading','body','buttonText','buttonUrl','imageUrl','formId','items'],
-      properties:{id:{type:'string'},type:{type:'string',enum:['hero','text','features','image','cta','form']},
+      properties:{id:{type:'string'},type:{type:'string',enum:sectionTypes},
         heading:{type:'string'},body:{type:'string'},buttonText:{type:'string'},buttonUrl:{type:'string'},
         imageUrl:{type:'string'},formId:{type:'string'},items:{type:'array',items:{type:'string'}}}}},
     theme:{type:'object',additionalProperties:false,required:['background','foreground','accent','font'],
@@ -203,6 +205,13 @@ const aiJsonSchema = {
   },
 } as const;
 async function generatePage(user: PortalUser, accountId: string, prompt: string, currentSections?: unknown) {
+  const limits=await mcpPool.query<{requests:number;spent:number;budget:number|null}>(`select
+    (select count(*)::integer from public.ai_requests where user_id=$1 and created_at>now()-interval '1 hour') requests,
+    (select coalesce(sum(cost_cents),0)::float from public.ai_requests where created_at>=date_trunc('month',now()) and client_account_id=$2) spent,
+    nullif(o.settings->>'ai_monthly_budget_cents','')::float budget
+    from public.organizations o where o.id=$3`,[user.id,accountId,ORG]);
+  if(Number(limits.rows[0]?.requests||0)>=30)throw new Error('AI request limit reached. Try again in an hour');
+  if(limits.rows[0]?.budget!=null&&Number(limits.rows[0].spent)>=Number(limits.rows[0].budget))throw new Error('Monthly AI budget reached');
   const context = await rpc<Record<string,unknown>>(user.token,'portal_ai_context',{p_account:accountId});
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error('OpenRouter is not configured');
@@ -212,19 +221,26 @@ async function generatePage(user: PortalUser, accountId: string, prompt: string,
   let lastError: Error = new Error('AI page generation failed');
   for (const model of models) {
     try {
+      let feedback='';
+      for(let attempt=0;attempt<3;attempt++){
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method:'POST',headers:{authorization:`Bearer ${key}`,'content-type':'application/json'},
         body:JSON.stringify({model,temperature:0.4,max_tokens:2200,
           response_format:{type:'json_schema',json_schema:{name:'landing_page',strict:true,schema:aiJsonSchema}},
-          messages:[{role:'system',content:'Create or edit a landing page as structured JSON. Use only facts supplied by the client. Never invent reviews, testimonials, ratings, awards, licences, guarantees, prices, results, or business credentials. Use placeholders when facts are missing. No HTML. Keep forms unlinked unless a form ID was supplied.'},
-            {role:'user',content:JSON.stringify({brief:prompt,client:context,currentSections})}]}),
+          messages:[{role:'system',content:'Create or edit a mobile-first landing page as structured JSON. Use plain words, short sentences, a service-and-city headline, one clear call to action, and the provided phone number. Never invent reviews, ratings, awards, licences, years in business, guarantees, prices, results, or business credentials. Use [Add a real customer review] and similar placeholders when facts are missing. Use only the uploaded photos provided. Never use em dashes or raw HTML. Keep forms unlinked unless a form ID was supplied.'},
+            {role:'user',content:JSON.stringify({brief:prompt,client:context,currentSections,sectionRegistry:Object.values(registry).map(({type,label,fields,maxBlocks})=>({type,label,fields,maxBlocks})),validationFeedback:feedback})}]}),
         signal:AbortSignal.timeout(45000),
       });
-      const data = await response.json() as {choices?:Array<{message?:{content?:string}}> ;error?:{message?:string}};
+      const data = await response.json() as {choices?:Array<{message?:{content?:string}}> ;error?:{message?:string};usage?:{prompt_tokens?:number;completion_tokens?:number;cost?:number}};
       if (!response.ok) throw new Error(data.error?.message || 'AI provider failed');
-      const parsed = aiResponseSchema.parse(JSON.parse(data.choices?.[0]?.message?.content || '{}'));
+      const parsedResult=aiResponseSchema.safeParse(JSON.parse(data.choices?.[0]?.message?.content || '{}'));
+      if(!parsedResult.success){feedback=parsedResult.error.issues.map(issue=>`${issue.path.join('.')}: ${issue.message}`).join('; ');if(attempt<2)continue;throw parsedResult.error}
+      const parsed=parsedResult.data;
       assertNoUnsupportedProof(parsed.sections);
+      await mcpPool.query(`insert into public.ai_requests(user_id,client_account_id,prompt_tokens,completion_tokens,cost_cents,action)
+        values($1,$2,$3,$4,$5,'landing_page_generate')`,[user.id,accountId,Number(data.usage?.prompt_tokens||0),Number(data.usage?.completion_tokens||0),Number(data.usage?.cost||0)*100]);
       return parsed;
+      }
     } catch (error) { lastError = error instanceof Error ? error : new Error(String(error)); }
   }
   throw lastError;
