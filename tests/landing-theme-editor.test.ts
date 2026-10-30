@@ -17,7 +17,10 @@ test('draft preview selection is present only in editor HTML',()=>{
   const page={name:'Draft',sections:[{id:'a',type:'hero' as const,heading:'Repair in Austin',buttonText:'Call',buttonUrl:'tel:+15125550100'}],theme:{primary:'#245eea'}};
   const preview=renderPage(page,null,true),published=renderPage(page);
   assert.match(preview,/landing-select/);
+  assert.match(preview,/landing-edit/);
+  assert.match(preview,/contenteditable="true" data-field="heading"/);
   assert.doesNotMatch(published,/landing-select/);
+  assert.doesNotMatch(published,/contenteditable/);
   assert.match(published,/tel:\+15125550100/);
 });
 
