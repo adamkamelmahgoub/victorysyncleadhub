@@ -38,53 +38,65 @@ function prefetchPage(href: string) {
   void pageModules[`../pages/${name}.tsx`]?.();
 }
 const core: Item[] = [
-  { href: "/client-portal", label: "Client portal", icon: Building2 },
-  { href: "/ai-assistant", label: "AI assistant", icon: Sparkles },
-  { href: "/call-queue", label: "Call queue", icon: Phone },
-  { href: "/companies", label: "Companies", icon: Building2 },
+  { href: "/client-portal", label: "Dashboard", icon: BarChart3 },
+  { href: "/conversations", label: "Conversations", icon: Mail },
   { href: "/leads", label: "Contacts", icon: Users },
-  { href: "/crm-tasks", label: "Tasks & follow-ups", icon: CheckSquare },
-  { href: "/trial-queue", label: "Trial schedule", icon: CalendarClock },
-  { href: "/conversations", label: "Inbox", icon: Mail },
-  { href: "/dm-queue", label: "DM queue", icon: Megaphone },
-  { href: "/me/stats", label: "My DM stats", icon: BarChart3 },
-  { href: "/dm-campaigns", label: "DM campaigns", icon: Layers },
-  { href: "/social-review", label: "Review socials", icon: Megaphone },
-  { href: "/pipeline", label: "Deal pipelines", icon: GitBranch },
+  { href: "/pipeline", label: "Opportunities", icon: GitBranch },
+  { href: "/companies", label: "Companies", icon: Building2 },
+  { href: "/crm-tasks", label: "Tasks", icon: CheckSquare },
+  { href: "/meeting-scheduler", label: "Calendars", icon: CalendarClock },
+];
+const clientCore: Item[] = [
+  { href: "/client-portal/dashboard", label: "Dashboard", icon: BarChart3 },
+  { href: "/client-portal/leads", label: "Leads", icon: Users },
+  { href: "/client-portal/calls", label: "Calls", icon: Phone },
+  { href: "/client-portal/pages", label: "Pages", icon: FileText },
+  { href: "/client-portal/forms", label: "Forms", icon: FileText },
+  { href: "/client-portal/reviews", label: "Reviews", icon: Megaphone },
+  { href: "/client-portal/reports", label: "Reports", icon: BarChart3 },
+  { href: "/client-portal/billing", label: "Billing", icon: FileText },
+  { href: "/client-portal/settings", label: "Settings", icon: Settings },
 ];
 const groups: { label: string; links: Item[] }[] = [
   {
-    label: "Sales",
-    links: [
-      { href: "/prospect-search", label: "Prospecting", icon: Search },
-      { href: "/scraper", label: "Lead finder", icon: Search },
-      { href: "/sequences", label: "Sequences", icon: Layers },
-      {
-        href: "/meeting-scheduler",
-        label: "Meeting scheduler",
-        icon: CalendarClock,
-      },
-      { href: "/lead-import", label: "Import contacts", icon: Users },
-    ],
-  },
-  {
     label: "Marketing",
     links: [
+      { href: "/landing-pages", label: "Landing pages", icon: FileText },
+      { href: "/forms", label: "Forms", icon: FileText },
       { href: "/campaigns", label: "Campaigns", icon: Megaphone },
+      { href: "/dm-campaigns", label: "DM campaigns", icon: Layers },
+      { href: "/social-planner", label: "Social workspace", icon: Megaphone },
+      { href: "/social-review", label: "Review socials", icon: Megaphone },
       { href: "/email-templates", label: "Email templates", icon: FileText },
       { href: "/email-accounts", label: "Mailboxes", icon: Mail },
       { href: "/sent-emails", label: "Sent emails", icon: Mail },
       { href: "/email-unsubscribes", label: "Unsubscribed contacts", icon: Users },
+    ],
+  },
+  {
+    label: "Automation",
+    links: [
       { href: "/automation", label: "Workflows", icon: Zap },
-      { href: "/forms", label: "Forms", icon: FileText },
-      { href: "/landing-pages", label: "Landing pages", icon: FileText },
-      { href: "/social-planner", label: "Social workspace", icon: Megaphone },
-      { href: "/social-reports", label: "Social reports", icon: BarChart3 },
+      { href: "/sequences", label: "Sequences", icon: Layers },
+      { href: "/ai-assistant", label: "AI assistant", icon: Sparkles },
+    ],
+  },
+  {
+    label: "Sales tools",
+    links: [
+      { href: "/call-queue", label: "Call queue", icon: Phone },
+      { href: "/trial-queue", label: "Trial schedule", icon: CalendarClock },
+      { href: "/dm-queue", label: "DM queue", icon: Megaphone },
+      { href: "/me/stats", label: "My DM stats", icon: BarChart3 },
+      { href: "/prospect-search", label: "Prospecting", icon: Search },
+      { href: "/scraper", label: "Lead finder", icon: Search },
+      { href: "/lead-import", label: "Import contacts", icon: Users },
     ],
   },
   {
     label: "Reports",
     links: [
+      { href: "/social-reports", label: "Social reports", icon: BarChart3 },
       { href: "/marketing-reports", label: "Marketing reports", icon: BarChart3 },
       { href: "/outreach-weekly", label: "Weekly outreach", icon: BarChart3 },
       { href: "/company-kpis", label: "Daily performance", icon: BarChart3 },
@@ -102,7 +114,7 @@ const groups: { label: string; links: Item[] }[] = [
     ],
   },
   {
-    label: "Operations",
+    label: "Settings & operations",
     links: [
       { href: "/sub-accounts", label: "Client accounts", icon: Building2 },
       { href: "/team", label: "Team & invites", icon: Users },
@@ -121,8 +133,12 @@ export function Layout({ children }: { children: ReactNode }) {
   const [mobile, setMobile] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [search, setSearch] = useState("");
+  const [pageSearch, setPageSearch] = useState("");
+  const [pageSearchOpen, setPageSearchOpen] = useState(false);
   const [refreshLiveSegments, setRefreshLiveSegments] = useState(false);
   const { user, role, pagePermissions, signOut } = useAuth();
+  const clientWorkspace = role === "client_owner" || role === "client_staff";
+  const primary = clientWorkspace ? clientCore : core;
   const canSeeSegments = role !== "client" && role !== "agent" && canAccessPath("/segments", pagePermissions, role);
   const { data: segmentResponse } = useQuery<Array<{id:string;name:string;contactCount:number}>>({ queryKey: ["segments"], queryFn: () => apiFetch("/api/segments"), enabled: canSeeSegments, staleTime: 5 * 60_000, refetchOnWindowFocus: false });
   const { data: liveSegmentResponse } = useQuery<Array<{id:string;name:string;contactCount:number}>>({ queryKey: ["segments", "live"], queryFn: () => apiFetch("/api/segments?liveCounts=1"), enabled: canSeeSegments && refreshLiveSegments, staleTime: 5 * 60_000, refetchOnWindowFocus: false });
@@ -130,7 +146,9 @@ export function Layout({ children }: { children: ReactNode }) {
   const path = location.replace(/^\/leadgen/, "") || "/";
   const landingEditor = /^\/landing-pages\/[0-9a-f-]{36}$/i.test(path);
   const active = (href: string) =>
-    href === "/companies"
+    href === "/client-portal"
+      ? path === "/client-portal" || path === "/client-portal/dashboard"
+      : href === "/companies"
       ? path === "/" || path === "/dashboard" || path.startsWith("/companies")
       : href === "/leads" ? path.startsWith("/leads") || path.startsWith("/contacts/segments") : path.startsWith(href);
   useEffect(() => setMobile(false), [location]);
@@ -145,10 +163,27 @@ export function Layout({ children }: { children: ReactNode }) {
     window.addEventListener("keydown", dismiss);
     return () => window.removeEventListener("keydown", dismiss);
   }, [mobile]);
+  useEffect(() => {
+    const shortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPageSearchOpen((open) => !open);
+      } else if (event.key === "Escape") {
+        setPageSearchOpen(false);
+      }
+    };
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  }, []);
+  const searchablePages = [...primary, ...groups.flatMap((group) => group.links),
+    { href: "/settings", label: "Settings", icon: Settings }]
+    .filter((item) => canAccessPath(item.href, pagePermissions, role))
+    .filter((item) => item.label.toLowerCase().includes(pageSearch.trim().toLowerCase()));
   const current =
-    [...core, ...groups.flatMap((group) => group.links)].find((item) =>
+    [...primary, ...groups.flatMap((group) => group.links)].find((item) =>
       active(item.href),
-    )?.label ?? "Workspace";
+    )?.label ?? (path.startsWith("/client-portal/")
+      ? `Client ${path.split("/")[2]}` : "Workspace");
   function navLink(item: Item) {
     return !canAccessPath(item.href, pagePermissions, role) ? null : (
       <Link
@@ -195,12 +230,16 @@ export function Layout({ children }: { children: ReactNode }) {
             </span>
           )}
         </Link>
+        {(!collapsed || mobile) && <button type="button" onClick={() => setPageSearchOpen(true)}
+          className="mx-3 mb-3 flex h-10 items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 text-left text-xs text-slate-300 hover:border-slate-500 hover:text-white">
+          <Search className="h-4 w-4"/><span className="flex-1">Find a page</span><kbd className="rounded border border-slate-700 px-1.5 py-0.5 text-[10px]">Ctrl K</kbd>
+        </button>}
         <nav
           aria-label="Workspace navigation"
           className="flex-1 space-y-1 overflow-y-auto px-3 pb-5 pt-2"
         >
-          {(!collapsed || mobile) && <p className="px-3 pb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Workspace</p>}
-          {core.map(navLink)}
+          {(!collapsed || mobile) && <p className="px-3 pb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Main menu</p>}
+          {primary.map(navLink)}
           {(!collapsed || mobile) && canSeeSegments && <div className="ml-7 border-l border-slate-700 pl-2">
             <Link href="/segments" onMouseEnter={() => prefetchPage("/segments")} onFocus={() => prefetchPage("/segments")} className="block rounded px-2 py-1 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white">Segments</Link>
             {segments.map((segment) => <Link key={segment.id} href={`/contacts/segments/${segment.id}`} onMouseEnter={() => void pageModules["../pages/segment-detail.tsx"]?.()} onFocus={() => void pageModules["../pages/segment-detail.tsx"]?.()} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-white"><span className="truncate">{segment.name}</span><span>{segment.contactCount.toLocaleString()}</span></Link>)}
@@ -228,7 +267,7 @@ export function Layout({ children }: { children: ReactNode }) {
             : groups.flatMap((group) => group.links).map(navLink)}
         </nav>
         <div className="space-y-3 border-t border-slate-800 px-3 py-4">
-          {navLink({ href: "/settings", label: "Settings", icon: Settings })}
+          {!clientWorkspace && navLink({ href: "/settings", label: "Settings", icon: Settings })}
           <div className="flex items-center gap-2 px-2">
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
               {user?.email?.[0]?.toUpperCase() ?? "V"}
@@ -256,7 +295,7 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-[72px] shrink-0 items-center gap-3 border-b border-slate-200/70 bg-white px-4 sm:px-8">
+        <header className="flex min-h-[72px] shrink-0 flex-wrap items-center gap-3 border-b border-slate-200/70 bg-white px-4 py-3 sm:px-8">
           <button
             className="rounded p-1.5 text-slate-500 md:hidden"
             aria-label={mobile ? "Close menu" : "Open menu"}
@@ -284,9 +323,10 @@ export function Layout({ children }: { children: ReactNode }) {
           <span className="truncate text-xs font-medium text-slate-600">
             {current}
           </span>
+          <div className="ml-auto"><AccountSwitcher /></div>
           {canAccessPath("/companies", pagePermissions, role) && (
             <form
-              className="relative ml-auto w-40 sm:w-72"
+              className="relative w-full min-w-[160px] flex-1 sm:max-w-64 sm:flex-none"
               onSubmit={(event) => {
                 event.preventDefault();
                 navigate(`/companies?q=${encodeURIComponent(search.trim())}`);
@@ -303,12 +343,17 @@ export function Layout({ children }: { children: ReactNode }) {
               />
             </form>
           )}
-          <AccountSwitcher />
         </header>
         <main id="workspace-content" className={`workspace-content min-h-0 min-w-0 flex-1 overflow-y-auto ${landingEditor ? 'p-0' : 'px-4 py-6 sm:px-8 sm:py-8'}`}>
           <div className={landingEditor ? 'h-full min-w-0 w-full' : 'mx-auto w-full max-w-[1600px]'}>{children}</div>
         </main>
       </div>
+      {pageSearchOpen && <div className="fixed inset-0 z-[80] flex items-start justify-center bg-slate-950/50 px-4 pt-[12vh]" onMouseDown={() => setPageSearchOpen(false)}>
+        <div role="dialog" aria-modal="true" aria-label="Find a page" className="w-full max-w-xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="flex items-center gap-3 border-b px-4"><Search className="h-5 w-5 text-slate-400"/><input autoFocus aria-label="Search pages" value={pageSearch} onChange={(event) => setPageSearch(event.target.value)} placeholder="Search pages..." className="h-14 min-w-0 flex-1 bg-transparent text-sm outline-none"/><button type="button" aria-label="Close page search" onClick={() => setPageSearchOpen(false)}><X className="h-4 w-4 text-slate-500"/></button></div>
+          <div className="max-h-[50vh] overflow-y-auto p-2">{searchablePages.length ? searchablePages.map((item) => <button type="button" key={item.href} onClick={() => { navigate(item.href); setPageSearchOpen(false); setPageSearch(""); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 focus:bg-slate-100"><item.icon className="h-4 w-4 text-slate-500"/>{item.label}</button>) : <p className="px-3 py-8 text-center text-sm text-slate-500">No matching pages</p>}</div>
+        </div>
+      </div>}
     </div>
   );
 }

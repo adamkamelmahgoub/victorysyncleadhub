@@ -21,9 +21,9 @@ export function AccountSwitcher() {
     await queryClient.invalidateQueries({queryKey:['portal-accounts']});
     navigate(value ? '/client-portal/dashboard' : '/client-portal');
   }
-  return <label className="flex items-center gap-2 text-xs text-slate-600">
-    <span className="hidden lg:inline">Account</span>
-    <select aria-label="Selected client account" className="max-w-48 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs"
+  return <label className="flex min-w-0 items-center gap-2 text-xs text-slate-600">
+    <span className="hidden font-medium lg:inline">Account</span>
+    <select aria-label="Selected client account" className="h-10 max-w-[min(54vw,240px)] rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
       value={data.selected?.accountId ?? (data.accounts.length === 1 && !agency ? data.accounts[0].id : '')}
       onChange={event => void select(event.target.value)}>
       {agency && <option value="">Agency view</option>}
