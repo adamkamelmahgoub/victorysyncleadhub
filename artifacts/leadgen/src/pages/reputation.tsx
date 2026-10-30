@@ -3,14 +3,15 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Star, TrendingUp, Send, MessageSquare, Search, Plus,
-  CheckCircle, AlertCircle, Globe, Settings, Trash2,
-  ExternalLink, Mail, Phone, ChevronDown, BarChart3,
+  CheckCircle, AlertCircle, Globe, Trash2,
+  ExternalLink, BarChart3,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { asArray } from "@/lib/data-shape";
+import { Link } from "wouter";
 
 interface ReviewSource {
-  id: number;
+  id: string;
   platform: string;
   name: string;
   businessId?: string;
@@ -23,7 +24,7 @@ interface ReviewSource {
 }
 
 interface Review {
-  id: number;
+  id: string;
   platform: string;
   reviewer: string;
   rating: number;
@@ -45,7 +46,7 @@ interface ReviewStats {
 }
 
 interface ReviewRequest {
-  id: number;
+  id: string;
   contactName: string;
   contactEmail?: string;
   contactPhone?: string;
@@ -83,7 +84,7 @@ function StarRow({ rating, size = "sm" }: { rating: number; size?: "sm" | "lg" }
 
 const SENTIMENT_COLORS = { positive: "text-green-600 bg-green-50", neutral: "text-amber-600 bg-amber-50", negative: "text-red-600 bg-red-50" };
 
-function ReviewCard({ review, onReply, onDelete }: { review: Review; onReply: (id: number, text: string) => void; onDelete: (id: number) => void }) {
+function ReviewCard({ review, onReply, onDelete }: { review: Review; onReply: (id: string, text: string) => void; onDelete: (id: string) => void }) {
   const [showReply, setShowReply] = useState(false);
   const [replyText, setReplyText] = useState(review.reply ?? "");
   const cfg = PLATFORM_CONFIG[review.platform.toLowerCase()] ?? PLATFORM_CONFIG.google!;
@@ -118,14 +119,14 @@ function ReviewCard({ review, onReply, onDelete }: { review: Review; onReply: (i
 
       {review.reply ? (
         <div className="bg-muted/40 border border-border rounded-lg p-3">
-          <div className="text-xs font-semibold text-muted-foreground mb-1 flex items-center gap-1"><CheckCircle className="w-3 h-3 text-green-500" /> Your Reply</div>
+          <div className="text-xs font-semibold text-muted-foreground mb-1 flex items-center gap-1"><CheckCircle className="w-3 h-3 text-green-500" /> Reply note saved in CRM</div>
           <p className="text-xs text-foreground">{review.reply}</p>
         </div>
       ) : (
         <div>
           {!showReply ? (
             <button onClick={() => setShowReply(true)} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium">
-              <MessageSquare className="w-3.5 h-3.5" /> Reply to this review
+              <MessageSquare className="w-3.5 h-3.5" /> Draft a reply note
             </button>
           ) : (
             <div className="space-y-2">
@@ -137,7 +138,7 @@ function ReviewCard({ review, onReply, onDelete }: { review: Review; onReply: (i
                 className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 resize-none"
               />
               <div className="flex gap-2">
-                <button onClick={() => { onReply(review.id, replyText); setShowReply(false); }} disabled={!replyText.trim()} className="px-3 py-1.5 text-xs bg-primary text-white rounded-lg font-medium hover:bg-primary/90 disabled:opacity-40">Post Reply</button>
+                <button onClick={() => { onReply(review.id, replyText); setShowReply(false); }} disabled={!replyText.trim()} className="px-3 py-1.5 text-xs bg-primary text-white rounded-lg font-medium hover:bg-primary/90 disabled:opacity-40">Save reply note</button>
                 <button onClick={() => setShowReply(false)} className="px-3 py-1.5 text-xs border border-border rounded-lg text-muted-foreground hover:bg-muted">Cancel</button>
               </div>
             </div>
@@ -163,8 +164,7 @@ export default function Reputation() {
   const [addSourcePlatform, setAddSourcePlatform] = useState("google");
   const [addSourceFields, setAddSourceFields] = useState({ name: "", businessId: "", reviewUrl: "" });
   const [showAddReview, setShowAddReview] = useState(false);
-  const [newReview, setNewReview] = useState({ platform: "google", reviewer: "", rating: 5, text: "" });
-  const [requestForm, setRequestForm] = useState({ contactName: "", contactEmail: "", contactPhone: "", channel: "email" as "email" | "sms", platform: "google" });
+  const [newReview, setNewReview] = useState({ platform: "google", reviewer: "", rating: 5, text: "", reviewUrl: "", confirmedReal: false });
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
   function showToast(msg: string, type: "success" | "error" = "success") {
@@ -188,29 +188,25 @@ export default function Reputation() {
   });
 
   const deleteSource = useMutation({
-    mutationFn: (id: number) => apiFetch(`/api/review-sources/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) => apiFetch(`/api/review-sources/${id}`, { method: "DELETE" }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["review-sources"] }); showToast("Source removed."); },
   });
 
   const addReview = useMutation({
     mutationFn: (body: object) => apiFetch("/api/reviews", { method: "POST", body: JSON.stringify(body) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["reviews"] }); qc.invalidateQueries({ queryKey: ["review-stats"] }); setShowAddReview(false); setNewReview({ platform: "google", reviewer: "", rating: 5, text: "" }); showToast("Review added!"); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["reviews"] }); qc.invalidateQueries({ queryKey: ["review-stats"] }); setShowAddReview(false); setNewReview({ platform: "google", reviewer: "", rating: 5, text: "", reviewUrl: "", confirmedReal: false }); showToast("Review added."); },
   });
 
   const replyToReview = useMutation({
-    mutationFn: ({ id, reply }: { id: number; reply: string }) => apiFetch(`/api/reviews/${id}/reply`, { method: "PATCH", body: JSON.stringify({ reply }) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["reviews"] }); qc.invalidateQueries({ queryKey: ["review-stats"] }); showToast("Reply posted!"); },
+    mutationFn: ({ id, reply }: { id: string; reply: string }) => apiFetch(`/api/reviews/${id}/reply`, { method: "PATCH", body: JSON.stringify({ reply }) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["reviews"] }); qc.invalidateQueries({ queryKey: ["review-stats"] }); showToast("Reply note saved in CRM. Publish it on the review platform separately."); },
   });
 
   const deleteReview = useMutation({
-    mutationFn: (id: number) => apiFetch(`/api/reviews/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) => apiFetch(`/api/reviews/${id}`, { method: "DELETE" }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["reviews"] }); qc.invalidateQueries({ queryKey: ["review-stats"] }); },
   });
-
-  const sendRequest = useMutation({
-    mutationFn: (body: object) => apiFetch("/api/review-requests", { method: "POST", body: JSON.stringify(body) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["review-requests"] }); setRequestForm({ contactName: "", contactEmail: "", contactPhone: "", channel: "email", platform: "google" }); showToast("Review request sent!"); },
-  });
+  const actionError = [addSource.error,deleteSource.error,addReview.error,replyToReview.error,deleteReview.error].find(Boolean);
 
   const filtered = reviews.filter((r) => {
     if (search) {
@@ -232,6 +228,7 @@ export default function Reputation() {
   return (
     <>
       <div className="page-stack ">
+        {actionError && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{String(actionError)}</div>}
         {toast && (
           <div className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium flex items-center gap-2 ${toast.type === "success" ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700"}`}>
             {toast.type === "success" ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}{toast.msg}
@@ -241,9 +238,9 @@ export default function Reputation() {
         <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
           <div>
             <PageTitle>Reputation Management</PageTitle>
-            <PageDescription>Monitor and manage your reviews across all platforms</PageDescription>
+            <PageDescription>Track verified reviews and prepare replies for your review platforms.</PageDescription>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button onClick={() => { setTab("reviews"); setShowAddReview(true); }} className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-lg text-muted-foreground hover:bg-muted">
               <Plus className="w-4 h-4" /> Add Review
             </button>
@@ -253,9 +250,9 @@ export default function Reputation() {
           </div>
         </div>
 
-        <div className="flex gap-1 border-b border-border">
+        <div className="flex gap-1 overflow-x-auto border-b border-border">
           {TABS.map((t) => (
-            <button key={t.id} onClick={() => setTab(t.id)} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === t.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+            <button key={t.id} onClick={() => setTab(t.id)} className={`shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === t.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
               {t.label}
             </button>
           ))}
@@ -277,13 +274,13 @@ export default function Reputation() {
                 <button onClick={() => { setTab("reviews"); setReplyFilter("unanswered"); }} className="text-xs text-primary hover:underline mt-1">View unanswered</button>
               </div>
               <div className="bg-white rounded-xl border border-border shadow-sm p-5">
-                <div className="text-xs text-muted-foreground mb-1">Platforms Connected</div>
+                <div className="text-xs text-muted-foreground mb-1">Sources Tracked</div>
                 <div className="text-3xl font-bold text-blue-600">{sources.filter((s) => s.isActive).length}</div>
                 <button onClick={() => setTab("sources")} className="text-xs text-primary hover:underline mt-1">Manage sources</button>
               </div>
               <div className="bg-white rounded-xl border border-border shadow-sm p-5">
                 <div className="text-xs text-muted-foreground mb-1">Requests Sent</div>
-                <div className="text-3xl font-bold text-green-600">{requests.length}</div>
+                <div className="text-3xl font-bold text-green-600">{requests.filter((request) => request.status === 'sent' || request.status === 'clicked').length}</div>
                 <div className="text-xs text-muted-foreground mt-1">{requests.filter((r) => r.clickedAt).length} clicked</div>
               </div>
             </div>
@@ -343,7 +340,7 @@ export default function Reputation() {
         {tab === "sources" && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">Connect your review platforms to track and manage all reviews in one place</p>
+              <p className="text-sm text-muted-foreground">Save public review links for each platform. Reviews are added with their original URL.</p>
               <button onClick={() => setShowAddSource(true)} className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90">
                 <Plus className="w-4 h-4" /> Add Source
               </button>
@@ -360,7 +357,8 @@ export default function Reputation() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {sources.map((source) => {
                   const cfg = PLATFORM_CONFIG[source.platform] ?? PLATFORM_CONFIG.google!;
-                  const avg = parseFloat(source.avgRating ?? "0");
+                  const platform = platformStats.find((item) => item.platform === source.platform);
+                  const avg = parseFloat(platform?.avg ?? "0");
                   return (
                     <div key={source.id} className={`bg-white rounded-xl border shadow-sm p-5 ${source.isActive ? cfg.border : "border-border"}`}>
                       <div className="flex items-start gap-3 mb-4">
@@ -378,11 +376,11 @@ export default function Reputation() {
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                         <div className="bg-muted/40 rounded-lg p-3">
-                          <div className="text-xs text-muted-foreground">Reviews</div>
-                          <div className="text-xl font-bold text-foreground">{source.reviewCount}</div>
+                          <div className="text-xs text-muted-foreground">Platform reviews</div>
+                          <div className="text-xl font-bold text-foreground">{platform?.count ?? 0}</div>
                         </div>
                         <div className="bg-muted/40 rounded-lg p-3">
-                          <div className="text-xs text-muted-foreground">Avg Rating</div>
+                          <div className="text-xs text-muted-foreground">Platform rating</div>
                           <div className="text-xl font-bold text-amber-500">{avg > 0 ? avg.toFixed(1) : "—"}</div>
                         </div>
                       </div>
@@ -464,44 +462,9 @@ export default function Reputation() {
         {tab === "request" && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div className="bg-white rounded-xl border border-border shadow-sm p-6 space-y-5">
-              <h3 className="font-semibold text-foreground">Send a Review Request</h3>
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground block mb-1.5">Contact Name *</label>
-                  <input value={requestForm.contactName} onChange={(e) => setRequestForm((f) => ({ ...f, contactName: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="Enter contact name" />
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground block mb-1.5">Email</label>
-                    <input type="email" value={requestForm.contactEmail} onChange={(e) => setRequestForm((f) => ({ ...f, contactEmail: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="sarah@company.com" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground block mb-1.5">Phone</label>
-                    <input type="tel" value={requestForm.contactPhone} onChange={(e) => setRequestForm((f) => ({ ...f, contactPhone: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="+1 555 0100" />
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground block mb-1.5">Send via</label>
-                    <div className="flex gap-2">
-                      {(["email", "sms"] as const).map((c) => (
-                        <button key={c} onClick={() => setRequestForm((f) => ({ ...f, channel: c }))} className={`flex-1 py-2 text-xs font-medium rounded-lg border transition-colors ${requestForm.channel === c ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
-                          {c === "email" ? <><Mail className="w-3.5 h-3.5 inline mr-1" />Email</> : <><Phone className="w-3.5 h-3.5 inline mr-1" />SMS</>}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground block mb-1.5">Review Platform</label>
-                    <select value={requestForm.platform} onChange={(e) => setRequestForm((f) => ({ ...f, platform: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none">
-                      {AVAILABLE_PLATFORMS.map((p) => <option key={p.key} value={p.key} className="capitalize">{p.key.charAt(0).toUpperCase() + p.key.slice(1)}</option>)}
-                    </select>
-                  </div>
-                </div>
-              </div>
-              <button onClick={() => sendRequest.mutate(requestForm)} disabled={!requestForm.contactName || sendRequest.isPending} className="w-full py-2.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 disabled:opacity-40 flex items-center justify-center gap-2">
-                <Send className="w-4 h-4" />{sendRequest.isPending ? "Sending..." : "Send Review Request"}
-              </button>
+              <h3 className="font-semibold text-foreground">Request a review for a client</h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">Choose the client account, then select an eligible customer who submitted a form or called the business. Requests are scheduled from the client portal and show their actual delivery status.</p>
+              <Link href="/client-portal/reviews" className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"><Send className="h-4 w-4"/>Open client reviews</Link>
             </div>
 
             <div className="bg-white rounded-xl border border-border shadow-sm p-5">
@@ -522,7 +485,7 @@ export default function Reputation() {
                           <div className="text-xs text-muted-foreground">{r.channel} · {r.platform} · {new Date(r.sentAt).toLocaleDateString()}</div>
                         </div>
                         <div className={`text-xs px-2 py-0.5 rounded-full font-medium border ${r.clickedAt ? "bg-green-50 text-green-700 border-green-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
-                          {r.clickedAt ? "Clicked" : "Sent"}
+                          {r.clickedAt ? "Clicked" : r.status === "pending" ? "Scheduled" : r.status === "sent" ? "Sent" : r.status}
                         </div>
                       </div>
                     );
@@ -537,7 +500,7 @@ export default function Reputation() {
       {/* Add Source Modal */}
       {showAddSource && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowAddSource(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md border border-border" onClick={(e) => e.stopPropagation()}>
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
               <h3 className="font-semibold text-foreground">Add Review Source</h3>
               <button onClick={() => setShowAddSource(false)} className="text-muted-foreground hover:text-foreground">✕</button>
@@ -563,13 +526,14 @@ export default function Reputation() {
                 <input value={addSourceFields.businessId} onChange={(e) => setAddSourceFields((f) => ({ ...f, businessId: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="e.g. ChIJ... for Google" />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1.5">Review Link URL</label>
+                <label className="text-xs font-medium text-muted-foreground block mb-1.5">Review Link URL *</label>
                 <input value={addSourceFields.reviewUrl} onChange={(e) => setAddSourceFields((f) => ({ ...f, reviewUrl: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder={PLATFORM_CONFIG[addSourcePlatform]?.urlPattern ?? "https://"} />
               </div>
+              {addSource.error && <p role="alert" className="text-sm text-red-600">{String(addSource.error)}</p>}
             </div>
             <div className="px-6 pb-6 flex gap-2 justify-end">
               <button onClick={() => setShowAddSource(false)} className="px-4 py-2 text-sm font-medium border border-border rounded-lg text-muted-foreground">Cancel</button>
-              <button onClick={() => addSource.mutate({ platform: addSourcePlatform, name: addSourceFields.name || `${addSourcePlatform} Reviews`, businessId: addSourceFields.businessId || undefined, reviewUrl: addSourceFields.reviewUrl || undefined })} disabled={addSource.isPending} className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-40">
+              <button onClick={() => addSource.mutate({ platform: addSourcePlatform, name: addSourceFields.name || `${addSourcePlatform} Reviews`, businessId: addSourceFields.businessId || undefined, reviewUrl: addSourceFields.reviewUrl })} disabled={addSource.isPending || !addSourceFields.reviewUrl.startsWith('https://')} className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-40">
                 {addSource.isPending ? "Adding..." : "Add Source"}
               </button>
             </div>
@@ -580,7 +544,7 @@ export default function Reputation() {
       {/* Add Review Modal */}
       {showAddReview && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowAddReview(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md border border-border" onClick={(e) => e.stopPropagation()}>
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
               <h3 className="font-semibold text-foreground">Add Review</h3>
               <button onClick={() => setShowAddReview(false)} className="text-muted-foreground hover:text-foreground">✕</button>
@@ -612,10 +576,13 @@ export default function Reputation() {
                 <label className="text-xs font-medium text-muted-foreground block mb-1.5">Review Text</label>
                 <textarea value={newReview.text} onChange={(e) => setNewReview((r) => ({ ...r, text: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 resize-none" rows={3} placeholder="Great service!" />
               </div>
+              <div><label className="text-xs font-medium text-muted-foreground block mb-1.5">Public review URL *</label><input type="url" value={newReview.reviewUrl} onChange={(e) => setNewReview((r) => ({ ...r, reviewUrl: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none" placeholder="https://..." /></div>
+              <label className="flex items-start gap-2 text-xs text-muted-foreground"><input type="checkbox" checked={newReview.confirmedReal} onChange={(e) => setNewReview((r) => ({ ...r, confirmedReal: e.target.checked }))} className="mt-0.5"/><span>I confirm this is a real customer review and the name, rating, and text match the public source.</span></label>
+              {addReview.error && <p role="alert" className="text-sm text-red-600">{String(addReview.error)}</p>}
             </div>
             <div className="px-6 pb-6 flex gap-2 justify-end">
               <button onClick={() => setShowAddReview(false)} className="px-4 py-2 text-sm font-medium border border-border rounded-lg text-muted-foreground">Cancel</button>
-              <button onClick={() => addReview.mutate(newReview)} disabled={!newReview.reviewer || addReview.isPending} className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-40">
+              <button onClick={() => addReview.mutate(newReview)} disabled={!newReview.reviewer.trim() || !newReview.reviewUrl.startsWith('https://') || !newReview.confirmedReal || addReview.isPending} className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-40">
                 {addReview.isPending ? "Adding..." : "Add Review"}
               </button>
             </div>

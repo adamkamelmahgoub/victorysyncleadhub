@@ -12,6 +12,8 @@ import { mailboxTransport } from '../artifacts/api-server/src/lib/email-transpor
 import { inboxAdapter } from '../artifacts/api-server/src/lib/inbox-adapters.js';
 import { WorkflowService,isWorkflowEndpoint,isPublicWorkflowEndpoint } from '../lib/workflow-service.js';
 import { normalizeSegmentFilters, segmentFilterSummary, validateSegmentFilters } from '../lib/segment-filters.js';
+import { reviewStats } from '../lib/review-stats.js';
+import { z } from 'zod';
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 
 type VercelRequest = {
@@ -509,7 +511,7 @@ function apiPermissionForPath(path: string) {
     [/^\/api\/automation/, "automation"],
     [/^\/api\/forms/, "forms"],
     [/^\/api\/(?:integrations|webhooks|oauth)/, "integrations"],
-    [/^\/api\/reviews/, "reputation"],
+    [/^\/api\/(?:reviews|review-sources|review-requests)(?:\/|$)/, "reputation"],
     [/^\/api\/(?:analytics|revenue)/, "reporting"],
     [/^\/api\/(?:affiliates|referrals)/, "affiliates"],
     [/^\/api\/(?:api-keys|onboarding)/, "settings"],
@@ -847,7 +849,7 @@ async function supabaseRest(path: string, init: FetchInit, req?: VercelRequest) 
   }
 
   const inboundAuth = req ? getHeader(req, "authorization") : undefined;
-  const authorization = /^leads(?:\?|$)/.test(path) && inboundAuth
+  const authorization = /^(?:leads|reviews|review_sources|review_requests)(?:\?|$)/.test(path) && inboundAuth
     ? inboundAuth
     : hasServiceRole ? `Bearer ${supabaseKey}` : inboundAuth;
 
@@ -1123,6 +1125,26 @@ async function listResource(config: ResourceConfig, req: VercelRequest, res: Ver
 
 async function createResource(config: ResourceConfig, req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as Record<string, unknown>;
+  if(config.table==='review_requests'){
+    sendJson(res,409,{error:'Use the client portal to schedule a review request for an opted-in customer.'});return;
+  }
+  if(config.table==='reviews'){
+    const checked=z.object({platform:z.enum(['google','facebook','yelp','g2','trustpilot','capterra']),
+      reviewer:z.string().trim().min(1).max(200),rating:z.number().int().min(1).max(5),
+      text:z.string().trim().max(5000),reviewUrl:z.string().url().startsWith('https://'),
+      confirmedReal:z.literal(true)}).strict().safeParse(body);
+    if(!checked.success){sendJson(res,400,{error:'A real public review URL and confirmation are required.'});return;}
+    const {confirmedReal:_,...review}=checked.data;
+    Object.assign(body,review);
+    delete body.confirmedReal;
+    body.sentiment=review.rating>=4?'positive':review.rating===3?'neutral':'negative';
+  }
+  if(config.table==='review_sources'){
+    const checked=z.object({platform:z.enum(['google','facebook','yelp','g2','trustpilot','capterra']),
+      name:z.string().trim().min(1).max(200),businessId:z.string().max(200).optional(),
+      reviewUrl:z.string().url().startsWith('https://')}).strict().safeParse(body);
+    if(!checked.success){sendJson(res,400,{error:'A valid source name and HTTPS review link are required.'});return;}
+  }
   if (config.table === "pipeline_stages" && String(body.name ?? "").trim().toLowerCase() === "meeting booked") {
     sendJson(res, 409, { error: "Meeting Booked already exists in every pipeline" }); return;
   }
@@ -1305,6 +1327,9 @@ async function handleAffiliateReferrals(affiliateId: string, method: string, req
 async function handleGenericResource(path: string, method: string, req: VercelRequest, res: VercelResponse) {
   const match = genericResourcePath(path);
   if (!match) return false;
+  if(match.key==='review-requests' && method!=='GET'){
+    sendJson(res,405,{error:'Review requests are managed through the client portal and delivery worker.'});return true;
+  }
 
   const config = resourceConfigs[match.key];
   if (!config) return false;
@@ -1358,10 +1383,11 @@ async function handleGenericResource(path: string, method: string, req: VercelRe
   }
 
   if (match.key === "reviews" && match.id && match.action === "reply" && method === "PATCH") {
-    const body = (await readJson(req)) as { reply?: string };
+    const body = z.object({reply:z.string().trim().min(1).max(5000)}).strict().safeParse(await readJson(req));
+    if(!body.success){sendJson(res,400,{error:'A reply note is required.'});return true;}
     await updateResource(config, match.id, {
       ...req,
-      body: { reply: body.reply ?? "", repliedAt: new Date().toISOString() },
+      body: { reply: body.data.reply, repliedAt: new Date().toISOString() },
     }, res);
     return true;
   }
@@ -2920,19 +2946,10 @@ async function handleLeadChildren(path: string, method: string, currentUser: Aut
 }
 
 async function getReviewStats(req: VercelRequest, res: VercelResponse) {
-  const reviews = (await supabaseRest("reviews?select=rating,is_read,reply", {
+  const reviews = (await supabaseRest("reviews?select=rating,platform,is_read,reply", {
     method: "GET",
-  }, req)) as Array<{ rating?: number; is_read?: boolean; reply?: string | null }>;
-  const total = reviews.length;
-  const average = total
-    ? reviews.reduce((sum, review) => sum + Number(review.rating ?? 0), 0) / total
-    : 0;
-  sendJson(res, 200, {
-    total,
-    averageRating: Number(average.toFixed(1)),
-    unread: reviews.filter((review) => !review.is_read).length,
-    unanswered: reviews.filter((review) => !review.reply).length,
-  });
+  }, req)) as Array<{ rating:number|null;platform:string|null;is_read:boolean|null;reply:string|null }>;
+  sendJson(res,200,reviewStats(reviews));
 }
 
 async function getPipelineLeads(req: VercelRequest, res: VercelResponse, currentUser: AuthenticatedUser) {
