@@ -128,6 +128,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const { data: liveSegmentResponse } = useQuery<Array<{id:string;name:string;contactCount:number}>>({ queryKey: ["segments", "live"], queryFn: () => apiFetch("/api/segments?liveCounts=1"), enabled: canSeeSegments && refreshLiveSegments, staleTime: 5 * 60_000, refetchOnWindowFocus: false });
   const segments = asArray<{id:string;name:string;contactCount:number}>(liveSegmentResponse ?? segmentResponse);
   const path = location.replace(/^\/leadgen/, "") || "/";
+  const landingEditor = /^\/landing-pages\/[0-9a-f-]{36}$/i.test(path);
   const active = (href: string) =>
     href === "/companies"
       ? path === "/" || path === "/dashboard" || path.startsWith("/companies")
@@ -304,8 +305,8 @@ export function Layout({ children }: { children: ReactNode }) {
           )}
           <AccountSwitcher />
         </header>
-        <main id="workspace-content" className="workspace-content min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8 sm:py-8">
-          <div className="mx-auto w-full max-w-[1600px]">{children}</div>
+        <main id="workspace-content" className={`workspace-content min-h-0 min-w-0 flex-1 overflow-y-auto ${landingEditor ? 'p-0' : 'px-4 py-6 sm:px-8 sm:py-8'}`}>
+          <div className={landingEditor ? 'h-full min-w-0 w-full' : 'mx-auto w-full max-w-[1600px]'}>{children}</div>
         </main>
       </div>
     </div>

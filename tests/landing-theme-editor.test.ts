@@ -18,6 +18,7 @@ test('draft preview selection is present only in editor HTML',()=>{
   const preview=renderPage(page,null,true),published=renderPage(page);
   assert.match(preview,/landing-select/);
   assert.match(preview,/landing-edit/);
+  assert.match(preview,/landing-height/);
   assert.match(preview,/contenteditable="true" data-field="heading"/);
   assert.doesNotMatch(published,/landing-select/);
   assert.doesNotMatch(published,/contenteditable/);
