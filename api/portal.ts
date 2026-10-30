@@ -12,6 +12,8 @@ const uuid = z.string().uuid();
 const section = z.enum(['dashboard','leads','calls','pages','forms','reviews','reports','billing','settings']);
 const querySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('accounts') }),
+  z.object({ action: z.literal('agency_overview') }),
+  z.object({ action: z.literal('failed_automations') }),
   z.object({ action: z.literal('closed_companies') }),
   z.object({ action: z.literal('features') }),
   z.object({ action: z.literal('staff') }),
@@ -89,6 +91,9 @@ const postSchema = z.discriminatedUnion('action', [
   z.object({action:z.literal('invite_staff'),name:z.string().trim().min(1).max(200),email:z.string().email().max(320)}).strict(),
   z.object({action:z.literal('set_ai_model'),model:z.string().regex(/^[a-zA-Z0-9._:-]+\/[a-zA-Z0-9._:-]+$/).max(150)}).strict(),
   z.object({action:z.literal('update_account'),settings:accountSettingsSchema}).strict(),
+  z.object({action:z.literal('apply_template'),accountId:uuid,template:z.enum(['starter','scale','domination','overflow','business_hours','coverage_247','appt_part_time','appt_full_time','revive','custom'])}).strict(),
+  z.object({action:z.literal('retry_automation'),runId:uuid}).strict(),
+  z.object({action:z.literal('set_account_mrr'),accountId:uuid,mrrCents:z.number().int().min(0).max(100_000_000)}).strict(),
   z.object({ action: z.literal('create_client'), companyId: uuid,
     package: z.enum(['starter','scale','domination','overflow','business_hours','coverage_247','appt_part_time','appt_full_time','revive','custom']),
     ownerEmail: z.string().email().max(320),ownerName: z.string().trim().min(1).max(200) }).strict(),
@@ -244,6 +249,8 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
         const accounts = await rpc<unknown>(user.token,'portal_accounts');
         return send(res,200,{accounts,selected:verify(req,user.id)});
       }
+      if (parsed.action === 'agency_overview') return send(res,200,await rpc(user.token,'portal_agency_overview'));
+      if (parsed.action === 'failed_automations') return send(res,200,await rpc(user.token,'portal_failed_automations'));
       if (parsed.action === 'closed_companies') return send(res,200,await rpc(user.token,'portal_closed_companies'));
       if (parsed.action === 'features') return send(res,200,await rpc(user.token,'portal_features'));
       if (parsed.action === 'ai_model') return send(res,200,{model:await rpc(user.token,'portal_ai_model')});
@@ -317,6 +324,7 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
           p_owner_email:parsed.ownerEmail,p_owner_name:parsed.ownerName}:
           {p_name:parsed.name,p_phone:parsed.phone,p_website:parsed.website,p_package:parsed.package,
             p_owner_email:parsed.ownerEmail,p_owner_name:parsed.ownerName});
+      await rpc(user.token,'portal_apply_account_template',{p_account:created.accountId,p_template:parsed.package});
       let inviteUrl:string|null=null,inviteSent=false;
       if (!created.existing && created.inviteCode) {
         inviteUrl=clientInviteUrl(created.inviteCode,parsed.ownerEmail,parsed.ownerName);
@@ -336,6 +344,11 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
         signal:AbortSignal.timeout(5000)}).catch(()=>undefined);
       return send(res,201,{accountId:created.accountId,existing:created.existing,inviteSent,inviteUrl});
     }
+    if (parsed.action === 'apply_template') return send(res,200,await rpc(user.token,'portal_apply_account_template',
+      {p_account:parsed.accountId,p_template:parsed.template}));
+    if (parsed.action === 'retry_automation') return send(res,200,{ok:await rpc(user.token,'portal_retry_automation',{p_run:parsed.runId})});
+    if (parsed.action === 'set_account_mrr') return send(res,200,{ok:await rpc(user.token,'portal_set_account_mrr',
+      {p_account:parsed.accountId,p_mrr_cents:parsed.mrrCents})});
     if (parsed.action === 'set_feature') {
       await rpc(user.token,'portal_set_feature',{p_feature:parsed.feature,p_enabled:parsed.enabled,p_user:parsed.userId});
       return send(res,200,{ok:true});

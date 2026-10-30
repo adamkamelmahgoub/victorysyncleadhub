@@ -20,6 +20,11 @@ type Theme = {background:string;foreground:string;accent:string;font:'sans'|'ser
 type Account = {id:string;name:string;health_score:number;leads_this_week:number;overdue_tasks:number;failed_payments:number;last_active_at:string|null};
 type ClosedCompany = {id:string;name:string;email:string|null;contact_name:string|null};
 type Accounts = {accounts:Account[];selected:{accountId:string|null;viewAsClient:boolean}|null};
+type AgencyAccount = {id:string;name:string;package:string|null;launch_date:string|null;health_score:number;
+  mrr_cents:number;account_manager:string;leads_month:number;goal_value:number|null;overdue_tasks:number;
+  failed_payments:number;last_active_at:string|null;response_seconds:number|null;answered_minutes:number;
+  answering_hours_limit:number;texts_sent:number;ai_tokens:number};
+type FailedRun = {id:string;account_name:string;step:string;error:string|null;started_at:string;kind:string|null;attempts:number|null};
 type Feature = {feature_key:string;user_id:string|null;enabled:boolean};
 type Snapshot = {accountId:string;readOnly:boolean;data:unknown};
 type Lead = {id:string;first_name:string;last_name:string;company:string;phone:string;email:string;pipeline_stage_id:string|null;notes:string|null;created_at:string};
@@ -42,6 +47,34 @@ function DataTable({rows}:{rows:Record<string,unknown>[]}) {
     <thead className="bg-slate-50"><tr>{columns.map(key=><th key={key} className="whitespace-nowrap px-4 py-3">{nice(key)}</th>)}</tr></thead>
     <tbody>{rows.map((row,index)=><tr key={String(row.id ?? index)} className="border-t">{columns.map(key=><td key={key} className="max-w-64 truncate px-4 py-3" title={show(row[key])}>{show(row[key])}</td>)}</tr>)}</tbody>
   </table></div>;
+}
+function AgencyOperations({admin,onOpen,onViewAs}:{admin:boolean;onOpen:(id:string)=>void;onViewAs:(id:string)=>void}) {
+  const queryClient=useQueryClient();
+  const [mrr,setMrr]=useState<Record<string,string>>({});
+  const {data:accounts,error}=useQuery<AgencyAccount[]>({queryKey:['portal-agency-overview'],
+    queryFn:()=>apiFetch('/api/portal?action=agency_overview'),retry:false});
+  const {data:failures}=useQuery<FailedRun[]>({queryKey:['portal-failed-automations'],
+    queryFn:()=>apiFetch('/api/portal?action=failed_automations'),retry:false});
+  const action=useMutation({mutationFn:(body:Record<string,unknown>)=>apiFetch('/api/portal',
+    {method:'POST',body:JSON.stringify(body)}),onSuccess:()=>{
+      void queryClient.invalidateQueries({queryKey:['portal-agency-overview']});
+      void queryClient.invalidateQueries({queryKey:['portal-failed-automations']});
+    }});
+  if(error) return <Card role="alert" className="p-5 text-sm text-red-600">{String(error)}</Card>;
+  return <div className="space-y-5">
+    <Card className="overflow-hidden"><div className="border-b p-5"><h2 className="font-semibold">Accounts overview</h2><p className="mt-1 text-sm text-muted-foreground">Health, revenue, usage, and account ownership.</p></div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[1120px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr>{['Account','Package and launch','Health','MRR','Leads / goal','Answering','Texts / AI','Account manager','Actions'].map(x=><th key={x} className="px-4 py-3 font-medium">{x}</th>)}</tr></thead>
+      <tbody>{(accounts||[]).map(a=><tr key={a.id} className="border-t align-top"><td className="px-4 py-4"><p className="font-medium">{a.name}</p><p className="mt-1 text-xs text-muted-foreground">{a.overdue_tasks} overdue tasks · {a.failed_payments} failed payments</p><p className="text-xs text-muted-foreground">Last login: {a.last_active_at?new Date(a.last_active_at).toLocaleDateString():'Never'}</p></td>
+        <td className="px-4 py-4">{nice(a.package||'starter')}<p className="text-xs text-muted-foreground">{a.launch_date||'Launch not set'}</p></td>
+        <td className="px-4 py-4"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${a.health_score>=75?'bg-green-100 text-green-700':a.health_score>=50?'bg-amber-100 text-amber-700':'bg-red-100 text-red-700'}`}>{a.health_score}/100</span><p className="mt-2 text-xs text-muted-foreground">Response: {a.response_seconds===null?'No data':`${a.response_seconds}s`}</p></td>
+        <td className="px-4 py-4">${(a.mrr_cents/100).toFixed(2)}{admin&&<div className="mt-2 flex gap-1"><Input aria-label={`MRR for ${a.name}`} className="h-8 w-20" type="number" min="0" step="0.01" value={mrr[a.id]??String(a.mrr_cents/100)} onChange={e=>setMrr(old=>({...old,[a.id]:e.target.value}))}/><Button size="sm" variant="outline" disabled={action.isPending} onClick={()=>action.mutate({action:'set_account_mrr',accountId:a.id,mrrCents:Math.round(Number(mrr[a.id]??a.mrr_cents/100)*100)})}>Save</Button></div>}</td>
+        <td className="px-4 py-4">{a.leads_month} / {a.goal_value??'No goal'}</td><td className="px-4 py-4">{(a.answered_minutes/60).toFixed(1)} / {a.answering_hours_limit||'No limit'} hours</td><td className="px-4 py-4">{a.texts_sent} texts<p className="text-xs text-muted-foreground">{a.ai_tokens} tokens</p></td><td className="px-4 py-4">{a.account_manager}</td>
+        <td className="space-y-1 px-4 py-4"><Button size="sm" onClick={()=>onOpen(a.id)}>Open</Button>{admin&&<><Button size="sm" variant="outline" onClick={()=>onViewAs(a.id)}>View as client</Button><Button size="sm" variant="outline" disabled={action.isPending} onClick={()=>action.mutate({action:'apply_template',accountId:a.id,template:a.package||'starter'})}>Apply template</Button></>}</td></tr>)}</tbody></table></div>
+      {!accounts?.length&&<p className="p-5 text-sm text-muted-foreground">No assigned accounts yet.</p>}</Card>
+    <Card className="p-5"><h2 className="font-semibold">Failed automations</h2><p className="mt-1 text-sm text-muted-foreground">Retry a failed job after correcting its cause.</p>
+      {failures?.length?<div className="mt-4 space-y-2">{failures.map(run=><div key={run.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm"><div><p className="font-medium">{run.account_name} · {nice(run.kind||run.step)}</p><p className="text-xs text-red-700">{run.error||'No error details'} · {run.attempts??0} attempts</p></div><Button size="sm" variant="outline" disabled={action.isPending} onClick={()=>action.mutate({action:'retry_automation',runId:run.id})}>Retry</Button></div>)}</div>:<p className="mt-4 text-sm text-muted-foreground">No failed automations.</p>}
+      {action.error&&<p role="alert" className="mt-3 text-sm text-red-600">{String(action.error)}</p>}{action.isSuccess&&<p className="mt-3 text-sm text-green-700">Saved.</p>}</Card>
+  </div>;
 }
 type Metrics = {account:{name:string;goal_metric:string|null;goal_value:number|null};newLeads:number;bookedJobs:number;
   answeredCalls:number;missedCallsRecovered:number;reviewsReceived:number;averageRating:number|null;
@@ -379,7 +412,7 @@ export default function ClientPortal() {
       {createClient.data?.inviteUrl&&<div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm"><p className="font-medium">Client created. Email sending is not configured, so share this private invitation link with the owner. It expires in 7 days.</p><div className="flex flex-wrap gap-2"><Input aria-label="Client invitation link" readOnly value={createClient.data.inviteUrl} className="min-w-0 flex-1"/><Button variant="outline" onClick={()=>void navigator.clipboard.writeText(createClient.data.inviteUrl||'')}>Copy link</Button></div></div>}
       {createClient.data?.existing&&<p className="text-sm text-muted-foreground">This company already has a client account.</p>}
     </Card>}
-    {!tab && agency && <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{accounts.accounts.map(account=><Card key={account.id} className="space-y-3 p-5"><h2 className="font-semibold">{account.name}</h2><div className="grid grid-cols-2 gap-2 text-sm"><span>Health: {account.health_score}</span><span>Leads this week: {account.leads_this_week}</span><span>Overdue tasks: {account.overdue_tasks}</span><span>Failed payments: {account.failed_payments}</span><span className="col-span-2">Last client login: {account.last_active_at?new Date(account.last_active_at).toLocaleString():'Never'}</span></div><div className="flex gap-2"><Button size="sm" onClick={()=>void apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'switch',accountId:account.id,viewAsClient:false})}).then(()=>queryClient.invalidateQueries({queryKey:['portal-accounts']})).then(()=>navigate('/client-portal/dashboard'))}>Open</Button>{admin&&<Button size="sm" variant="outline" onClick={()=>void viewAs(account.id)}>View as client</Button>}</div></Card>)}</div>}
+    {!tab && agency && <AgencyOperations admin={admin} onOpen={id=>void apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'switch',accountId:id,viewAsClient:false})}).then(()=>queryClient.invalidateQueries({queryKey:['portal-accounts']})).then(()=>navigate('/client-portal/dashboard'))} onViewAs={id=>void viewAs(id)}/>}
     {(!tab && !agency) && <p>Select an account to continue.</p>}
     {tab&&<><nav aria-label="Portal pages" className="flex gap-2 overflow-x-auto pb-2">{pages.filter(page=>canAccessPath(`/client-portal/${page}`,pagePermissions,role)).map(page=><Link key={page} href={`/client-portal/${page}`} className={`shrink-0 rounded-lg px-3 py-2 text-sm ${tab===page?'bg-blue-600 text-white':'border bg-white'}`}>{nice(page)}</Link>)}</nav>
       {pageLoading?<p>Loading {tab}…</p>:pageError?<Card role="alert" className="p-6">{String(pageError)}</Card>:snapshot&&<>
