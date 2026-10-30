@@ -14,6 +14,7 @@ import { WorkflowService,isWorkflowEndpoint,isPublicWorkflowEndpoint } from '../
 import { normalizeSegmentFilters, segmentFilterSummary, validateSegmentFilters } from '../lib/segment-filters.js';
 import { reviewStats } from '../lib/review-stats.js';
 import { readPortalSelection } from '../lib/portal-cookie.js';
+import { newFormSlug } from '../lib/form-slug.js';
 import { z } from 'zod';
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 
@@ -851,7 +852,7 @@ async function supabaseRest(path: string, init: FetchInit, req?: VercelRequest) 
   }
 
   const inboundAuth = req ? getHeader(req, "authorization") : undefined;
-  const authorization = /^(?:leads|reviews|review_sources|review_requests)(?:\?|$)/.test(path) && inboundAuth
+  const authorization = /^(?:leads|forms|sequences|sequence_steps|automation_workflows|pipelines|pipeline_stages|reviews|review_sources|review_requests)(?:\?|$)/.test(path) && inboundAuth
     ? inboundAuth
     : hasServiceRole ? `Bearer ${supabaseKey}` : inboundAuth;
 
@@ -1041,13 +1042,13 @@ const resourceConfigs: Record<string, ResourceConfig> = {
   pipelines: { table: "pipelines", defaultOrder: "is_default.desc,created_at.asc" },
   "pipeline/stages": { table: "pipeline_stages", defaultOrder: "position.asc" },
 };
-const reputationTables=new Set(['review_sources','reviews','review_requests']);
-function reputationSelection(req:VercelRequest){
+const tenantResourceTables=new Set(['forms','sequences','automation_workflows','pipelines','pipeline_stages','review_sources','reviews','review_requests']);
+function selectedAccountCookie(req:VercelRequest){
   if(!req.authenticatedUserId)return null;
   return readPortalSelection(getHeader(req,'cookie'),req.authenticatedUserId);
 }
 function scopedResourcePath(config:ResourceConfig,req:VercelRequest){
-  const id=reputationTables.has(config.table)?reputationSelection(req)?.accountId:null;
+  const id=tenantResourceTables.has(config.table)?selectedAccountCookie(req)?.accountId:null;
   return id?`&client_account_id=eq.${encodeURIComponent(id)}`:'';
 }
 
@@ -1127,7 +1128,7 @@ function genericResourcePath(path: string) {
 async function listResource(config: ResourceConfig, req: VercelRequest, res: VercelResponse) {
   const query = new URLSearchParams({ select: "*" });
   if (config.defaultOrder) query.set("order", config.defaultOrder);
-  const account=reputationTables.has(config.table)?reputationSelection(req)?.accountId:null;
+  const account=tenantResourceTables.has(config.table)?selectedAccountCookie(req)?.accountId:null;
   if(account)query.set('client_account_id',`eq.${account}`);
 
   const rows = await supabaseRest(`${config.table}?${query.toString()}`, {
@@ -1165,7 +1166,7 @@ async function createResource(config: ResourceConfig, req: VercelRequest, res: V
     const {confirmedReal:_,...review}=checked.data;
     if(review.sourceId){
       const sources=await supabaseRest(`review_sources?id=eq.${encodeURIComponent(review.sourceId)}${scopedResourcePath(resourceConfigs['review-sources'],req)}&select=id,platform,client_account_id&limit=1`,{method:'GET'},req) as Array<{platform:string;client_account_id:string|null}>;
-      const selected=reputationSelection(req)?.accountId??null;
+      const selected=selectedAccountCookie(req)?.accountId??null;
       if(!sources[0]||sources[0].platform!==review.platform||sources[0].client_account_id!==selected){
         sendJson(res,400,{error:'Choose a review source in the selected account.'});return;
       }
@@ -1187,8 +1188,15 @@ async function createResource(config: ResourceConfig, req: VercelRequest, res: V
     ...(config.defaults ?? {}),
     ...(toSnakeValue(body) as Record<string, unknown>),
   });
-  if(reputationTables.has(config.table)){
-    const account=reputationSelection(req)?.accountId;
+  if(config.table==='forms'){
+    const checked=z.object({name:z.string().trim().min(1).max(180),
+      description:z.string().max(2000).optional(),status:z.enum(['active','inactive','draft']).optional(),
+      fields:z.array(z.unknown()).max(100).optional()}).strict().safeParse(body);
+    if(!checked.success){sendJson(res,400,{error:'A valid form name and fields are required.'});return;}
+    payload.slug=newFormSlug(checked.data.name);
+  }
+  if(tenantResourceTables.has(config.table)){
+    const account=selectedAccountCookie(req)?.accountId;
     if(account)payload.client_account_id=account;
   }
   if(config.table==='automation_workflows')validateNativeWorkflow(payload);
@@ -1366,7 +1374,7 @@ async function handleAffiliateReferrals(affiliateId: string, method: string, req
 async function handleGenericResource(path: string, method: string, req: VercelRequest, res: VercelResponse) {
   const match = genericResourcePath(path);
   if (!match) return false;
-  if(reputationTables.has(resourceConfigs[match.key]?.table??'')&&method!=='GET'&&reputationSelection(req)?.viewAsClient){
+  if(tenantResourceTables.has(resourceConfigs[match.key]?.table??'')&&method!=='GET'&&selectedAccountCookie(req)?.viewAsClient){
     sendJson(res,403,{error:'Client view is read only'});return true;
   }
   if(match.key==='review-requests' && method!=='GET'){

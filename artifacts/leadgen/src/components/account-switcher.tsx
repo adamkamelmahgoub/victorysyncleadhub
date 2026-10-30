@@ -17,8 +17,7 @@ export function AccountSwitcher() {
   const agency = ['owner','admin','member','viewer','agent','agency_admin','agency_staff'].includes(role);
   async function select(value:string) {
     await apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'switch',accountId:value || null,viewAsClient:false})});
-    await queryClient.invalidateQueries({queryKey:['portal']});
-    await queryClient.invalidateQueries({queryKey:['portal-accounts']});
+    queryClient.clear();
     navigate(value ? '/client-portal/dashboard' : '/client-portal');
   }
   return <label className="flex min-w-0 items-center gap-2 text-xs text-slate-600">

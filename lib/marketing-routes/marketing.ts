@@ -5,6 +5,8 @@ import {SOCIAL_WORKSPACE_ORG_ID} from '../social-workspace-auth.js';
 import {sectionTypes as registeredSectionTypes,sectionsSchema,themeSchema} from '../landing-section-registry.js';
 import {renderPage,type RenderPage} from '../landing-renderer.js';
 import {z} from 'zod';
+import {readPortalSelection} from '../portal-cookie.js';
+import {newFormSlug} from '../form-slug.js';
 
 export const config={api:{bodyParser:false},maxDuration:30};
 const org=SOCIAL_WORKSPACE_ORG_ID;
@@ -49,6 +51,17 @@ async function actor(req:IncomingMessage,permission:'forms'|'landing-pages'){
     &&!permissions.includes('forms'))
     throw new Error(`${permission} access is disabled for this account`);
   return user;
+}
+async function selectedAccount(req:IncomingMessage,userId:string){
+  const cookie=Array.isArray(req.headers.cookie)?req.headers.cookie[0]:req.headers.cookie;
+  const selected=readPortalSelection(cookie,userId);
+  if(!selected?.accountId)return {id:null,readOnly:false};
+  const base=process.env.SUPABASE_URL,key=process.env.SUPABASE_ANON_KEY||process.env.VITE_SUPABASE_ANON_KEY;
+  const response=await fetch(`${base}/rest/v1/rpc/can_access_account`,{method:'POST',
+    headers:{apikey:key||'',authorization:String(req.headers.authorization||''),'content-type':'application/json'},
+    body:JSON.stringify({p_account_id:selected.accountId}),signal:AbortSignal.timeout(10000)});
+  if(!response.ok||await response.json()!==true)throw new Error('Client account access denied');
+  return {id:selected.accountId,readOnly:selected.viewAsClient};
 }
 export function validatedFields(value:unknown):Field[]{
   if(!Array.isArray(value)||value.length>50)throw new Error('A form can have up to 50 fields');
@@ -216,7 +229,8 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
   match=path.match(/^\/p\/([a-z0-9-]+)$/);if(match&&method==='GET')return await publicPage(req,res,match[1]);
   if(path==='/api/marketing/reports'){
     if(method!=='GET')return json(res,405,{error:'Method not allowed'});
-    await actor(req,'forms');
+    const reportUser=await actor(req,'forms');
+    const reportAccount=await selectedAccount(req,reportUser.id);
     const period=url.searchParams.get('period')||'30d';
     if(!['7d','30d','all'].includes(period))return json(res,400,{error:'Invalid reporting period'});
     const since=period==='all'?null:period==='7d'?7:30;
@@ -227,18 +241,20 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
         from public.landing_page_events where organization_id=$1 and ($2::integer is null or created_at>=now()-($2::integer * interval '1 day')) group by landing_page_id) e on e.landing_page_id=p.id
       left join (select landing_page_id,count(*) submissions from public.form_submissions
         where organization_id=$1 and landing_page_id is not null and ($2::integer is null or created_at>=now()-($2::integer * interval '1 day')) group by landing_page_id) s on s.landing_page_id=p.id
-      where p.organization_id=$1 order by p.updated_at desc limit 500`,[org,since]);
+      where p.organization_id=$1 and ($3::uuid is null or p.client_account_id=$3) order by p.updated_at desc limit 500`,[org,since,reportAccount.id]);
     const forms=await mcpPool.query(`select f.id,f.name,f.status,coalesce(s.submissions,0)::integer submissions
       from public.forms f left join (select form_id,count(*) submissions from public.form_submissions
         where organization_id=$1 and ($2::integer is null or created_at>=now()-($2::integer * interval '1 day')) group by form_id) s on s.form_id=f.id
-      where f.organization_id=$1 order by f.updated_at desc limit 500`,[org,since]);
+      where f.organization_id=$1 and ($3::uuid is null or f.client_account_id=$3) order by f.updated_at desc limit 500`,[org,since,reportAccount.id]);
     return json(res,200,{period,pages:pages.rows.map(row=>({...row,conversionRate:Number(row.views)>0?Number(row.submissions)/Number(row.views)*100:0})),forms:forms.rows});
   }
   if(!path.startsWith('/api/forms')&&!path.startsWith('/api/landing-pages'))return json(res,404,{error:'Not found'});
   const isForms=path.startsWith('/api/forms'),user=await actor(req,isForms?'forms':'landing-pages');
+  const selected=await selectedAccount(req,user.id);
+  if(selected.readOnly&&method!=='GET')return json(res,403,{error:'Client view is read only'});
   if(path==='/api/landing-pages/media'&&method==='POST'){
     const input=z.object({pageId:z.string().uuid(),mime:z.enum(['image/jpeg','image/png','image/webp']),data:z.string().min(100).max(7500000)}).strict().parse(await body(req,8000000));
-    const owned=await mcpPool.query(`select 1 from public.landing_pages where id=$1 and organization_id=$2`,[input.pageId,org]);
+    const owned=await mcpPool.query(`select 1 from public.landing_pages where id=$1 and organization_id=$2 and ($3::uuid is null or client_account_id=$3)`,[input.pageId,org,selected.id]);
     if(!owned.rowCount)return json(res,404,{error:'Page not found'});
     const bytes=Buffer.from(input.data,'base64');if(bytes.length>5242880||bytes.length<64)throw new Error('Invalid image size');
     const valid=input.mime==='image/png'?bytes.subarray(0,8).equals(Buffer.from('89504e470d0a1a0a','hex')):input.mime==='image/jpeg'?bytes.subarray(0,3).equals(Buffer.from('ffd8ff','hex')):bytes.toString('ascii',0,4)==='RIFF'&&bytes.toString('ascii',8,12)==='WEBP';
@@ -252,16 +268,20 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
   }
   const root=isForms?'/api/forms':'/api/landing-pages',parts=path.slice(root.length).split('/').filter(Boolean),id=parts[0];
   if(id&&!uuid.test(id))return json(res,400,{error:'Invalid ID'});
+  if(id&&selected.id){
+    const found=await mcpPool.query(`select 1 from public.${isForms?'forms':'landing_pages'} where id=$1 and organization_id=$2 and client_account_id=$3`,[id,org,selected.id]);
+    if(!found.rowCount)return json(res,404,{error:isForms?'Form not found':'Page not found'});
+  }
   if(isForms){
     if(method==='GET'&&!id){const forms=await mcpPool.query<FormRow>(`select f.*,(select count(*)::integer from public.form_submissions s where s.form_id=f.id) submission_count
-      from public.forms f where f.organization_id=$1 order by f.created_at desc limit 500`,[org]);return json(res,200,forms.rows.map(row=>formShape(row,req)));}
-    if(method==='POST'&&!id){const data=await body(req),name=plain(data.name,150),slug=safeSlug(data.slug||name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''));
+      from public.forms f where f.organization_id=$1 and ($2::uuid is null or f.client_account_id=$2) order by f.created_at desc limit 500`,[org,selected.id]);return json(res,200,forms.rows.map(row=>formShape(row,req)));}
+    if(method==='POST'&&!id){const data=await body(req),name=plain(data.name,150),slug=safeSlug(data.slug||newFormSlug(name));
       if(!name)throw new Error('Form name is required');const fields=validatedFields(data.fields||[]);
       if(data.status==='active'&&!fields.length)throw new Error('Add at least one field before publishing');
       if(data.status!==undefined&&!['active','inactive'].includes(String(data.status)))throw new Error('Invalid form status');
       const status=data.status==='active'?'active':'inactive';
-      const result=await mcpPool.query<FormRow>(`insert into public.forms(organization_id,name,description,status,slug,fields,success_message,submit_button_text,campaign_id)
-        values($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *`,[org,name,plain(data.description,1000)||null,status,slug,JSON.stringify(fields),
+      const result=await mcpPool.query<FormRow>(`insert into public.forms(organization_id,client_account_id,name,description,status,slug,fields,success_message,submit_button_text,campaign_id)
+        values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *`,[org,selected.id,name,plain(data.description,1000)||null,status,slug,JSON.stringify(fields),
         plain(data.successMessage,1000)||'Thank you! We will be in touch.',plain(data.submitButtonText,80)||'Submit',uuid.test(String(data.campaignId||''))?data.campaignId:null]);
       return json(res,201,formShape(result.rows[0],req));}
     if(!id)return json(res,405,{error:'Method not allowed'});
@@ -293,12 +313,12 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
     if(method==='DELETE'&&!parts[1]){const result=await mcpPool.query(`update public.forms set status='inactive',updated_at=now() where id=$1 and organization_id=$2 returning id`,[id,org]);
       return result.rowCount?json(res,200,{archived:true}):json(res,404,{error:'Form not found'});}
   }else{
-    if(method==='GET'&&!id){const pages=await mcpPool.query<PageRow>(`select * from public.landing_pages where organization_id=$1 order by updated_at desc limit 500`,[org]);return json(res,200,{pages:pages.rows.map(row=>pageShape(row,req))});}
-    if(method==='POST'&&!id){const data=await body(req),name=plain(data.name,150),slug=safeSlug(data.slug||name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''));if(!name)throw new Error('Page name is required');
+    if(method==='GET'&&!id){const pages=await mcpPool.query<PageRow>(`select * from public.landing_pages where organization_id=$1 and ($2::uuid is null or client_account_id=$2) order by updated_at desc limit 500`,[org,selected.id]);return json(res,200,{pages:pages.rows.map(row=>pageShape(row,req))});}
+    if(method==='POST'&&!id){const data=await body(req),name=plain(data.name,150),slug=safeSlug(data.slug||newFormSlug(name));if(!name)throw new Error('Page name is required');
       const sections=validatedSections(data.sections||[{id:randomUUID(),type:'hero',eyebrow:'Welcome',heading:name,body:'Tell visitors how you help.',buttonText:'Get in touch',buttonUrl:'#contact'}]);
       const theme=validatedTheme(data.theme);
-      const result=await mcpPool.query<PageRow>(`insert into public.landing_pages(organization_id,name,slug,sections,theme,draft_sections,draft_theme,created_by,seo_title,template_key)
-        values($1,$2,$3,$4,$5,$4,$5,$6,$2,$7) returning *`,[org,name,slug,JSON.stringify(sections),JSON.stringify(theme),user.id,plain(data.templateKey,80)||null]);return json(res,201,pageShape(result.rows[0],req));}
+      const result=await mcpPool.query<PageRow>(`insert into public.landing_pages(organization_id,client_account_id,name,slug,sections,theme,draft_sections,draft_theme,created_by,seo_title,template_key)
+        values($1,$2,$3,$4,$5,$6,$5,$6,$7,$3,$8) returning *`,[org,selected.id,name,slug,JSON.stringify(sections),JSON.stringify(theme),user.id,plain(data.templateKey,80)||null]);return json(res,201,pageShape(result.rows[0],req));}
     if(!id)return json(res,405,{error:'Method not allowed'});
     if(method==='GET'&&parts[1]==='stats'){
       const stats=await mcpPool.query(`select count(*) filter(where event_type='view')::integer views,
@@ -330,7 +350,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
       if('tracking'in data){const tracking=data.tracking as Record<string,unknown>;if(!tracking||typeof tracking!=='object')throw new Error('Invalid tracking');updates.tracking=JSON.stringify(Object.fromEntries(['gtm_id','ga4_id','meta_pixel_id'].map(key=>[key,plain(tracking[key],80)])));}
       if('trafficSplit'in data){const split=Number(data.trafficSplit);if(!Number.isInteger(split)||split<0||split>100)throw new Error('Invalid traffic split');updates.traffic_split=split;}
       if('formId'in data){if(data.formId&&!uuid.test(String(data.formId)))throw new Error('Invalid form');
-        if(data.formId){const form=await mcpPool.query(`select 1 from public.forms where id=$1 and organization_id=$2`,[data.formId,org]);if(!form.rowCount)throw new Error('Form not found');}updates.form_id=data.formId||null;}
+        if(data.formId){const form=await mcpPool.query(`select 1 from public.forms where id=$1 and organization_id=$2 and ($3::uuid is null or client_account_id=$3)`,[data.formId,org,selected.id]);if(!form.rowCount)throw new Error('Form not found');}updates.form_id=data.formId||null;}
       const keys=Object.keys(updates),result=await mcpPool.query<PageRow>(`update public.landing_pages set ${keys.map((key,i)=>`${key}=$${i+3}`).join(',')}
         where id=$1 and organization_id=$2 returning *`,[id,org,...Object.values(updates)]);return result.rows[0]?json(res,200,pageShape(result.rows[0],req)):json(res,404,{error:'Page not found'});}
     if(method==='POST'&&parts[1]==='publish'){
@@ -338,7 +358,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
       const draftSections=page.draft_sections||page.sections,draftTheme=page.draft_theme||page.theme;
       if(!Array.isArray(draftSections)||!draftSections.length)throw new Error('Add at least one section before publishing');
       if(draftSections.some(section=>section.type==='form')&&!page.form_id)throw new Error('Choose an active form before publishing a form section');
-      if(page.form_id){const form=await mcpPool.query(`select 1 from public.forms where id=$1 and organization_id=$2 and status='active'`,[page.form_id,org]);if(!form.rowCount)throw new Error('Linked form is inactive');}
+      if(page.form_id){const form=await mcpPool.query(`select 1 from public.forms where id=$1 and organization_id=$2 and status='active' and ($3::uuid is null or client_account_id=$3)`,[page.form_id,org,selected.id]);if(!form.rowCount)throw new Error('Linked form is inactive');}
       const db=await mcpPool.connect();try{await db.query('begin');const updated=await db.query<PageRow>(`update public.landing_pages set status='published',published_at=now(),updated_at=now(),
         published_sections=$3,published_theme=$4,version=version+1 where id=$1 and organization_id=$2 returning *`,[id,org,JSON.stringify(draftSections),JSON.stringify(draftTheme)]);
         await db.query(`insert into public.landing_page_versions(page_id,version,sections,theme,published_by)
@@ -348,8 +368,8 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
       where id=$1 and organization_id=$2 returning *`,[id,org]);return updated.rows[0]?json(res,200,pageShape(updated.rows[0],req)):json(res,404,{error:'Page not found'});}
     if(method==='POST'&&parts[1]==='duplicate'){const source=await mcpPool.query<PageRow>(`select * from public.landing_pages where id=$1 and organization_id=$2`,[id,org]);if(!source.rows[0])return json(res,404,{error:'Page not found'});
       const page=source.rows[0],slug=`${page.slug}-copy-${randomUUID().slice(0,6)}`;
-      const result=await mcpPool.query<PageRow>(`insert into public.landing_pages(organization_id,name,slug,sections,theme,seo_title,seo_description,form_id,created_by)
-        values($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *`,[org,`${page.name} copy`,slug,JSON.stringify(page.sections),JSON.stringify(page.theme),page.seo_title,page.seo_description,page.form_id,user.id]);return json(res,201,pageShape(result.rows[0],req));}
+      const result=await mcpPool.query<PageRow>(`insert into public.landing_pages(organization_id,client_account_id,name,slug,sections,theme,seo_title,seo_description,form_id,created_by)
+        values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *`,[org,page.client_account_id,`${page.name} copy`,slug,JSON.stringify(page.sections),JSON.stringify(page.theme),page.seo_title,page.seo_description,page.form_id,user.id]);return json(res,201,pageShape(result.rows[0],req));}
     if(method==='POST'&&parts[1]==='variant'){const source=await mcpPool.query<PageRow>(`select * from public.landing_pages where id=$1 and organization_id=$2 and variant_of is null`,[id,org]);
       const page=source.rows[0];if(!page)return json(res,404,{error:'Base page not found'});
       const created=await mcpPool.query<PageRow>(`insert into public.landing_pages(organization_id,client_account_id,name,slug,sections,theme,draft_sections,draft_theme,seo_title,seo_description,form_id,created_by,variant_of,traffic_split)
