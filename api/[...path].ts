@@ -13,10 +13,12 @@ import { inboxAdapter } from '../artifacts/api-server/src/lib/inbox-adapters.js'
 import { WorkflowService,isWorkflowEndpoint,isPublicWorkflowEndpoint } from '../lib/workflow-service.js';
 import { normalizeSegmentFilters, segmentFilterSummary, validateSegmentFilters } from '../lib/segment-filters.js';
 import { reviewStats } from '../lib/review-stats.js';
+import { readPortalSelection } from '../lib/portal-cookie.js';
 import { z } from 'zod';
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 
 type VercelRequest = {
+  authenticatedUserId?: string;
   method?: string;
   url?: string;
   headers: Record<string, string | string[] | undefined>;
@@ -1039,6 +1041,15 @@ const resourceConfigs: Record<string, ResourceConfig> = {
   pipelines: { table: "pipelines", defaultOrder: "is_default.desc,created_at.asc" },
   "pipeline/stages": { table: "pipeline_stages", defaultOrder: "position.asc" },
 };
+const reputationTables=new Set(['review_sources','reviews','review_requests']);
+function reputationSelection(req:VercelRequest){
+  if(!req.authenticatedUserId)return null;
+  return readPortalSelection(getHeader(req,'cookie'),req.authenticatedUserId);
+}
+function scopedResourcePath(config:ResourceConfig,req:VercelRequest){
+  const id=reputationTables.has(config.table)?reputationSelection(req)?.accountId:null;
+  return id?`&client_account_id=eq.${encodeURIComponent(id)}`:'';
+}
 
 function toSnakeKey(key: string) {
   return key.replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`);
@@ -1116,10 +1127,26 @@ function genericResourcePath(path: string) {
 async function listResource(config: ResourceConfig, req: VercelRequest, res: VercelResponse) {
   const query = new URLSearchParams({ select: "*" });
   if (config.defaultOrder) query.set("order", config.defaultOrder);
+  const account=reputationTables.has(config.table)?reputationSelection(req)?.accountId:null;
+  if(account)query.set('client_account_id',`eq.${account}`);
 
   const rows = await supabaseRest(`${config.table}?${query.toString()}`, {
     method: "GET",
   }, req);
+  if(config.table==='review_sources'&&Array.isArray(rows)){
+    const reviews=await supabaseRest(`reviews?select=source_id,rating${scopedResourcePath(resourceConfigs.reviews,req)}`,
+      {method:'GET'},req) as Array<{source_id:string|null;rating:number}>;
+    const totals=new Map<string,{count:number;sum:number}>();
+    for(const review of reviews)if(review.source_id){
+      const total=totals.get(review.source_id)??{count:0,sum:0};
+      total.count++;total.sum+=Number(review.rating);totals.set(review.source_id,total);
+    }
+    for(const source of rows as Array<Record<string,unknown>>){
+      const total=totals.get(String(source.id))??{count:0,sum:0};
+      source.review_count=total.count;
+      source.avg_rating=total.count?(total.sum/total.count).toFixed(1):'0';
+    }
+  }
   sendJson(res, 200, toCamelValue(rows));
 }
 
@@ -1132,9 +1159,17 @@ async function createResource(config: ResourceConfig, req: VercelRequest, res: V
     const checked=z.object({platform:z.enum(['google','facebook','yelp','g2','trustpilot','capterra']),
       reviewer:z.string().trim().min(1).max(200),rating:z.number().int().min(1).max(5),
       text:z.string().trim().max(5000),reviewUrl:z.string().url().startsWith('https://'),
+      sourceId:z.string().uuid().optional(),
       confirmedReal:z.literal(true)}).strict().safeParse(body);
     if(!checked.success){sendJson(res,400,{error:'A real public review URL and confirmation are required.'});return;}
     const {confirmedReal:_,...review}=checked.data;
+    if(review.sourceId){
+      const sources=await supabaseRest(`review_sources?id=eq.${encodeURIComponent(review.sourceId)}${scopedResourcePath(resourceConfigs['review-sources'],req)}&select=id,platform,client_account_id&limit=1`,{method:'GET'},req) as Array<{platform:string;client_account_id:string|null}>;
+      const selected=reputationSelection(req)?.accountId??null;
+      if(!sources[0]||sources[0].platform!==review.platform||sources[0].client_account_id!==selected){
+        sendJson(res,400,{error:'Choose a review source in the selected account.'});return;
+      }
+    }
     Object.assign(body,review);
     delete body.confirmedReal;
     body.sentiment=review.rating>=4?'positive':review.rating===3?'neutral':'negative';
@@ -1152,6 +1187,10 @@ async function createResource(config: ResourceConfig, req: VercelRequest, res: V
     ...(config.defaults ?? {}),
     ...(toSnakeValue(body) as Record<string, unknown>),
   });
+  if(reputationTables.has(config.table)){
+    const account=reputationSelection(req)?.accountId;
+    if(account)payload.client_account_id=account;
+  }
   if(config.table==='automation_workflows')validateNativeWorkflow(payload);
   const rows = await supabaseRest(config.table, {
     method: "POST",
@@ -1161,7 +1200,7 @@ async function createResource(config: ResourceConfig, req: VercelRequest, res: V
 }
 
 async function getResource(config: ResourceConfig, id: string, req: VercelRequest, res: VercelResponse) {
-  const rows = await supabaseRest(`${config.table}?id=eq.${encodeURIComponent(id)}&select=*&limit=1`, {
+  const rows = await supabaseRest(`${config.table}?id=eq.${encodeURIComponent(id)}${scopedResourcePath(config,req)}&select=*&limit=1`, {
     method: "GET",
   }, req);
   const record = Array.isArray(rows) ? rows[0] : null;
@@ -1188,7 +1227,7 @@ async function updateResource(config: ResourceConfig, id: string, req: VercelReq
     const rows=await supabaseRest(`${config.table}?id=eq.${encodeURIComponent(id)}&select=*&limit=1`,{method:'GET'},req) as Array<Record<string,unknown>>;
     validateNativeWorkflow({...rows[0],...payload});
   }
-  const rows = await supabaseRest(`${config.table}?id=eq.${encodeURIComponent(id)}`, {
+  const rows = await supabaseRest(`${config.table}?id=eq.${encodeURIComponent(id)}${scopedResourcePath(config,req)}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
   }, req);
@@ -1199,7 +1238,7 @@ async function deleteResource(config: ResourceConfig, id: string, req: VercelReq
   if (config.table === "pipeline_stages" && await isMeetingStage(id, req)) {
     sendJson(res, 409, { error: "The Meeting Booked stage is required" }); return;
   }
-  await supabaseRest(`${config.table}?id=eq.${encodeURIComponent(id)}`, {
+  await supabaseRest(`${config.table}?id=eq.${encodeURIComponent(id)}${scopedResourcePath(config,req)}`, {
     method: "DELETE",
   }, req);
   res.statusCode = 204;
@@ -1327,6 +1366,9 @@ async function handleAffiliateReferrals(affiliateId: string, method: string, req
 async function handleGenericResource(path: string, method: string, req: VercelRequest, res: VercelResponse) {
   const match = genericResourcePath(path);
   if (!match) return false;
+  if(reputationTables.has(resourceConfigs[match.key]?.table??'')&&method!=='GET'&&reputationSelection(req)?.viewAsClient){
+    sendJson(res,403,{error:'Client view is read only'});return true;
+  }
   if(match.key==='review-requests' && method!=='GET'){
     sendJson(res,405,{error:'Review requests are managed through the client portal and delivery worker.'});return true;
   }
@@ -2946,7 +2988,7 @@ async function handleLeadChildren(path: string, method: string, currentUser: Aut
 }
 
 async function getReviewStats(req: VercelRequest, res: VercelResponse) {
-  const reviews = (await supabaseRest("reviews?select=rating,platform,is_read,reply", {
+  const reviews = (await supabaseRest(`reviews?select=rating,platform,is_read,reply${scopedResourcePath(resourceConfigs.reviews,req)}`, {
     method: "GET",
   }, req)) as Array<{ rating:number|null;platform:string|null;is_read:boolean|null;reply:string|null }>;
   sendJson(res,200,reviewStats(reviews));
@@ -3381,6 +3423,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const currentUser = await authenticateRequest(req);
+    req.authenticatedUserId=currentUser.id;
     const claimedRole = String(currentUser.user_metadata?.role ?? "");
     if (path !== "/api/auth/sync-session" && path !== "/api/activity/events" &&
       (["agency_staff", "client_owner", "client_staff"].includes(claimedRole) ||

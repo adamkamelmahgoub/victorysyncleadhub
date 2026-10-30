@@ -164,7 +164,7 @@ export default function Reputation() {
   const [addSourcePlatform, setAddSourcePlatform] = useState("google");
   const [addSourceFields, setAddSourceFields] = useState({ name: "", businessId: "", reviewUrl: "" });
   const [showAddReview, setShowAddReview] = useState(false);
-  const [newReview, setNewReview] = useState({ platform: "google", reviewer: "", rating: 5, text: "", reviewUrl: "", confirmedReal: false });
+  const [newReview, setNewReview] = useState({ platform: "google", sourceId: "", reviewer: "", rating: 5, text: "", reviewUrl: "", confirmedReal: false });
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
   function showToast(msg: string, type: "success" | "error" = "success") {
@@ -172,10 +172,15 @@ export default function Reputation() {
     setTimeout(() => setToast(null), 3000);
   }
 
-  const { data: sourcesResponse = [] } = useQuery<ReviewSource[]>({ queryKey: ["review-sources"], queryFn: () => apiFetch("/api/review-sources") });
-  const { data: stats } = useQuery<ReviewStats>({ queryKey: ["review-stats"], queryFn: () => apiFetch("/api/reviews/stats") });
-  const { data: reviewsResponse = [] } = useQuery<Review[]>({ queryKey: ["reviews", platformFilter, ratingFilter, replyFilter], queryFn: () => apiFetch(`/api/reviews?platform=${platformFilter === "all" ? "" : platformFilter}&rating=${ratingFilter === "all" ? "" : ratingFilter}&replied=${replyFilter === "unanswered" ? "false" : ""}`) });
-  const { data: requestsResponse = [] } = useQuery<ReviewRequest[]>({ queryKey: ["review-requests"], queryFn: () => apiFetch("/api/review-requests") });
+  const {data:accountContext}=useQuery<{selected:{accountId:string|null}|null}>({
+    queryKey:['portal-accounts'],queryFn:()=>apiFetch('/api/portal?action=accounts'),retry:false,
+  });
+  const scopeKey=accountContext?.selected?.accountId??'agency';
+
+  const { data: sourcesResponse = [] } = useQuery<ReviewSource[]>({ queryKey: ["review-sources",scopeKey], queryFn: () => apiFetch("/api/review-sources"),enabled:!!accountContext });
+  const { data: stats } = useQuery<ReviewStats>({ queryKey: ["review-stats",scopeKey], queryFn: () => apiFetch("/api/reviews/stats"),enabled:!!accountContext });
+  const { data: reviewsResponse = [] } = useQuery<Review[]>({ queryKey: ["reviews",scopeKey, platformFilter, ratingFilter, replyFilter], queryFn: () => apiFetch(`/api/reviews?platform=${platformFilter === "all" ? "" : platformFilter}&rating=${ratingFilter === "all" ? "" : ratingFilter}&replied=${replyFilter === "unanswered" ? "false" : ""}`),enabled:!!accountContext });
+  const { data: requestsResponse = [] } = useQuery<ReviewRequest[]>({ queryKey: ["review-requests",scopeKey], queryFn: () => apiFetch("/api/review-requests"),enabled:!!accountContext });
   const sources = asArray<ReviewSource>(sourcesResponse);
   const reviews = asArray<Review>(reviewsResponse);
   const requests = asArray<ReviewRequest>(requestsResponse);
@@ -193,8 +198,8 @@ export default function Reputation() {
   });
 
   const addReview = useMutation({
-    mutationFn: (body: object) => apiFetch("/api/reviews", { method: "POST", body: JSON.stringify(body) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["reviews"] }); qc.invalidateQueries({ queryKey: ["review-stats"] }); setShowAddReview(false); setNewReview({ platform: "google", reviewer: "", rating: 5, text: "", reviewUrl: "", confirmedReal: false }); showToast("Review added."); },
+    mutationFn: (body: typeof newReview) => apiFetch("/api/reviews", { method: "POST", body: JSON.stringify({...body,sourceId:body.sourceId||undefined}) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["reviews"] }); qc.invalidateQueries({ queryKey: ["review-sources"] }); qc.invalidateQueries({ queryKey: ["review-stats"] }); setShowAddReview(false); setNewReview({ platform: "google", sourceId: "", reviewer: "", rating: 5, text: "", reviewUrl: "", confirmedReal: false }); showToast("Review added."); },
   });
 
   const replyToReview = useMutation({
@@ -229,6 +234,7 @@ export default function Reputation() {
     <>
       <div className="page-stack ">
         {actionError && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{String(actionError)}</div>}
+        {scopeKey==='agency' && <p className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">Agency view shows reviews across accessible accounts. Select a client account in the top bar to manage that client's reviews and sources.</p>}
         {toast && (
           <div className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium flex items-center gap-2 ${toast.type === "success" ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700"}`}>
             {toast.type === "success" ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}{toast.msg}
@@ -357,8 +363,7 @@ export default function Reputation() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {sources.map((source) => {
                   const cfg = PLATFORM_CONFIG[source.platform] ?? PLATFORM_CONFIG.google!;
-                  const platform = platformStats.find((item) => item.platform === source.platform);
-                  const avg = parseFloat(platform?.avg ?? "0");
+                  const avg = parseFloat(source.avgRating ?? "0");
                   return (
                     <div key={source.id} className={`bg-white rounded-xl border shadow-sm p-5 ${source.isActive ? cfg.border : "border-border"}`}>
                       <div className="flex items-start gap-3 mb-4">
@@ -376,12 +381,12 @@ export default function Reputation() {
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                         <div className="bg-muted/40 rounded-lg p-3">
-                          <div className="text-xs text-muted-foreground">Platform reviews</div>
-                          <div className="text-xl font-bold text-foreground">{platform?.count ?? 0}</div>
+                          <div className="text-xs text-muted-foreground">Linked reviews</div>
+                          <div className="text-xl font-bold text-foreground">{source.reviewCount}</div>
                         </div>
                         <div className="bg-muted/40 rounded-lg p-3">
-                          <div className="text-xs text-muted-foreground">Platform rating</div>
-                          <div className="text-xl font-bold text-amber-500">{avg > 0 ? avg.toFixed(1) : "—"}</div>
+                          <div className="text-xs text-muted-foreground">Linked rating</div>
+                          <div className="text-xl font-bold text-amber-500">{avg > 0 ? avg.toFixed(1) : "N/A"}</div>
                         </div>
                       </div>
                       {source.reviewUrl && (
@@ -553,7 +558,7 @@ export default function Reputation() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Platform</label>
-                  <select value={newReview.platform} onChange={(e) => setNewReview((r) => ({ ...r, platform: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none">
+                  <select value={newReview.platform} onChange={(e) => setNewReview((r) => ({ ...r, platform: e.target.value, sourceId: '' }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none">
                     {AVAILABLE_PLATFORMS.map((p) => <option key={p.key} value={p.key} className="capitalize">{p.key}</option>)}
                   </select>
                 </div>
@@ -568,6 +573,7 @@ export default function Reputation() {
                   </div>
                 </div>
               </div>
+              <div><label className="mb-1.5 block text-xs font-medium text-muted-foreground">Saved source</label><select value={newReview.sourceId} onChange={(e) => setNewReview((review) => ({...review,sourceId:e.target.value}))} className="workspace-control w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"><option value="">No saved source</option>{sources.filter((source) => source.platform===newReview.platform).map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}</select></div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1.5">Reviewer Name *</label>
                 <input value={newReview.reviewer} onChange={(e) => setNewReview((r) => ({ ...r, reviewer: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="John Smith" />

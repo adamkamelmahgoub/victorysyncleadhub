@@ -1,10 +1,10 @@
-import crypto from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 import { assertNoUnsupportedProof } from '../lib/landing-ai-policy.js';
 import {mcpPool} from '../lib/mcp-auth.js';
 import {registry,sectionTypes} from '../lib/landing-section-registry.js';
 import {clientInviteUrl} from '../lib/client-invite.js';
+import {readPortalSelection,signPortalSelection,type PortalSelection} from '../lib/portal-cookie.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const ORG = 'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
@@ -100,7 +100,7 @@ const postSchema = z.discriminatedUnion('action', [
     currentSections: z.array(sectionSchema).max(40).optional() }).strict(),
   pageSchema,
 ]);
-type PortalCookie = { accountId: string | null; viewAsClient: boolean; userId: string; issuedAt: number };
+type PortalCookie = PortalSelection;
 type PortalUser = { id: string; email?: string; role: string; token: string };
 export function requiresPortalMfa(role: string, claimedRole: unknown): boolean {
   return (role === 'agency_admin' || role === 'agency_staff') &&
@@ -125,34 +125,12 @@ async function read(req: IncomingMessage) {
   }
   return JSON.parse(value || '{}') as unknown;
 }
-function cookieSecret() {
-  const secret = process.env.PORTAL_COOKIE_SECRET || process.env.SESSION_SECRET;
-  if (!secret || secret.length < 32) throw new Error('Portal cookie secret is not configured');
-  return secret;
-}
-function sign(value: PortalCookie) {
-  const body = Buffer.from(JSON.stringify(value)).toString('base64url');
-  const mac = crypto.createHmac('sha256', cookieSecret()).update(body).digest('base64url');
-  return `${body}.${mac}`;
-}
 function verify(req: IncomingMessage, userId: string): PortalCookie | null {
-  const raw = header(req,'cookie')?.split(';').map(x => x.trim()).find(x => x.startsWith('vs_portal='))?.slice(10);
-  if (!raw) return null;
-  const [body,mac] = raw.split('.');
-  if (!body || !mac) return null;
-  const expected = crypto.createHmac('sha256',cookieSecret()).update(body).digest();
-  const actual = Buffer.from(mac,'base64url');
-  if (actual.length !== expected.length || !crypto.timingSafeEqual(actual,expected)) return null;
-  try {
-    const value = JSON.parse(Buffer.from(body,'base64url').toString()) as PortalCookie;
-    if (value.userId !== userId || Date.now()-value.issuedAt > 7*24*3600_000 ||
-      (value.accountId !== null && !uuid.safeParse(value.accountId).success)) return null;
-    return value;
-  } catch { return null; }
+  return readPortalSelection(header(req,'cookie'),userId);
 }
 function setCookie(req: IncomingMessage,res: ServerResponse,value: PortalCookie) {
   const secure = header(req,'x-forwarded-proto') !== 'http';
-  res.setHeader('set-cookie',`vs_portal=${sign(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800${secure?'; Secure':''}`);
+  res.setHeader('set-cookie',`vs_portal=${signPortalSelection(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800${secure?'; Secure':''}`);
 }
 async function rpc<T>(token: string,name: string,args: Record<string,unknown> = {}): Promise<T> {
   const base = process.env.SUPABASE_URL;
