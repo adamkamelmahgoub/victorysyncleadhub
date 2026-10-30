@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { assertNoUnsupportedProof } from '../lib/landing-ai-policy.js';
 import {mcpPool} from '../lib/mcp-auth.js';
 import {registry,sectionTypes} from '../lib/landing-section-registry.js';
+import {clientInviteUrl} from '../lib/client-invite.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const ORG = 'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
@@ -91,6 +92,10 @@ const postSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('create_client'), companyId: uuid,
     package: z.enum(['starter','scale','domination','overflow','business_hours','coverage_247','appt_part_time','appt_full_time','revive','custom']),
     ownerEmail: z.string().email().max(320),ownerName: z.string().trim().min(1).max(200) }).strict(),
+  z.object({action:z.literal('create_client_manual'),name:z.string().trim().min(1).max(200),
+    phone:z.string().max(40),website:z.union([z.literal(''),z.string().url().startsWith('https://')]),
+    package:z.enum(['starter','scale','domination','overflow','business_hours','coverage_247','appt_part_time','appt_full_time','revive','custom']),
+    ownerEmail:z.string().email().max(320),ownerName:z.string().trim().min(1).max(200)}).strict(),
   z.object({ action: z.literal('ai_page'), prompt: z.string().trim().min(5).max(4000),
     currentSections: z.array(sectionSchema).max(40).optional() }).strict(),
   pageSchema,
@@ -327,34 +332,31 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
       setCookie(req,res,{accountId:parsed.accountId,viewAsClient:parsed.viewAsClient,userId:user.id,issuedAt:Date.now()});
       return send(res,200,{accountId:parsed.accountId,viewAsClient:parsed.viewAsClient});
     }
-    if (parsed.action === 'create_client') {
-      if (!process.env.RESEND_API_KEY || !process.env.INVITE_FROM_EMAIL)
-        return send(res,503,{error:'Invite email is not configured'});
+    if (parsed.action === 'create_client' || parsed.action === 'create_client_manual') {
       const created = await rpc<{accountId:string;inviteCode?:string;existing:boolean;ownerEmail?:string}>(user.token,
-        'portal_create_client',{p_company:parsed.companyId,p_package:parsed.package,
-          p_owner_email:parsed.ownerEmail,p_owner_name:parsed.ownerName});
+        parsed.action==='create_client'?'portal_create_client':'portal_create_client_manual',
+        parsed.action==='create_client'?{p_company:parsed.companyId,p_package:parsed.package,
+          p_owner_email:parsed.ownerEmail,p_owner_name:parsed.ownerName}:
+          {p_name:parsed.name,p_phone:parsed.phone,p_website:parsed.website,p_package:parsed.package,
+            p_owner_email:parsed.ownerEmail,p_owner_name:parsed.ownerName});
+      let inviteUrl:string|null=null,inviteSent=false;
       if (!created.existing && created.inviteCode) {
-        const host = header(req,'host');
-        if (!host || !/^[a-z0-9.-]+(?::\d{1,5})?$/i.test(host)) throw new Error('Invalid host');
-        const origin = `${header(req,'x-forwarded-proto') === 'http' ? 'http' : 'https'}://${host}`;
-        const inviteUrl = new URL('/login',origin);
-        inviteUrl.searchParams.set('invite',created.inviteCode);
-        inviteUrl.searchParams.set('email',parsed.ownerEmail);
-        inviteUrl.searchParams.set('name',parsed.ownerName);
-        const emailed=await fetch('https://api.resend.com/emails',{method:'POST',
-          headers:{authorization:`Bearer ${process.env.RESEND_API_KEY}`,'content-type':'application/json'},
-          body:JSON.stringify({from:process.env.INVITE_FROM_EMAIL,to:[parsed.ownerEmail],
-            subject:'Your VictorySync client portal invite',
-            text:`${parsed.ownerName}, your client portal is ready. Create your password with this invitation link: ${inviteUrl.toString()}\n\nThis invitation expires in seven days.`}),
-          signal:AbortSignal.timeout(15000)});
-        if (!emailed.ok) return send(res,502,{error:'Client created, but invite email failed',
-          accountId:created.accountId,inviteCode:created.inviteCode});
-        await rpc(user.token,'portal_mark_invite_sent',{p_account:created.accountId});
+        inviteUrl=clientInviteUrl(created.inviteCode,parsed.ownerEmail,parsed.ownerName);
+        if(process.env.RESEND_API_KEY&&process.env.INVITE_FROM_EMAIL){
+          try{const emailed=await fetch('https://api.resend.com/emails',{method:'POST',
+            headers:{authorization:`Bearer ${process.env.RESEND_API_KEY}`,'content-type':'application/json'},
+            body:JSON.stringify({from:process.env.INVITE_FROM_EMAIL,to:[parsed.ownerEmail],
+              subject:'Your VictorySync client portal invite',
+              text:`${parsed.ownerName}, your client portal is ready. Create your password with this invitation link: ${inviteUrl}\n\nThis invitation expires in seven days.`}),
+            signal:AbortSignal.timeout(15000)});
+            if(emailed.ok){await rpc(user.token,'portal_mark_invite_sent',{p_account:created.accountId});inviteSent=true;inviteUrl=null}}
+          catch(error){console.error('Client invite email failed',error instanceof Error?error.name:'unknown')}
+        }
       }
       if (process.env.SLACK_WEBHOOK_URL) await fetch(process.env.SLACK_WEBHOOK_URL,{method:'POST',
         headers:{'content-type':'application/json'},body:JSON.stringify({text:`New VictorySync client account: ${parsed.ownerName} (${parsed.package})`}),
         signal:AbortSignal.timeout(5000)}).catch(()=>undefined);
-      return send(res,201,{accountId:created.accountId,existing:created.existing});
+      return send(res,201,{accountId:created.accountId,existing:created.existing,inviteSent,inviteUrl});
     }
     if (parsed.action === 'set_feature') {
       await rpc(user.token,'portal_set_feature',{p_feature:parsed.feature,p_enabled:parsed.enabled,p_user:parsed.userId});

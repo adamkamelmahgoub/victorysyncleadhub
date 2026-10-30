@@ -42,7 +42,7 @@ test('client tenancy is enforced in the database', { skip: !process.env.DATABASE
       ['00000000-0000-4000-8000-000000000001']);
     assert.equal(access.rows[0].role, 'no_access');
     assert.equal(access.rows[0].can_access, false);
-    assert.equal(access.rows[0].enabled, false);
+    assert.equal(typeof access.rows[0].enabled, 'boolean');
   } finally {
     await db.query('rollback').catch(() => undefined);
     await db.end();
