@@ -7,6 +7,7 @@ import {mcpPool} from './mcp-auth.js';
 import {socialVaultRead} from './social-vault.js';
 import {isSocialOwner} from './social-workspace-auth.js';
 import {getUnipileConfig,unipileRequest} from './social-unipile-client.js';
+import {requireExternalSends} from './external-send-mode.js';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Thread={id:string;organization_id:string;channel:string;connected_account_id:string;participant_platform_id:string;
@@ -14,6 +15,7 @@ type Thread={id:string;organization_id:string;channel:string;connected_account_i
 type Account={id:string;platform:string;external_account_id:string;provider:string|null;owner_user_id:string|null;status:string};
 export async function sendSocialReply(userId:string,conversationId:string,body:string,actor?:SocialActor){
   const text=body.trim();if(!uuid.test(conversationId)||!text||text.length>2000)throw new Error('Invalid conversation or reply text');
+  requireExternalSends();
   let attemptId:string|null=null,providerSent=false;
   try{
     const [thread]=await socialRest<Thread[]>(`conversations?id=eq.${conversationId}&select=id,organization_id,channel,connected_account_id,participant_platform_id,company_id,contact_id,lead_id,external_thread_id,last_inbound_at&limit=1`);

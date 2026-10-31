@@ -5,6 +5,7 @@ import {mcpPool} from '../lib/mcp-auth.js';
 import {registry,sectionTypes} from '../lib/landing-section-registry.js';
 import {clientInviteUrl} from '../lib/client-invite.js';
 import {readPortalSelection,signPortalSelection,type PortalSelection} from '../lib/portal-cookie.js';
+import {externalSendsEnabled} from '../lib/external-send-mode.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const ORG = 'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
@@ -331,7 +332,7 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
       let inviteUrl:string|null=null,inviteSent=false;
       if (!created.existing && created.inviteCode) {
         inviteUrl=clientInviteUrl(created.inviteCode,parsed.ownerEmail,parsed.ownerName);
-        if(process.env.RESEND_API_KEY&&process.env.INVITE_FROM_EMAIL){
+        if(externalSendsEnabled()&&process.env.RESEND_API_KEY&&process.env.INVITE_FROM_EMAIL){
           try{const emailed=await fetch('https://api.resend.com/emails',{method:'POST',
             headers:{authorization:`Bearer ${process.env.RESEND_API_KEY}`,'content-type':'application/json'},
             body:JSON.stringify({from:process.env.INVITE_FROM_EMAIL,to:[parsed.ownerEmail],
@@ -342,7 +343,7 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
           catch(error){console.error('Client invite email failed',error instanceof Error?error.name:'unknown')}
         }
       }
-      if (process.env.SLACK_WEBHOOK_URL) await fetch(process.env.SLACK_WEBHOOK_URL,{method:'POST',
+      if (externalSendsEnabled()&&process.env.SLACK_WEBHOOK_URL) await fetch(process.env.SLACK_WEBHOOK_URL,{method:'POST',
         headers:{'content-type':'application/json'},body:JSON.stringify({text:`New VictorySync client account: ${parsed.ownerName} (${parsed.package})`}),
         signal:AbortSignal.timeout(5000)}).catch(()=>undefined);
       return send(res,201,{accountId:created.accountId,existing:created.existing,inviteSent,inviteUrl});
@@ -406,6 +407,7 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
       return send(res,200,data);
     }
     if (parsed.action === 'invite_staff') {
+      if (!externalSendsEnabled()) return send(res,503,{error:'Invite delivery is disabled outside production or in sandbox mode'});
       if (!process.env.RESEND_API_KEY || !process.env.INVITE_FROM_EMAIL)
         return send(res,503,{error:'Invite email is not configured'});
       const code=await rpc<string>(user.token,'portal_invite_client_staff',{p_account:selected.id,

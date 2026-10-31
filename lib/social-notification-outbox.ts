@@ -1,5 +1,6 @@
 import {mcpPool} from './mcp-auth.js';
 import {socialVaultRead} from './social-vault.js';
+import {externalSendsEnabled} from './external-send-mode.js';
 
 type OutboxRow={id:string;organization_id:string;payload:Record<string,unknown>;attempts:number};
 const idPattern=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -29,6 +30,7 @@ export function renderSocialAlert(payload:Record<string,unknown>):string{
 }
 
 export async function dispatchSocialNotifications(limit=5){
+  if(!externalSendsEnabled())return {sent:0,failed:0};
   const db=await mcpPool.connect();let sent=0,failed=0;
   try{
     const secret=await db.query<{id:string}>(`select id from vault.secrets where name='victorysync_slack_meeting_webhook' limit 1`);
