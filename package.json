@@ -10,6 +10,7 @@
     "db:push": "pnpm --filter @workspace/db run push",
     "db:seed": "pnpm --filter @workspace/scripts run db:seed",
     "db:verify": "pnpm --filter @workspace/scripts run db:verify",
+    "test": "tsx --test tests/*.test.ts",
     "test:crm": "tsx --test tests/company-crm.test.ts tests/company-migration.test.ts",
     "test:contacts": "tsx --tsconfig artifacts/leadgen/tsconfig.test.json --test tests/contact-display.test.ts tests/segment-filters.test.ts tests/api-cache.test.ts artifacts/leadgen/tests/contact-grid.test.tsx",
     "test:phase1": "tsx --test tests/pipeline-board-pagination.test.ts tests/restore-original-lead-dates.test.ts tests/unified-tasks-view.test.ts tests/company-crm.test.ts tests/social-access-sql.test.ts tests/social-matching-legacy-org.test.ts tests/social-reconnect-health.test.ts tests/social-unipile.test.ts",

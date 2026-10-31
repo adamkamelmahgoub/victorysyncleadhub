@@ -6,9 +6,10 @@ Date: 2026-10-31. Branch: `codex/client-portal-main-deploy`.
 
 - Created an isolated persistent PGlite database with three synthetic client accounts and 2,105 synthetic leads. `node scripts/setup-local-qa-db.mjs` is repeatable and does not read production customer records.
 - `pnpm run test:phase1`: 16 passing tests for pipeline pagination above 1,000 leads, date restoration, unified tasks, social inbox access SQL, social matching for agency prospects without an organization ID, Unipile polling, and reconnect health.
-- `pnpm exec tsx --test tests/*.test.ts`: 123 passing TypeScript tests across the existing API, portal, CRM, social, landing page, report, and migration helpers.
+- `pnpm run test`: 124 passing TypeScript tests across the API, portal, CRM, social, landing page, report, and migration helpers, including the account-scoped Launchpad SQL test.
 - `pnpm run typecheck:api`, API-server and leadgen typechecks: pass.
 - `pnpm run build`: pass. Vite prints pre-existing sourcemap and chunk warnings.
+- A pull-request workflow now runs the TypeScript tests, API typecheck, and build. The client Launchpad checklist is implemented locally, with access tests; its database migration and browser flow remain unverified.
 
 ## Not yet verified
 
