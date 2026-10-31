@@ -67,7 +67,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Global search and quick add | app shell | partial | source review | Keyboard and account scoping need test. |
 | Light and dark themes | app shell | partial | source review | Screenshots and contrast QA needed. |
 | Seeded demo environment | scripts | missing | source review | No isolated full demo seed with >1,000 leads. |
-| Vitest, Playwright, Lighthouse, axe CI | test tooling | partial | `.github/workflows/quality.yml` | Pull-request unit/build gate added; browser, RLS, Lighthouse and axe gates remain absent. |
+| Vitest, Playwright, Lighthouse, axe CI | test tooling | partial | `.github/workflows/quality.yml`, `check-browser-secrets.mjs` | Pull-request unit/build and browser secret scan gates added; browser, RLS, Lighthouse and axe gates remain absent. |
 | Production launch checks | Vercel and Supabase | partial | prior deployment check | Provider secrets and webhook test events pending. |
 
 ## Audit findings

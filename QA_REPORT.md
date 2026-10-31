@@ -12,6 +12,7 @@ Date: 2026-10-31. Branch: `codex/client-portal-main-deploy`.
 - A pull-request workflow now runs the TypeScript tests, API typecheck, and build. The client Launchpad checklist is implemented locally, with access tests; its database migration and browser flow remain unverified.
 - MightyCall Classic and Call Center URL mappings pass a focused test. Live account product type and SMS delivery remain unverified.
 - Delivery workers and selected outbound providers are gated to Vercel production and can be disabled with `CLIENT_DELIVERY_SANDBOX=1`. No real SMS, email, Slack alert, or social reply was sent in QA.
+- `pnpm run test:bundle-secrets`: scanned 148 generated browser assets for server-only environment variable names and any configured secret values; none were found. This is now a pull-request CI gate after build.
 
 ## Not yet verified
 
