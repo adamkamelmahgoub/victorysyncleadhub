@@ -23,3 +23,7 @@ The PostgreSQL Windows installer download returned HTTP 403. `scripts/setup-loca
 ## 2026-10-31: Unified tasks use a security-invoker view
 
 `company_tasks` and `contact_tasks` already have production writers and client-scoped RLS. Dropping either table would risk existing automations. The migration retains both write tables and adds `unified_tasks` as the shared read model, with source-aware updates. Exact duplicate contact tasks with the same lead, title and due time appear once. The original rows remain for rollback and compatibility. A contact task links to a company only when the company name resolves uniquely.
+
+## 2026-10-31: MightyCall product-specific API endpoints
+
+MightyCall documents separate Classic and Call Center API hosts and SMS paths. The delivery worker previously hard-coded Classic. Keep Classic as the default for existing installations and use `MIGHTYCALL_PRODUCT=call_center` to select the Call Center host and SMS endpoint. The API User key is distinct from the webhook signing secret. Official references: [Classic authentication](https://support.mightycall.com/authentication-via-api-mc), [Call Center authentication](https://support.mightycall.com/authentication-via-api), and [Call Center SMS API](https://ccapi.mightycall.com/v4/doc).

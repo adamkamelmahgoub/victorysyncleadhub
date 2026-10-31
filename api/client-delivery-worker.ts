@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 import { clientReportPdf } from '../lib/client-report-pdf.js';
+import {mightyCallAuthUrl,mightyCallProduct,mightyCallUrl} from '../lib/mightycall-endpoints.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const inputSchema = z.object({ limit: z.number().int().min(1).max(50).optional() }).strict();
@@ -33,9 +34,9 @@ function e164(value:string|null|undefined) {
 }
 async function mightyAuth() {
   if(mightyToken&&mightyToken.expires>Date.now()+60_000)return mightyToken.value;
-  const key=process.env.MIGHTYCALL_API_KEY,secret=process.env.MIGHTYCALL_SECRET_KEY;
+  const key=process.env.MIGHTYCALL_API_KEY,secret=process.env.MIGHTYCALL_SECRET_KEY||process.env.MIGHTYCALL_USER_KEY;
   if(!key||!secret)throw Error('MightyCall is not configured');
-  const response=await fetch('https://api.mightycall.com/v4/auth/token',{method:'POST',
+  const response=await fetch(mightyCallAuthUrl(mightyCallProduct(process.env.MIGHTYCALL_PRODUCT)),{method:'POST',
     headers:{'x-api-key':key,'content-type':'application/x-www-form-urlencoded'},
     body:new URLSearchParams({grant_type:'client_credentials',client_id:key,client_secret:secret}),signal:AbortSignal.timeout(12000)});
   const data=await response.json() as {access_token?:string;expires_in?:number};
@@ -44,7 +45,7 @@ async function mightyAuth() {
 }
 async function mighty(path:string,method='GET',body?:unknown) {
   const key=process.env.MIGHTYCALL_API_KEY;if(!key)throw Error('MightyCall API key missing');
-  const response=await fetch(`https://api.mightycall.com/v4/api/${path}`,{method,
+  const response=await fetch(mightyCallUrl(mightyCallProduct(process.env.MIGHTYCALL_PRODUCT),path),{method,
     headers:{authorization:`Bearer ${await mightyAuth()}`,'x-api-key':key,'content-type':'application/json'},
     body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(12000)});
   const data=await response.json().catch(()=>null) as Record<string,unknown>|null;

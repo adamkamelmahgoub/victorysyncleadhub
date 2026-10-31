@@ -24,7 +24,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Report archive and PDF | `report_sends`, report PDF code | partial | `client-report-pdf.test.ts` | Same-range numeric parity needs test. |
 | Client billing portal | `api/portal.ts`, Stripe | partial | source review | Needs sandbox Stripe webhook and browser test. |
 | Client settings and branding | `client-portal.tsx` | partial | source review | Mobile layout and permissions need QA. |
-| Client notifications | delivery worker | partial | source review | External email and SMS not tested. |
+| Client notifications | delivery worker | partial | `mightycall-endpoints.test.ts` | Classic and Call Center API paths verified; external email and SMS not tested. |
 | Form lead dedupe and UTM | form submit route | partial | `marketing-forms-pages.test.ts` | Full workflow trigger test needed. |
 | Speed-to-lead sequence | delivery worker | partial | source review | Under-60-second sandbox test needed. |
 | Missed-call text-back | delivery worker | partial | source review | 24-hour dedupe and timing need test. |
