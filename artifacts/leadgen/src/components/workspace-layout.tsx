@@ -232,6 +232,7 @@ export function Layout({ children }: { children: ReactNode }) {
             </span>
           )}
         </Link>
+        {(!collapsed || mobile) && <div className="mx-3 mb-3"><AccountSwitcher variant="sidebar"/></div>}
         {(!collapsed || mobile) && <button type="button" onClick={() => setPageSearchOpen(true)}
           className="mx-3 mb-3 flex h-10 items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 text-left text-xs text-slate-300 hover:border-slate-500 hover:text-white">
           <Search className="h-4 w-4"/><span className="flex-1">Find a page</span><kbd className="rounded border border-slate-700 px-1.5 py-0.5 text-[10px]">Ctrl K</kbd>
@@ -325,7 +326,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <span className="truncate text-xs font-medium text-slate-600">
             {current}
           </span>
-          <div className="ml-auto"><AccountSwitcher /></div>
+          <div className="ml-auto md:hidden"><AccountSwitcher /></div>
           {canAccessPath("/companies", pagePermissions, role) && (
             <form
               className="relative w-full min-w-[160px] flex-1 sm:max-w-64 sm:flex-none"
