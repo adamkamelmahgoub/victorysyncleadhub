@@ -41,7 +41,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Page analytics and A/B | marketing pages API | partial | source review | GTM, GA4, pixel and split tests needed. |
 | AI page generation | OpenRouter page route | partial | `landing-ai-policy.test.ts` | Ten structured live samples and fixtures needed. |
 | AI chat edits and audits | page editor AI | partial | source review | One-step undo and usage tests needed. |
-| AI proof policy | `landing-ai-policy.ts` | partial | `landing-ai-policy.test.ts` | Add years, prices, licenses and guarantees checks. |
+| AI proof policy | `landing-ai-policy.ts` | partial | `landing-ai-policy.test.ts` | Years, prices, credentials, proof sections and unsupplied images are rejected; ten model fixtures and browser QA pending. |
 | AI token budget | `ai_requests` | partial | source review | Budget enforcement test needed. |
 | Pipeline board pagination | opportunities UI | partial | `pipeline-board-pagination.test.ts` | Older leads page by stage locally; browser and full database QA pending. |
 | Original lead dates | `leads.custom_fields` | partial | `restore-original-lead-dates.test.ts` | Migration prepared; backup and copy dry run pending. |

@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
-import { assertNoUnsupportedProof } from '../lib/landing-ai-policy.js';
+import { assertNoUnsupportedProof,assertApprovedAiImages } from '../lib/landing-ai-policy.js';
 import {mcpPool} from '../lib/mcp-auth.js';
 import {registry,sectionTypes} from '../lib/landing-section-registry.js';
 import {clientInviteUrl} from '../lib/client-invite.js';
@@ -203,6 +203,14 @@ async function generatePage(user: PortalUser, accountId: string, prompt: string,
   if(Number(limits.rows[0]?.requests||0)>=30)throw new Error('AI request limit reached. Try again in an hour');
   if(limits.rows[0]?.budget!=null&&Number(limits.rows[0].spent)>=Number(limits.rows[0].budget))throw new Error('Monthly AI budget reached');
   const context = await rpc<Record<string,unknown>>(user.token,'portal_ai_context',{p_account:accountId});
+  const mediaBase=String(process.env.SUPABASE_URL||'').replace(/\/$/,'');
+  const approvedPhotos=(Array.isArray(context.photos)?context.photos:[])
+    .filter((value):value is string=>typeof value==='string'&&value.startsWith('landing-media/'))
+    .map(value=>`${mediaBase}/storage/v1/object/public/${value}`);
+  const existingImages=(Array.isArray(currentSections)?currentSections:[])
+    .flatMap(value=>value&&typeof value==='object'&&'imageUrl' in value&&typeof value.imageUrl==='string'?[value.imageUrl]:[]);
+  const approvedImages=[...approvedPhotos,...existingImages,...(typeof context.logoUrl==='string'?[context.logoUrl]:[])];
+  const clientContext={...context,photos:approvedPhotos};
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error('OpenRouter is not configured');
   const fallback = 'openai/gpt-4o-mini-2024-07-18';
@@ -218,7 +226,7 @@ async function generatePage(user: PortalUser, accountId: string, prompt: string,
         body:JSON.stringify({model,temperature:0.4,max_tokens:2200,
           response_format:{type:'json_schema',json_schema:{name:'landing_page',strict:true,schema:aiJsonSchema}},
           messages:[{role:'system',content:'Create or edit a mobile-first landing page as structured JSON. Use plain words, short sentences, a service-and-city headline, one clear call to action, and the provided phone number. Never invent reviews, ratings, awards, licences, years in business, guarantees, prices, results, or business credentials. Use [Add a real customer review] and similar placeholders when facts are missing. Use only the uploaded photos provided. Never use em dashes or raw HTML. Keep forms unlinked unless a form ID was supplied.'},
-            {role:'user',content:JSON.stringify({brief:prompt,client:context,currentSections,sectionRegistry:Object.values(registry).map(({type,label,fields,maxBlocks})=>({type,label,fields,maxBlocks})),validationFeedback:feedback})}]}),
+            {role:'user',content:JSON.stringify({brief:prompt,client:clientContext,currentSections,sectionRegistry:Object.values(registry).filter(item=>!['reviews','testimonial','trust_bar'].includes(item.type)).map(({type,label,fields,maxBlocks})=>({type,label,fields,maxBlocks})),validationFeedback:feedback})}]}),
         signal:AbortSignal.timeout(45000),
       });
       const data = await response.json() as {choices?:Array<{message?:{content?:string}}> ;error?:{message?:string};usage?:{prompt_tokens?:number;completion_tokens?:number;cost?:number}};
@@ -226,7 +234,14 @@ async function generatePage(user: PortalUser, accountId: string, prompt: string,
       const parsedResult=aiResponseSchema.safeParse(JSON.parse(data.choices?.[0]?.message?.content || '{}'));
       if(!parsedResult.success){feedback=parsedResult.error.issues.map(issue=>`${issue.path.join('.')}: ${issue.message}`).join('; ');if(attempt<2)continue;throw parsedResult.error}
       const parsed=parsedResult.data;
-      assertNoUnsupportedProof(parsed.sections);
+      try {
+        assertNoUnsupportedProof([{heading:parsed.title,body:parsed.seoDescription},...parsed.sections]);
+        assertApprovedAiImages(parsed.sections,approvedImages);
+      } catch(error) {
+        feedback=error instanceof Error?error.message:'Use only approved client facts and images';
+        if(attempt<2)continue;
+        throw error;
+      }
       await mcpPool.query(`insert into public.ai_requests(user_id,client_account_id,prompt_tokens,completion_tokens,cost_cents,action)
         values($1,$2,$3,$4,$5,'landing_page_generate')`,[user.id,accountId,Number(data.usage?.prompt_tokens||0),Number(data.usage?.completion_tokens||0),Number(data.usage?.cost||0)*100]);
       return parsed;
