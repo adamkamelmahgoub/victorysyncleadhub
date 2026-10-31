@@ -24,6 +24,7 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  Rocket,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
@@ -47,6 +48,7 @@ const core: Item[] = [
   { href: "/meeting-scheduler", label: "Calendars", icon: CalendarClock },
 ];
 const clientCore: Item[] = [
+  { href: "/client-portal/launchpad", label: "Launchpad", icon: Rocket },
   { href: "/client-portal/dashboard", label: "Dashboard", icon: BarChart3 },
   { href: "/client-portal/leads", label: "Leads", icon: Users },
   { href: "/client-portal/calls", label: "Calls", icon: Phone },

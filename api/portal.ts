@@ -18,6 +18,7 @@ const querySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('features') }),
   z.object({ action: z.literal('staff') }),
   z.object({ action: z.literal('ai_model') }),
+  z.object({ action: z.literal('launchpad') }),
   z.object({ action: z.literal('metrics'), from: z.string().datetime(), to: z.string().datetime() }),
   z.object({ action: z.literal('lead_timeline'), leadId: uuid }),
   z.object({ action: z.literal('ad_spend') }),
@@ -255,6 +256,8 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
       if (parsed.action === 'features') return send(res,200,await rpc(user.token,'portal_features'));
       if (parsed.action === 'ai_model') return send(res,200,{model:await rpc(user.token,'portal_ai_model')});
       const selected = await account(req,user);
+      if (parsed.action === 'launchpad') return send(res,200,await rpc(user.token,'portal_launchpad',
+        {p_account:selected.id}));
       if (parsed.action === 'metrics') return send(res,200,await rpc(user.token,'portal_dashboard_metrics',
         {p_account:selected.id,p_start:parsed.from,p_end:parsed.to}));
       if (parsed.action === 'lead_timeline') return send(res,200,await rpc(user.token,'portal_lead_timeline',

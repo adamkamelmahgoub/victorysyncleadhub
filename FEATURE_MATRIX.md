@@ -43,16 +43,16 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | AI chat edits and audits | page editor AI | partial | source review | One-step undo and usage tests needed. |
 | AI proof policy | `landing-ai-policy.ts` | partial | `landing-ai-policy.test.ts` | Add years, prices, licenses and guarantees checks. |
 | AI token budget | `ai_requests` | partial | source review | Budget enforcement test needed. |
-| Pipeline board pagination | opportunities UI | broken | reported bug; source review | Older leads absent after first 1,000. |
-| Original lead dates | `leads.custom_fields` | broken | reported workaround | Restore dates only after board fix, on database copy first. |
-| Unified tasks | `company_tasks`, `contact_tasks` | broken | reported bug | Pages read different tables. |
-| Social inbox refresh | `refresh_social_inbox` | broken | reported `text = uuid` error | Reproduce with fixture and fix cast. |
-| Unipile newest-first sync | social worker | broken | reported stale chats after 2026-10-21 | Separate fresh poll and history cursor. |
-| Social reconnect health | Settings and Slack | missing | source review | Need expired-session state and alert. |
+| Pipeline board pagination | opportunities UI | partial | `pipeline-board-pagination.test.ts` | Older leads page by stage locally; browser and full database QA pending. |
+| Original lead dates | `leads.custom_fields` | partial | `restore-original-lead-dates.test.ts` | Migration prepared; backup and copy dry run pending. |
+| Unified tasks | `company_tasks`, `contact_tasks` | partial | `unified-tasks-view.test.ts` | Shared view and source-aware actions prepared; full database QA pending. |
+| Social inbox refresh | `refresh_social_inbox` | partial | `social-access-sql.test.ts` | UUID/text cast tested locally; live route QA pending. |
+| Unipile newest-first sync | social worker | partial | `social-unipile.test.ts` | Separate recent and history polling prepared; provider sandbox QA pending. |
+| Social reconnect health | Settings and Slack | partial | `social-reconnect-health.test.ts` | Health query tested locally; live route and Slack QA pending. |
 | Social contact matching | `social_profiles`, social inbox | partial | `social-inbox.ts` source review | Manual link exists; auto-match remains incomplete. |
 | GHL-style agency shell | navigation components | partial | source review | Public reference and parity QA pending. |
 | GHL-style client shell | portal layout | partial | source review | Mobile and theme QA pending. |
-| Launchpad | client portal | missing | source review | Account checklist screen needed. |
+| Launchpad | `/client-portal/launchpad` | partial | `client-portal-permissions.test.ts` | Account-scoped checklist added; migration, browser and RLS QA pending. |
 | Unified conversations | `social-inbox.tsx` | partial | source review | SMS, email, calls in one thread unverified. |
 | Calendar week/month | `calendar.tsx` | partial | source review | Appointment slide-over QA needed. |
 | Contacts smart lists and bulk tools | contact pages | partial | existing unit tests | Browser and data tests needed. |
@@ -67,7 +67,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Global search and quick add | app shell | partial | source review | Keyboard and account scoping need test. |
 | Light and dark themes | app shell | partial | source review | Screenshots and contrast QA needed. |
 | Seeded demo environment | scripts | missing | source review | No isolated full demo seed with >1,000 leads. |
-| Vitest, Playwright, Lighthouse, axe CI | test tooling | missing | package scripts review | Current tests use node/tsx; required gates absent. |
+| Vitest, Playwright, Lighthouse, axe CI | test tooling | partial | `.github/workflows/quality.yml` | Pull-request unit/build gate added; browser, RLS, Lighthouse and axe gates remain absent. |
 | Production launch checks | Vercel and Supabase | partial | prior deployment check | Provider secrets and webhook test events pending. |
 
 ## Audit findings

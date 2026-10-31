@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'wouter';
-import { ArrowDown, ArrowUp, Plus, Save, Sparkles, Download, ExternalLink } from 'lucide-react';
+import { ArrowDown, ArrowUp, Plus, Save, Sparkles, Download, ExternalLink, CheckCircle2, Circle } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
@@ -28,13 +28,32 @@ type FailedRun = {id:string;account_name:string;step:string;error:string|null;st
 type Feature = {feature_key:string;user_id:string|null;enabled:boolean};
 type Snapshot = {accountId:string;readOnly:boolean;data:unknown};
 type Lead = {id:string;first_name:string;last_name:string;company:string;phone:string;email:string;pipeline_stage_id:string|null;notes:string|null;created_at:string};
-const pages = ['dashboard','leads','calls','pages','forms','reviews','reports','billing','settings'] as const;
+const pages = ['launchpad','dashboard','leads','calls','pages','forms','reviews','reports','billing','settings'] as const;
 type PortalPage = typeof pages[number];
 const themeDefault:Theme = {background:'#ffffff',foreground:'#172033',accent:'#285ce6',font:'sans'};
 const sections:Section['type'][] = ['hero','text','features','image','cta','form'];
 const BASE = import.meta.env.BASE_URL.replace(/\/$/,'');
 
 function nice(value:string) { return value.replace(/_/g,' ').replace(/\b\w/g,c => c.toUpperCase()); }
+type LaunchpadStep = {key:string;label:string;done:boolean;path:string};
+function Launchpad({accountId}:{accountId:string|null}) {
+  const {data,error,isLoading}=useQuery<{accountName:string;steps:LaunchpadStep[]}>({queryKey:['portal-launchpad',accountId],
+    queryFn:()=>apiFetch('/api/portal?action=launchpad'),enabled:!!accountId,retry:false});
+  if(!accountId)return <Card className="p-6">Select a client account to view the setup checklist.</Card>;
+  if(isLoading)return <Card className="p-6">Loading setup checklist...</Card>;
+  if(error)return <Card role="alert" className="p-6 text-red-600">{String(error)}</Card>;
+  const steps=data?.steps||[];
+  const completed=steps.filter(step=>step.done).length;
+  return <div className="space-y-5"><Card className="p-5 sm:p-7"><h2 className="text-xl font-semibold">Set up {data?.accountName||'your account'}</h2>
+    <p className="mt-2 text-sm text-muted-foreground">Complete the essentials before your next campaign goes live.</p>
+    <div className="mt-5 flex items-center justify-between text-sm"><span>{completed} of {steps.length} complete</span><span>{steps.length?Math.round(completed/steps.length*100):0}%</span></div>
+    <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{width:`${steps.length?completed/steps.length*100:0}%`}}/></div></Card>
+    <div className="grid gap-3 sm:grid-cols-2">{steps.map(step=><Card key={step.key} className="flex items-center gap-4 p-4 sm:p-5">
+      {step.done?<CheckCircle2 className="h-6 w-6 shrink-0 text-emerald-600"/>:<Circle className="h-6 w-6 shrink-0 text-slate-400"/>}
+      <div className="min-w-0 flex-1"><h3 className="font-medium">{step.label}</h3><p className="mt-1 text-xs text-muted-foreground">{step.done?'Complete':'Needs attention'}</p></div>
+      <Link href={step.path} className="shrink-0 text-sm font-medium text-blue-600 hover:underline">Open</Link>
+    </Card>)}</div></div>;
+}
 function show(value:unknown) {
   if (value === null || value === undefined || value === '') return '-';
   if (typeof value === 'object') return JSON.stringify(value);
@@ -376,7 +395,7 @@ export default function ClientPortal() {
     onSuccess:()=>{void queryClient.invalidateQueries({queryKey:['portal-accounts']});void queryClient.invalidateQueries({queryKey:['portal-closed-companies']})}});
   const selectedId = accounts?.selected?.accountId ?? (accounts?.accounts.length===1?accounts.accounts[0].id:null);
   const {data:branding}=useQuery<{name:string;logoUrl:string|null;brand:{primary?:string;text?:string;background?:string}|null}>({queryKey:['portal-branding',selectedId],queryFn:()=>apiFetch('/api/portal?action=branding'),enabled:!!selectedId,retry:false});
-  const {data:snapshot,error:pageError,isLoading:pageLoading} = useQuery<Snapshot>({queryKey:['portal',tab,selectedId],queryFn:()=>apiFetch(`/api/portal?action=snapshot&section=${tab}`),enabled:!!tab&&!!selectedId,retry:false});
+  const {data:snapshot,error:pageError,isLoading:pageLoading} = useQuery<Snapshot>({queryKey:['portal',tab,selectedId],queryFn:()=>apiFetch(`/api/portal?action=snapshot&section=${tab}`),enabled:!!tab&&tab!=='launchpad'&&!!selectedId,retry:false});
   const {data:pageStats}=useQuery<Array<{id:string;visits:number;leads:number}>>({queryKey:['portal-page-stats',selectedId],queryFn:()=>apiFetch('/api/portal?action=page_stats'),enabled:tab==='pages'&&!!selectedId,retry:false});
   const [editing,setEditing] = useState<Page|undefined>();
   const [creating,setCreating] = useState(false);
@@ -415,7 +434,7 @@ export default function ClientPortal() {
     {!tab && agency && <AgencyOperations admin={admin} onOpen={id=>void apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'switch',accountId:id,viewAsClient:false})}).then(()=>queryClient.invalidateQueries({queryKey:['portal-accounts']})).then(()=>navigate('/client-portal/dashboard'))} onViewAs={id=>void viewAs(id)}/>}
     {(!tab && !agency) && <p>Select an account to continue.</p>}
     {tab&&<><nav aria-label="Portal pages" className="flex gap-2 overflow-x-auto pb-2">{pages.filter(page=>canAccessPath(`/client-portal/${page}`,pagePermissions,role)).map(page=><Link key={page} href={`/client-portal/${page}`} className={`shrink-0 rounded-lg px-3 py-2 text-sm ${tab===page?'bg-blue-600 text-white':'border bg-white'}`}>{nice(page)}</Link>)}</nav>
-      {pageLoading?<p>Loading {tab}…</p>:pageError?<Card role="alert" className="p-6">{String(pageError)}</Card>:snapshot&&<>
+      {tab==='launchpad'?<Launchpad accountId={selectedId}/>:pageLoading?<p>Loading {tab}…</p>:pageError?<Card role="alert" className="p-6">{String(pageError)}</Card>:snapshot&&<>
         {['leads','calls','reviews','reports'].includes(tab)&&<div className="flex justify-end"><Button variant="outline" size="sm" disabled={snapshot.readOnly} onClick={()=>void exportData()}><Download className="mr-1 h-4 w-4"/>Export</Button></div>}
         {tab==='dashboard'&&<Dashboard admin={admin}/>}
         {tab==='leads'&&<LeadTable data={snapshot.data as {rows:Lead[];stages:{id:string;name:string}[]}} readOnly={snapshot.readOnly||limited}/>}

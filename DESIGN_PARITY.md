@@ -7,7 +7,7 @@ Reference material is from the [HighLevel Launchpad guide](https://help.gohighle
 | Agency Dashboard | `/client-portal` agency view | Account health and MRR overview | Full revenue and billing widgets need visual QA. |
 | Sub-Accounts | `/sub-accounts`, `/client-portal` | Account switcher and create flow | Search, filter and quick switch placement differ. |
 | Account Snapshots | Package template actions | Apply operation | Template editor and update flow are absent. |
-| Launchpad | No dedicated route | Onboarding tasks exist | Needs a role-aware checklist screen and shortcuts. |
+| Launchpad | `/client-portal/launchpad` | Account-scoped setup checklist, progress and shortcuts | Browser and screenshot comparison pending. |
 | Dashboard | `/client-portal/dashboard` | KPI cards and range controls | Widget density and arrangement differ. |
 | Conversations | `/conversations`, `/social-inbox` | Thread and channel views | Unified all-channel three-pane view is incomplete. |
 | Calendars | `/meeting-scheduler` | Scheduling route | Week/month layout and appointment panel need comparison. |
