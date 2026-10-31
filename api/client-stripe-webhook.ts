@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type { IncomingMessage,ServerResponse } from 'node:http';
 import { z } from 'zod';
+import {externalSendsEnabled} from '../lib/external-send-mode.js';
 
 export const config={api:{bodyParser:false},maxDuration:60};
 const checkout=z.object({id:z.string(),object:z.literal('checkout.session'),payment_status:z.string(),
@@ -31,6 +32,7 @@ async function rest<T>(path:string,body:unknown,method='POST'):Promise<T>{
 }
 export default async function handler(req:IncomingMessage,res:ServerResponse){
   if(req.method!=='POST')return reply(res,405,{error:'Method not allowed'});
+  if(!externalSendsEnabled())return reply(res,503,{error:'Checkout webhook is disabled outside production or in sandbox mode'});
   const secret=process.env.STRIPE_WEBHOOK_SECRET;
   if(!secret)return reply(res,503,{error:'Stripe webhook is not configured'});
   try{

@@ -38,6 +38,10 @@ The **Accounts overview** table shows package, MRR, health, lead goal, response 
 
 Set server secrets in Vercel production environment variables, then redeploy. Never place them in client code or `NEXT_PUBLIC_` variables. The main variables are `SUPABASE_SERVICE_ROLE_KEY`, `PORTAL_BASE_URL`, `PUBLIC_PAGES_BASE_URL`, `MIGHTYCALL_API_KEY`, `MIGHTYCALL_WEBHOOK_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`, `INVITE_FROM_EMAIL`, `SLACK_WEBHOOK_URL`, and `CLIENT_DELIVERY_WORKER_SECRET`. The app also uses its existing OpenRouter variables. Check the specific integration handlers before changing a provider secret name.
 
+MightyCall API delivery also requires `MIGHTYCALL_SECRET_KEY` (or `MIGHTYCALL_USER_KEY`) in Vercel. This is the account's API User key or Classic extension, and is separate from `MIGHTYCALL_WEBHOOK_SECRET`. Set `MIGHTYCALL_PRODUCT=call_center` for a Call Center account; omit it for Classic. Call Center uses the `ccapi.mightycall.com` host and `/contactcenter/messages/send` path, while Classic uses `api.mightycall.com` and `/messages/send`. Verify the product type before enabling automated texts.
+
+The client delivery worker and checkout webhook run only when Vercel reports `VERCEL_ENV=production`. Setting `CLIENT_DELIVERY_SANDBOX=1` disables them even in production. Client invite emails and client-creation Slack alerts also respect this gate. Preview and local runs do not send through these paths. Verify provider credentials and a single controlled event before clearing sandbox mode in production.
+
 To rotate a secret, add the new value in Vercel, update the provider webhook or API credential, redeploy, test a single event, and then revoke the old value. Update any matching Supabase Vault secret used by Edge Functions or scheduled jobs. Stripe and MightyCall webhooks must be pointed at the production handlers and signed with the matching secrets.
 
 ## Opt-out

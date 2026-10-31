@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 import { clientReportPdf } from '../lib/client-report-pdf.js';
+import {mightyCallAuthUrl,mightyCallProduct,mightyCallUrl} from '../lib/mightycall-endpoints.js';
+import {externalSendsEnabled,requireExternalSends} from '../lib/external-send-mode.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const inputSchema = z.object({ limit: z.number().int().min(1).max(50).optional() }).strict();
@@ -33,9 +35,9 @@ function e164(value:string|null|undefined) {
 }
 async function mightyAuth() {
   if(mightyToken&&mightyToken.expires>Date.now()+60_000)return mightyToken.value;
-  const key=process.env.MIGHTYCALL_API_KEY,secret=process.env.MIGHTYCALL_SECRET_KEY;
+  const key=process.env.MIGHTYCALL_API_KEY,secret=process.env.MIGHTYCALL_SECRET_KEY||process.env.MIGHTYCALL_USER_KEY;
   if(!key||!secret)throw Error('MightyCall is not configured');
-  const response=await fetch('https://api.mightycall.com/v4/auth/token',{method:'POST',
+  const response=await fetch(mightyCallAuthUrl(mightyCallProduct(process.env.MIGHTYCALL_PRODUCT)),{method:'POST',
     headers:{'x-api-key':key,'content-type':'application/x-www-form-urlencoded'},
     body:new URLSearchParams({grant_type:'client_credentials',client_id:key,client_secret:secret}),signal:AbortSignal.timeout(12000)});
   const data=await response.json() as {access_token?:string;expires_in?:number};
@@ -43,8 +45,9 @@ async function mightyAuth() {
   mightyToken={value:data.access_token,expires:Date.now()+(data.expires_in||3600)*1000};return data.access_token;
 }
 async function mighty(path:string,method='GET',body?:unknown) {
+  if(method!=='GET')requireExternalSends();
   const key=process.env.MIGHTYCALL_API_KEY;if(!key)throw Error('MightyCall API key missing');
-  const response=await fetch(`https://api.mightycall.com/v4/api/${path}`,{method,
+  const response=await fetch(mightyCallUrl(mightyCallProduct(process.env.MIGHTYCALL_PRODUCT),path),{method,
     headers:{authorization:`Bearer ${await mightyAuth()}`,'x-api-key':key,'content-type':'application/json'},
     body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(12000)});
   const data=await response.json().catch(()=>null) as Record<string,unknown>|null;
@@ -65,6 +68,7 @@ async function sendText(account:Account,to:string,message:string,job:Job) {
   return true;
 }
 async function sendEmail(to:string,subject:string,body:string,job:Job) {
+  requireExternalSends();
   if(!process.env.RESEND_API_KEY||!process.env.REPORT_FROM_EMAIL)throw Error('Report email is not configured');
   const response=await fetch('https://api.resend.com/emails',{method:'POST',headers:{authorization:`Bearer ${process.env.RESEND_API_KEY}`,
     'content-type':'application/json','Idempotency-Key':`${job.id}-${crypto.createHash('sha256').update(to.toLowerCase()).digest('hex').slice(0,12)}`},body:JSON.stringify({from:process.env.REPORT_FROM_EMAIL,to:[to],subject,text:body}),signal:AbortSignal.timeout(12000)});
@@ -118,7 +122,7 @@ async function routeCalls() {
         recording_url:recording&&recording.startsWith('https://')?recording:null,
         agent_name:details.called?.find(x=>x.isConnected)?.name||null,summary:details.note||null,
       });
-      if(process.env.SLACK_WEBHOOK_URL){
+      if(process.env.SLACK_WEBHOOK_URL&&externalSendsEnabled()){
         const usage=await rest<{minutesUsed:number;minutesIncluded:number}>('rpc/client_usage_meter','POST',{p_account:matched.id});
         if(usage.minutesIncluded>0&&usage.minutesUsed>=Math.ceil(usage.minutesIncluded*0.8)){
           const month=new Date().toISOString().slice(0,7)+'-01';
@@ -291,6 +295,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
   const secrets=[process.env.CLIENT_DELIVERY_WORKER_SECRET,process.env.CRON_SECRET,process.env.OUTREACH_WORKER_TOKEN].filter((value):value is string=>!!value);
   if(!provided||!secrets.some(secret=>provided.length===secret.length&&
     crypto.timingSafeEqual(Buffer.from(provided),Buffer.from(secret))))return reply(res,401,{error:'Unauthorized'});
+  if(!externalSendsEnabled())return reply(res,503,{error:'Delivery worker is disabled outside production or in sandbox mode'});
   let input:z.infer<typeof inputSchema>;
   try{input=req.method==='GET'?inputSchema.parse({}):await read(req)}catch{return reply(res,400,{error:'Invalid input'})}
   try {
@@ -306,7 +311,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
       catch(error){const message=error instanceof Error?error.message:String(error);
         await rest(`client_automation_jobs?id=eq.${job.id}`,'PATCH',{status:'failed',last_error:message.slice(0,500),claimed_at:null,run_at:new Date(Date.now()+Math.min(60,2**job.attempts)*60_000).toISOString()});
         await rest(`automation_runs?job_id=eq.${job.id}`,'PATCH',{status:'failed',error:message.slice(0,500),finished_at:new Date().toISOString()});
-        if(job.attempts>=5&&process.env.SLACK_WEBHOOK_URL)await fetch(process.env.SLACK_WEBHOOK_URL,{method:'POST',
+        if(job.attempts>=5&&process.env.SLACK_WEBHOOK_URL&&externalSendsEnabled())await fetch(process.env.SLACK_WEBHOOK_URL,{method:'POST',
           headers:{'content-type':'application/json'},body:JSON.stringify({text:`VictorySync client automation failed: ${job.kind} for account ${job.client_account_id}, job ${job.id}`}),
           signal:AbortSignal.timeout(5000)}).catch(()=>undefined);
         results.push({id:job.id,status:'failed'});}
