@@ -21,6 +21,10 @@ export function renderSocialAlert(payload:Record<string,unknown>):string{
     const account=String(payload.account_label||'Social account').slice(0,100);
     return `No social message webhook received for 24 hours: ${account}. Reconciliation has been queued.\nhttps://app.victorysync.com/settings`;
   }
+  if(event==='reconnect_needed'){
+    const account=String(payload.account_label||'Social account').slice(0,100);
+    return `${account} needs a new social connection. New messages have not arrived for 48 hours while outbound activity continued. Reconnect it in Settings.\nhttps://app.victorysync.com/settings`;
+  }
   throw new Error('Unsupported social alert');
 }
 

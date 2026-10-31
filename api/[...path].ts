@@ -15,6 +15,7 @@ import { normalizeSegmentFilters, segmentFilterSummary, validateSegmentFilters }
 import { reviewStats } from '../lib/review-stats.js';
 import { readPortalSelection } from '../lib/portal-cookie.js';
 import { newFormSlug } from '../lib/form-slug.js';
+import {pipelineBoardQuerySchema,fetchPipelinePage} from '../lib/pipeline-board.js';
 import { z } from 'zod';
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 
@@ -852,7 +853,7 @@ async function supabaseRest(path: string, init: FetchInit, req?: VercelRequest) 
   }
 
   const inboundAuth = req ? getHeader(req, "authorization") : undefined;
-  const authorization = /^(?:leads|forms|sequences|sequence_steps|automation_workflows|pipelines|pipeline_stages|reviews|review_sources|review_requests)(?:\?|$)/.test(path) && inboundAuth
+  const authorization = /^(?:leads|forms|sequences|sequence_steps|automation_workflows|pipelines|pipeline_stages|reviews|review_sources|review_requests|contact_tasks|company_tasks|unified_tasks)(?:\?|$)/.test(path) && inboundAuth
     ? inboundAuth
     : hasServiceRole ? `Bearer ${supabaseKey}` : inboundAuth;
 
@@ -2894,11 +2895,12 @@ async function listLeadChildren(leadId: string, kind: keyof typeof leadChildTabl
     sendJson(res, 404, { error: "Lead not found" });
     return;
   }
-  const table = leadChildTables[kind];
+  const table = kind==='tasks'?'unified_tasks':leadChildTables[kind];
   const rows = await supabaseRest(`${table}?lead_id=eq.${encodeURIComponent(leadId)}&select=*&order=created_at.desc`, {
     method: "GET",
-  }, req);
-  sendJson(res, 200, toCamelValue(rows));
+  }, req) as Array<Record<string,unknown>>;
+  sendJson(res, 200, kind==='tasks'?rows.map(row=>({...toCamelValue(row) as Record<string,unknown>,
+    dueDate:row.due_at,isCompleted:row.status==='completed',description:row.notes})):toCamelValue(rows));
 }
 
 async function createLeadChild(leadId: string, kind: keyof typeof leadChildTables, currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
@@ -2913,6 +2915,16 @@ async function createLeadChild(leadId: string, kind: keyof typeof leadChildTable
     ...(toSnakeValue(body) as Record<string, unknown>),
     lead_id: leadId,
   });
+  if(kind==='tasks'){
+    const lead=await supabaseRest(`leads?id=eq.${encodeURIComponent(leadId)}&select=company&limit=1`,
+      {method:'GET'},req) as Array<{company:string|null}>;
+    const companyName=lead[0]?.company?.trim();
+    if(companyName){
+      const matches=await supabaseRest(`companies?name=eq.${encodeURIComponent(companyName)}&deleted_at=is.null&select=id&limit=2`,
+        {method:'GET'},req) as Array<{id:string}>;
+      if(matches.length===1)payload.company_id=matches[0].id;
+    }
+  }
   if (kind === "activities" && !payload.type) payload.type = "other";
   if (kind === "activities" && typeof payload.description === "string") {
     payload.description = `${payload.description} — recorded by ${actorLabelForUser(currentUser)}`;
@@ -2937,9 +2949,21 @@ async function updateLeadChild(leadId: string, kind: keyof typeof leadChildTable
     sendJson(res, 404, { error: "Lead not found" });
     return;
   }
-  const table = leadChildTables[kind];
+  let table: string = leadChildTables[kind];
   const body = (await readJson(req)) as Record<string, unknown>;
   const payload = stripUndefined(toSnakeValue(body) as Record<string, unknown>);
+  if (kind === "tasks") {
+    const tasks = await supabaseRest(`unified_tasks?id=eq.${encodeURIComponent(childId)}&lead_id=eq.${encodeURIComponent(leadId)}&select=source&limit=1`, { method: "GET" }, req) as Array<{source:string}>;
+    if (!tasks.length) { sendJson(res, 404, { error: "Task not found" }); return; }
+    if (tasks[0].source === "company") {
+      table = "company_tasks";
+      if (typeof payload.is_completed === "boolean") {
+        payload.status = payload.is_completed ? "completed" : "pending";
+        delete payload.is_completed;
+      }
+      delete payload.completed_at;
+    }
+  }
   if (kind === "tasks" && payload.is_completed === true && !payload.completed_at) {
     payload.completed_at = new Date().toISOString();
   }
@@ -2958,7 +2982,12 @@ async function deleteLeadChild(leadId: string, kind: keyof typeof leadChildTable
     sendJson(res, 404, { error: "Lead not found" });
     return;
   }
-  const table = leadChildTables[kind];
+  let table: string = leadChildTables[kind];
+  if (kind === "tasks") {
+    const tasks = await supabaseRest(`unified_tasks?id=eq.${encodeURIComponent(childId)}&lead_id=eq.${encodeURIComponent(leadId)}&select=source&limit=1`, { method: "GET" }, req) as Array<{source:string}>;
+    if (!tasks.length) { sendJson(res, 404, { error: "Task not found" }); return; }
+    if (tasks[0].source === "company") table = "company_tasks";
+  }
   await supabaseRest(`${table}?id=eq.${encodeURIComponent(childId)}&lead_id=eq.${encodeURIComponent(leadId)}`, {
     method: "DELETE",
   }, req);
@@ -3004,22 +3033,33 @@ async function getReviewStats(req: VercelRequest, res: VercelResponse) {
 
 async function getPipelineLeads(req: VercelRequest, res: VercelResponse, currentUser: AuthenticatedUser) {
   const url = new URL(req.url ?? "/api/pipeline/leads", "https://local.invalid");
-  const pipelineId = url.searchParams.get("pipelineId");
+  const parsed=pipelineBoardQuerySchema.safeParse(Object.fromEntries(url.searchParams));
+  if(!parsed.success){sendJson(res,400,{error:'Invalid pipeline board query'});return;}
+  const {pipelineId,stageId,offset,limit}=parsed.data;
   const stagePath = pipelineId
     ? `pipeline_stages?pipeline_id=eq.${encodeURIComponent(pipelineId)}&select=*&order=position.asc`
     : "pipeline_stages?select=*&order=position.asc";
   const scope = clientLeadScope(currentUser);
-  const [stages, leads] = await Promise.all([
-    supabaseRest(stagePath, { method: "GET" }, req) as Promise<Array<Record<string, unknown>>>,
-    supabaseRest(`leads?select=*&order=created_at.desc&limit=1000${scope ? `&client_account_id=eq.${encodeURIComponent(scope)}` : ""}`, { method: "GET" }, req) as Promise<LeadRow[]>,
+  const stages=await supabaseRest(stagePath,{method:'GET'},req) as Array<Record<string,unknown>>;
+  if(stageId&&stageId!=='unassigned'&&!stages.some(stage=>String(stage.id)===stageId)){
+    sendJson(res,404,{error:'Stage not found in this pipeline'});return;
+  }
+  const page=async(id:string,pageOffset:number)=>{
+    const result=await fetchPipelinePage<LeadRow>(id,scope,pageOffset,limit,
+      path=>supabaseRest(path,{method:'GET'},req) as Promise<LeadRow[]>,
+      path=>supabaseRestCount(path,req));
+    return {leads:result.rows.map(leadFromRow),count:result.count,hasMore:result.hasMore};
+  };
+  if(stageId){sendJson(res,200,{stageId,...await page(stageId,offset)});return;}
+  const [stagePages,unassigned]=await Promise.all([
+    Promise.all(stages.map(stage=>page(String(stage.id),0))),page('unassigned',0),
   ]);
-  const stageRows = stages.map((stage) => ({
-    ...(toCamelValue(stage) as Record<string, unknown>),
-    leads: leads.filter((lead) => String(lead.pipeline_stage_id ?? "") === String(stage.id)).map(leadFromRow),
+  const stageRows=stages.map((stage,index)=>({
+    ...(toCamelValue(stage) as Record<string,unknown>),...stagePages[index],
   }));
   sendJson(res, 200, {
     stages: stageRows,
-    unassigned: leads.filter((lead) => !lead.pipeline_stage_id).map(leadFromRow),
+    unassigned:unassigned.leads,unassignedCount:unassigned.count,unassignedHasMore:unassigned.hasMore,
   });
 }
 

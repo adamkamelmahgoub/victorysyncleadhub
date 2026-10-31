@@ -9,7 +9,7 @@ import {mcpPool} from '../mcp-auth.js';
 import {socialVaultRead} from '../social-vault.js';
 import {matchSocialLead} from '../social-matching.js';
 import {dispatchSocialNotifications} from '../social-notification-outbox.js';
-import {getUnipileConfig,unipileRequest,unipileSenderFlag} from '../social-unipile-client.js';
+import {getUnipileConfig,unipileRequest,unipileSenderFlag,unipileChatQuery,nextUnipileHistoryCursor} from '../social-unipile-client.js';
 import {normalizeSocial} from '../social-handles.js';
 
 export const config = { maxDuration: 60 };
@@ -148,22 +148,24 @@ async function processUnipileEvent(raw:Record<string,unknown>){
     :{last_webhook_at:new Date().toISOString(),last_sync_at:new Date().toISOString(),health:'healthy',last_error:null})});
 }
 
-export async function reconcileUnipile(accountFilter?:string){
+export async function reconcileUnipile(accountFilter?:string,mode:'recent'|'history'='recent'){
+  const dueColumn=mode==='history'?'history_next_sync_at':'next_sync_at';
+  const historyFilter=mode==='history'?'and not s.initial_sync_complete':'';
   const due=await mcpPool.query<{connected_account_id:string;organization_id:string;chat_cursor:string|null;initial_sync_complete:boolean;
     external_account_id:string;platform:string}>(`select s.connected_account_id,s.organization_id,s.chat_cursor,s.initial_sync_complete,a.external_account_id,a.platform
       from public.social_unipile_sync_state s join public.connected_accounts a on a.id=s.connected_account_id
-      where ($1::uuid is null or s.connected_account_id=$1) and (s.next_sync_at<=now() or $1::uuid is not null)
+      where ($1::uuid is null or s.connected_account_id=$1) and (s.${dueColumn}<=now() or $1::uuid is not null)
+        ${historyFilter}
         and a.provider='unipile' and a.status in ('active','error') and a.external_account_id is not null
-      order by s.next_sync_at limit 1`,[accountFilter||null]);
+      order by s.${dueColumn} limit 1`,[accountFilter||null]);
   const state=due.rows[0];if(!state)return 0;
   // A short lease keeps concurrent cron invocations from processing the same page.
-  const claim=await mcpPool.query(`update public.social_unipile_sync_state set next_sync_at=now()+interval '5 minutes',updated_at=now()
-    where connected_account_id=$1 and (next_sync_at<=now() or $2::boolean) returning connected_account_id`,[state.connected_account_id,Boolean(accountFilter)]);
+  const claim=await mcpPool.query(`update public.social_unipile_sync_state set ${dueColumn}=now()+interval '5 minutes',updated_at=now()
+    where connected_account_id=$1 and (${dueColumn}<=now() or $2::boolean) returning connected_account_id`,[state.connected_account_id,Boolean(accountFilter)]);
   if(!claim.rowCount)return 0;
   try{
     const config=await getUnipileConfig(state.organization_id);
-    const query=new URLSearchParams(config.api_version==='v1'?{account_id:state.external_account_id,limit:accountFilter?'5':'2'}:{type:'1to1',limit:accountFilter?'5':'2'});
-    if(state.chat_cursor)query.set('cursor',state.chat_cursor);
+    const query=unipileChatQuery(config.api_version,state.external_account_id,mode,state.chat_cursor);
     const response=await unipileGet(state.organization_id,state.external_account_id,`/chats?${query}`);
     const chats=Array.isArray(response.data)?response.data as Record<string,unknown>[]:Array.isArray(response.items)?response.items as Record<string,unknown>[]:[];
     let messages=0;
@@ -177,7 +179,7 @@ export async function reconcileUnipile(accountFilter?:string){
       const items=Array.isArray(page.data)?page.data as Record<string,unknown>[]:Array.isArray(page.items)?page.items as Record<string,unknown>[]:[];
       for(const message of items.reverse()){
         const timestamp=Date.parse(String(message.timestamp||''));
-        if(!accountFilter&&!state.initial_sync_complete&&(!Number.isFinite(timestamp)||timestamp<Date.now()-30*86400000))continue;
+        if(mode==='recent'&&!accountFilter&&(!Number.isFinite(timestamp)||timestamp<Date.now()-30*86400000))continue;
         const messageId=String(message.id||message.message_id||'');if(!messageId)continue;
         const other=attendees.find(value=>unipileSenderFlag(value.is_self)===false)||attendees.find(value=>String(value.provider_id||value.id||'')!==String(message.sender_id||''));
         const specifics=other?.specifics&&typeof other.specifics==='object'?other.specifics as Record<string,unknown>:{};
@@ -192,18 +194,70 @@ export async function reconcileUnipile(accountFilter?:string){
         messages++;
       }
     }
-    const cursor=response.next_cursor||response.cursor;
-    const next=typeof cursor==='string'&&cursor?cursor:null;
-    await mcpPool.query(`update public.social_unipile_sync_state set chat_cursor=$2,initial_sync_complete=$3,
-      last_sync_at=now(),next_sync_at=now()+($4::integer * interval '1 minute'),last_error=null,updated_at=now()
-      where connected_account_id=$1`,[state.connected_account_id,next,!next,next?1:15]);
-    await mcpPool.query(`update public.connected_accounts set last_sync_at=now(),status='active',health='healthy',last_error=null where id=$1`,[state.connected_account_id]);
+    if(mode==='history'){
+      const next=nextUnipileHistoryCursor(response,state.chat_cursor,chats.length);
+      await mcpPool.query(`update public.social_unipile_sync_state set chat_cursor=$2,initial_sync_complete=$3,
+        last_sync_at=now(),history_next_sync_at=now()+interval '30 minutes',last_error=null,updated_at=now()
+        where connected_account_id=$1`,[state.connected_account_id,next,!next]);
+    }else{
+      await mcpPool.query(`update public.social_unipile_sync_state set last_sync_at=now(),
+        next_sync_at=now()+interval '5 minutes',last_error=null,updated_at=now()
+        where connected_account_id=$1`,[state.connected_account_id]);
+    }
+    await mcpPool.query(`update public.connected_accounts set last_sync_at=now(),
+      status=case when health='reconnect_needed' then status else 'active' end,
+      health=case when health='reconnect_needed' then health else 'healthy' end,
+      last_error=case when health='reconnect_needed' then last_error else null end where id=$1`,[state.connected_account_id]);
     return messages;
   }catch(error){
-    await mcpPool.query(`update public.social_unipile_sync_state set next_sync_at=now()+interval '30 minutes',
+    await mcpPool.query(`update public.social_unipile_sync_state set ${dueColumn}=now()+interval '30 minutes',
       last_error=$2,updated_at=now() where connected_account_id=$1`,[state.connected_account_id,String(error).slice(0,500)]);
+    if(/rejected this access token|\(401\)|\(403\)|session.*expired|reconnect/i.test(String(error))){
+      const changed=await mcpPool.query<{id:string;organization_id:string;label:string}>(`update public.connected_accounts
+        set status='error',health='reconnect_needed',last_error='Provider session expired. Reconnect this account in Settings.',updated_at=now()
+        where id=$1 and health is distinct from 'reconnect_needed' returning id,organization_id,label`,[state.connected_account_id]);
+      for(const account of changed.rows)await mcpPool.query(`insert into public.notification_outbox(organization_id,channel,payload,dedupe_key)
+        values($1,'slack',jsonb_build_object('event','reconnect_needed','account_id',$2::text,'account_label',$3::text),$4)
+        on conflict(dedupe_key) do nothing`,[account.organization_id,account.id,account.label,
+        `reconnect-needed:${account.id}:${new Date().toISOString().slice(0,10)}`]);
+    }
     throw error;
   }
+}
+
+export async function matchUnlinkedSocialConversations(limit=25){
+  const rows=await mcpPool.query<{id:string;organization_id:string;channel:'instagram'|'linkedin';
+    participant_platform_id:string|null;participant_handle:string|null;participant_profile_url:string|null;
+    participant_name:string|null;owner_user_id:string|null}>(`select c.id,c.organization_id,c.channel,c.participant_platform_id,c.participant_handle,
+      c.participant_profile_url,c.participant_name,a.owner_user_id
+    from public.conversations c join public.connected_accounts a on a.id=c.connected_account_id
+    where c.match_status='unmatched' and c.channel in ('instagram','linkedin')
+      and (c.match_checked_at is null or c.match_checked_at<now()-interval '30 days')
+      and (c.participant_platform_id is not null or c.participant_handle is not null or c.participant_profile_url is not null)
+    order by c.match_checked_at asc nulls first,c.last_message_at desc nulls last limit $1`,[Math.min(Math.max(limit,1),100)]);
+  let matched=0;
+  for(const row of rows.rows){
+    try{
+      const result=await matchSocialLead({organizationId:row.organization_id,repUserId:row.owner_user_id,
+        platform:row.channel,providerUserId:row.participant_platform_id||'',
+        publicIdentifier:row.participant_handle,profileUrl:row.participant_profile_url,
+        displayName:row.participant_name});
+      await mcpPool.query(`update public.conversations set match_checked_at=now(),
+        match_status=case when $2='matched' then 'matched' when $2='suggested' then 'suggested' else match_status end,
+        lead_id=case when $2='matched' then $3::uuid else lead_id end,
+        suggested_lead_id=case when $2='suggested' then $3::uuid else suggested_lead_id end,
+        match_confidence=case when $2 in ('matched','suggested') then $4 else match_confidence end,
+        matched_at=case when $2='matched' then now() else matched_at end,updated_at=now()
+        where id=$1 and match_status='unmatched'`,[row.id,result.status,result.leadId,result.confidence]);
+      if(result.status==='matched')matched++;
+    }catch(error){
+      await mcpPool.query(`update public.conversations set match_checked_at=now() where id=$1`,[row.id]);
+      await mcpPool.query(`insert into public.integration_alerts(provider,alert_type,message,metadata)
+        values('unipile','contact_match_failed',$1,jsonb_build_object('conversation_id',$2::text))`,
+        [String(error).slice(0,300),row.id]).catch(()=>{});
+    }
+  }
+  return {checked:rows.rowCount,matched};
 }
 
 async function processEvent(job: Job) {
@@ -346,10 +400,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const reconciled=await reconcileUnipile().catch(async error=>{
       await socialRest('integration_alerts',{method:'POST',body:JSON.stringify({provider:'unipile',alert_type:'reconciliation_failed',
         message:String(error).slice(0,500)})}).catch(()=>{});return 0;});
+    const matchBackfill=await matchUnlinkedSocialConversations(25).catch(()=>({checked:0,matched:0}));
     const legacy = await syncLegacyInbound();
     const posts = await processDueSocialPosts(3);
     const metrics = await refreshSocialPostMetrics(2);
     const notifications=await dispatchSocialNotifications(3);
-    res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ processed, inspected: jobs.length, reconciled, legacy, posts, metrics, notifications }));
+    res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ processed, inspected: jobs.length, reconciled, matchBackfill, legacy, posts, metrics, notifications }));
   } catch (error) { res.statusCode = 500; res.end(JSON.stringify({ error: String(error) })); }
 }

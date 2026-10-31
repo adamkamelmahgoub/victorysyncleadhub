@@ -16,23 +16,25 @@ import { CrmHeader, CrmError, CompanyLink } from "@/components/company-crm";
 import { useCompanies, label, type CompanyTask } from "@/lib/company-crm";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import {Link} from 'wouter';
+type UnifiedTask=CompanyTask&{source?:'company'|'contact';lead_id?:string|null};
 export default function CompanyTaskPage() {
   const companies = useCompanies();
   const qc = useQueryClient();
   const { role } = useAuth();
   const [filter, setFilter] = useState("open");
   const [search, setSearch] = useState("");
-  const [editing, setEditing] = useState<CompanyTask | null | undefined>(
+  const [editing, setEditing] = useState<UnifiedTask | null | undefined>(
     undefined,
   );
   const [companyId, setCompanyId] = useState("");
-  const query = useQuery<CompanyTask[]>({
+  const query = useQuery<UnifiedTask[]>({
     queryKey: ["company-crm", "tasks", "all"],
     queryFn: () => apiFetch("/api/company-crm/tasks"),
   });
   const toggle = useMutation({
-    mutationFn: (task: CompanyTask) =>
-      apiFetch(`/api/companies/${task.company_id}/tasks/${task.id}`, {
+    mutationFn: (task: UnifiedTask) =>
+      apiFetch(`/api/company-crm/tasks/${task.id}`, {
         method: "PATCH",
         body: JSON.stringify({
           status: task.status === "completed" ? "pending" : "completed",
@@ -136,26 +138,26 @@ export default function CompanyTaskPage() {
                     </button>
                   </td>
                   <td className="px-4 py-4">
-                    <button
+                    {task.source==='contact'&&task.lead_id?<Link href={`/leads/${task.lead_id}`} className="text-left text-[13px] font-medium hover:text-primary">{task.title}</Link>:<button
                       className="text-left text-[13px] font-medium hover:text-primary"
                       onClick={() => {
-                        setCompanyId(task.company_id);
+                        setCompanyId(task.company_id||'');
                         setEditing(task);
                       }}
                       disabled={role === "viewer"}
                     >
                       {task.title}
-                    </button>
+                    </button>}
                     <p className="mt-1 text-[11px] text-slate-400">
                       {label(task.kind)}
                     </p>
                   </td>
                   <td className="px-4 py-4">
-                    <CompanyLink id={task.company_id}>
+                    {task.company_id?<CompanyLink id={task.company_id}>
                       {companies.data?.find(
                         (company) => company.id === task.company_id,
                       )?.name ?? "Open company"}
-                    </CompanyLink>
+                    </CompanyLink>:task.lead_id?<Link href={`/leads/${task.lead_id}`} className="text-primary">Open contact</Link>:'Unlinked'}
                   </td>
                   <td
                     className={`px-4 py-4 ${task.due_at && new Date(task.due_at) < new Date() && task.status !== "completed" ? "text-amber-700" : ""}`}
