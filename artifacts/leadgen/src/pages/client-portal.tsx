@@ -6,7 +6,6 @@ import { apiFetch } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { canAccessPath } from '@/lib/permissions';
-import { AccountSwitcher } from '@/components/account-switcher';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -34,7 +33,7 @@ const themeDefault:Theme = {background:'#ffffff',foreground:'#172033',accent:'#2
 const sections:Section['type'][] = ['hero','text','features','image','cta','form'];
 const BASE = import.meta.env.BASE_URL.replace(/\/$/,'');
 
-function nice(value:string) { return value.replace(/_/g,' ').replace(/\b\w/g,c => c.toUpperCase()); }
+function nice(value:string) { return value.replace(/([a-z0-9])([A-Z])/g,'$1 $2').replace(/_/g,' ').replace(/\b\w/g,c => c.toUpperCase()); }
 type LaunchpadStep = {key:string;label:string;done:boolean;path:string};
 function Launchpad({accountId}:{accountId:string|null}) {
   const {data,error,isLoading}=useQuery<{accountName:string;steps:LaunchpadStep[]}>({queryKey:['portal-launchpad',accountId],
@@ -418,7 +417,7 @@ export default function ClientPortal() {
   if (accountsError) return <div className="space-y-4"><Card role="alert" className="p-6"><h1 className="font-semibold">Client portal unavailable</h1><p className="mt-2 text-sm">{String(accountsError)}</p></Card>{admin&&<FeatureManager/>}</div>;
   if (!accounts) return null;
   const limited = role==='client_staff';
-  return <div className="space-y-6"><div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4" style={{background:branding?.brand?.background||'#ffffff',borderColor:branding?.brand?.primary||undefined,color:branding?.brand?.text||undefined}}><div className="flex items-center gap-3">{branding?.logoUrl?<img src={branding.logoUrl} alt={`${branding.name} logo`} className="h-12 w-12 rounded object-contain"/>:<div className="flex h-12 w-12 items-center justify-center rounded bg-blue-600 font-bold text-white">VS</div>}<div><h1 className="text-xl font-semibold sm:text-2xl">{branding?.name||'Victory Sync'} portal</h1><p className="text-xs opacity-70 sm:text-sm">Leads, calls, pages, reviews, reports, and billing.</p></div></div><AccountSwitcher/></div>
+  return <div className="space-y-6"><div className="flex flex-wrap items-center gap-3 rounded-xl border p-4" style={{background:branding?.brand?.background||'#ffffff',borderColor:branding?.brand?.primary||undefined,color:branding?.brand?.text||undefined}}>{branding?.logoUrl?<img src={branding.logoUrl} alt={`${branding.name} logo`} className="h-12 w-12 rounded object-contain"/>:<div className="flex h-12 w-12 items-center justify-center rounded bg-blue-600 font-bold text-white">VS</div>}<div><h1 className="text-xl font-semibold sm:text-2xl">{branding?.name||'Victory Sync'} portal</h1><p className="text-xs opacity-70 sm:text-sm">Leads, calls, pages, reviews, reports, and billing.</p></div></div>
     {admin&&!tab&&<FeatureManager/>}
     {accounts.selected?.viewAsClient&&<div className="flex items-center justify-between rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm"><span>Viewing as client. Changes are disabled.</span><Button size="sm" variant="outline" onClick={()=>void apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'switch',accountId:selectedId,viewAsClient:false})}).then(()=>queryClient.invalidateQueries({queryKey:['portal-accounts']})).then(()=>queryClient.invalidateQueries({queryKey:['portal']}))}>End client view</Button></div>}
     {!tab && admin && <Card className="space-y-4 p-5"><div><h2 className="font-semibold">Add a client</h2><p className="mt-1 text-sm text-muted-foreground">Start with a new business or select a company already marked Client.</p></div>

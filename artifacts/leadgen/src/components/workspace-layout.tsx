@@ -241,7 +241,7 @@ export function Layout({ children }: { children: ReactNode }) {
           aria-label="Workspace navigation"
           className="flex-1 space-y-1 overflow-y-auto px-3 pb-5 pt-2"
         >
-          {(!collapsed || mobile) && <p className="px-3 pb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Main menu</p>}
+          {(!collapsed || mobile) && <p className="px-3 pb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Main menu</p>}
           {primary.map(navLink)}
           {(!collapsed || mobile) && canSeeSegments && <div className="ml-7 border-l border-slate-700 pl-2">
             <Link href="/segments" onMouseEnter={() => prefetchPage("/segments")} onFocus={() => prefetchPage("/segments")} className="block rounded px-2 py-1 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white">Segments</Link>
@@ -281,7 +281,7 @@ export function Layout({ children }: { children: ReactNode }) {
                   <p className="truncate text-xs font-medium text-slate-200">
                     {user?.email}
                   </p>
-                  <p className="text-[10px] capitalize text-slate-500">
+                  <p className="text-[10px] capitalize text-slate-400">
                     {role}
                   </p>
                 </div>
@@ -319,7 +319,7 @@ export function Layout({ children }: { children: ReactNode }) {
               <PanelLeftClose className="h-4 w-4" />
             )}
           </button>
-          <span className="hidden text-xs text-slate-400 sm:inline">
+          <span className="hidden text-xs text-slate-600 sm:inline">
             Workspace
           </span>
           <ChevronRight className="hidden h-3 w-3 text-slate-300 sm:block" />
