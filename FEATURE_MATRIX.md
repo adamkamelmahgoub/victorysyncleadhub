@@ -28,7 +28,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Form lead dedupe and UTM | form submit route | partial | `marketing-forms-pages.test.ts` | Full workflow trigger test needed. |
 | Speed-to-lead sequence | delivery worker | partial | source review | Under-60-second sandbox test needed. |
 | Missed-call text-back | delivery worker | partial | source review | 24-hour dedupe and timing need test. |
-| Review request after Won | delivery worker | partial | `client-review-click.test.ts` | Delay, email and SMS mocked e2e needed. |
+| Review request after Won | delivery worker | partial | `client-review-click.test.ts`, `client-review-delivery.test.ts` | Mocked SMS, email, reminder and consent recheck pass; database delay and provider sandbox QA remain. |
 | STOP and DND | delivery worker | partial | source review | All workflow types need halt test. |
 | Call usage meter | `client_call_details`, agency overview | partial | source review | Package hour and 80% alert tests needed. |
 | Ad spend | `ad_spend_entries`, portal | partial | source review | Manual UI and later API sync need QA. |

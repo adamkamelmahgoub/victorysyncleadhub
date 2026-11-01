@@ -209,17 +209,21 @@ async function handle(job:Job) {
     }
     if(!request||request.clicked_at)return 'cancelled';
     const lead=request.lead_id?await row<Lead>('leads',`id=eq.${request.lead_id}&client_account_id=eq.${account.id}`):null;
-    if(!lead||lead.dnc||!['form','call','missed_call'].includes(lead.opt_in_source||lead.source||''))return 'cancelled';
+    if(!lead||lead.dnc||!e164(lead.phone)||e164(lead.phone)!==e164(request.contact_phone)
+      ||!['form','call','missed_call'].includes(lead.opt_in_source||lead.source||''))return 'cancelled';
     const link=`${(process.env.APP_URL||'https://app.victorysync.com').replace(/\/$/,'')}/r/${request.click_token}`;
     if(!await sendText(account,request.contact_phone,`Thanks for choosing ${account.name}. If you would like to share your experience, here is our review link: ${link}`,job))return 'cancelled';
-    if(request.contact_email||lead.email)await sendEmail(request.contact_email||lead.email!,`Share your experience with ${account.name}`,`Thank you for choosing ${account.name}. If you would like to leave a review: ${link}`,job);
+    if(lead.email)await sendEmail(lead.email,`Share your experience with ${account.name}`,`Thank you for choosing ${account.name}. If you would like to leave a review: ${link}`,job);
     await rest(`review_requests?id=eq.${request.id}`,'PATCH',{status:'sent',sent_at:new Date().toISOString()});
     await rest('client_automation_jobs','POST',{client_account_id:account.id,lead_id:lead.id,kind:'review_reminder',source_id:`request:${request.id}`,run_at:new Date(Date.now()+3*86400_000).toISOString()}).catch(()=>undefined);
     return 'sent';
   }
   if(job.kind==='review_reminder'){
-    const request=await row<{id:string;contact_phone:string;clicked_at:string|null;click_token:string}>('review_requests',`id=eq.${job.source_id.slice(8)}&client_account_id=eq.${account.id}`);
+    const request=await row<{id:string;lead_id:string|null;contact_phone:string;clicked_at:string|null;click_token:string}>('review_requests',`id=eq.${job.source_id.slice(8)}&client_account_id=eq.${account.id}`);
     if(!request||request.clicked_at||!account.google_review_link)return 'cancelled';
+    const lead=request.lead_id?await row<Lead>('leads',`id=eq.${request.lead_id}&client_account_id=eq.${account.id}`):null;
+    if(!lead||lead.dnc||!e164(lead.phone)||e164(lead.phone)!==e164(request.contact_phone)
+      ||!['form','call','missed_call'].includes(lead.opt_in_source||lead.source||''))return 'cancelled';
     const link=`${(process.env.APP_URL||'https://app.victorysync.com').replace(/\/$/,'')}/r/${request.click_token}`;
     if(!await sendText(account,request.contact_phone,`A quick reminder from ${account.name}: if you would like to share your experience, here is the review link: ${link}`,job))return 'cancelled';
     await rest(`review_requests?id=eq.${request.id}`,'PATCH',{reminder_sent_at:new Date().toISOString()});return 'sent';
