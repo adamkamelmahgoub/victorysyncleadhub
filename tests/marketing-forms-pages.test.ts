@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {PGlite} from '@electric-sql/pglite';
-import {pageDailyStatsSql,safeHref,validatedFields,validatedSections,validateSubmission} from '../lib/marketing-routes/marketing.js';
+import {leadDedupeLockKeys,pageDailyStatsSql,safeHref,validatedFields,validatedSections,validateSubmission} from '../lib/marketing-routes/marketing.js';
+
+test('lead dedupe locks use account, normalized phone and email in a stable order',()=>{
+  const account='10000000-0000-4000-8000-000000000001';
+  const keys=leadDedupeLockKeys(account,'+1 (512) 555-0101','Person@Example.com');
+  assert.deepEqual(keys,[`form-lead:${account}:email:person@example.com`,
+    `form-lead:${account}:phone:5125550101`]);
+  assert.deepEqual(leadDedupeLockKeys(account,'5125550101','person@example.com'),keys);
+  assert.notDeepEqual(leadDedupeLockKeys(null,'5125550101','person@example.com'),keys);
+});
 
 test('form fields validate types, select choices, and lead mappings',()=>{
   const fields=validatedFields([
@@ -41,5 +50,15 @@ test('landing page daily report query runs on PostgreSQL',async()=>{
     const result=await db.query(pageDailyStatsSql,[page,org]);
     assert.equal(result.rows.length,1);
     assert.equal(result.rows[0].views,1);
+  }finally{await db.close();}
+});
+
+test('lead dedupe transaction lock executes in PostgreSQL',async()=>{
+  const db=new PGlite();
+  try{
+    await db.exec('begin');
+    await db.query('select pg_advisory_xact_lock(hashtextextended($1,0))',
+      [leadDedupeLockKeys(null,'5125550101','')[0]]);
+    await db.exec('rollback');
   }finally{await db.close();}
 });

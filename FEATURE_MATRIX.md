@@ -25,7 +25,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Client billing portal | `api/portal.ts`, Stripe | partial | `client-portal-layout.spec.ts` desktop/mobile screenshots | Basic page renders; needs sandbox Stripe webhook and customer portal test. |
 | Client settings and branding | `client-portal.tsx` | partial | source review | Mobile layout and permissions need QA. |
 | Client notifications | delivery worker | partial | `mightycall-endpoints.test.ts`, `external-send-mode.test.ts` | Product paths and preview send gate verified; external email and SMS not tested. |
-| Form lead dedupe and UTM | form submit route | partial | `marketing-forms-pages.test.ts` | Full workflow trigger test needed. |
+| Form lead dedupe and UTM | form submit route | partial | `marketing-forms-pages.test.ts` | Account-scoped phone and email lookup now serializes concurrent submissions; full workflow trigger test needed. |
 | Speed-to-lead sequence | delivery worker | partial | source review | Under-60-second sandbox test needed. |
 | Missed-call text-back | delivery worker | partial | `client-missed-call-delivery.test.ts`, `client-missed-call-claims.test.ts` | Mocked first call, account-scoped atomic 24-hour claim, normalized lead linking and opt-out pass; live timing and provider delivery need QA. |
 | Review request after Won | delivery worker | partial | `client-review-click.test.ts`, `client-review-delivery.test.ts` | Mocked SMS, email, reminder and consent recheck pass; database delay and provider sandbox QA remain. |

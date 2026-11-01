@@ -14,6 +14,13 @@ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const slugPattern=/^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const fieldTypes=new Set(['text','email','tel','number','textarea','select','checkbox','date','url']);
 const leadFields=new Set(['firstName','lastName','email','phone','company','title']);
+export function leadDedupeLockKeys(accountId:string|null,phone:string,email:string){
+  const scope=accountId||'agency';
+  const digits=phone.replace(/\D/g,'').slice(-10);
+  const keys=[...(digits.length===10?[`form-lead:${scope}:phone:${digits}`]:[]),
+    ...(email?[`form-lead:${scope}:email:${email.trim().toLowerCase()}`]:[])];
+  return [...new Set(keys)].sort();
+}
 export const pageDailyStatsSql=`select created_at::date AS day,count(*) filter(where event_type='view')::integer views,
         count(*) filter(where event_type='form_submit')::integer submissions from public.landing_page_events
         where landing_page_id=$1 and organization_id=$2 and created_at>=now()-interval '30 days' group by 1 order by 1`;
@@ -162,6 +169,8 @@ async function publicForm(req:IncomingMessage,res:ServerResponse,slug:string,sub
     else{
       const mapped=validated.mapped,email=plain(mapped.email,320).toLowerCase(),phone=plain(mapped.phone,80);
       const digits=phone.replace(/\D/g,'').slice(-10);
+      for(const lockKey of leadDedupeLockKeys(form.client_account_id,phone,email))
+        await db.query('select pg_advisory_xact_lock(hashtextextended($1,0))',[lockKey]);
       const utmSource=String(utm.utm_source||'').toLowerCase();
       const source=/google.*ads|gads/.test(utmSource)?'google_ads':/meta|facebook|instagram/.test(utmSource)?'meta_ads':/local.*service|lsa/.test(utmSource)?'local_services':/google|gbp/.test(utmSource)?'google_profile':utmSource==='referral'?'referral':'website';
       const existing=digits.length===10?await db.query<{id:string}>(`select id from public.leads where organization_id=$1
