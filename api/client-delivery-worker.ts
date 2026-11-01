@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 import { clientReportPdf } from '../lib/client-report-pdf.js';
+import {previousReportPeriod,reportMetricRange} from '../lib/client-report-period.js';
 import {mightyCallAuthUrl,mightyCallProduct,mightyCallUrl} from '../lib/mightycall-endpoints.js';
 import {externalSendsEnabled,requireExternalSends} from '../lib/external-send-mode.js';
 
@@ -243,9 +244,7 @@ async function handle(job:Job) {
     return 'sent';
   }
   if(job.kind==='weekly_report') {
-    const monthly=account.package!=='domination';const end=new Date();const start=new Date(end);
-    if(monthly){start.setUTCMonth(start.getUTCMonth()-1)}else start.setUTCDate(start.getUTCDate()-7);
-    const type=monthly?'monthly':'weekly';const from=start.toISOString().slice(0,10);const until=end.toISOString().slice(0,10);
+    const {type,start:from,end:until}=previousReportPeriod(account.package==='domination'?'weekly':'monthly');
     const existing=await rest<Array<{id:string}>>(`report_sends?client_account_id=eq.${account.id}&type=eq.${type}&period_start=eq.${from}&period_end=eq.${until}&select=id&limit=1`);
     if(existing.length)return 'sent';
     await rest('report_sends','POST',{client_account_id:account.id,type,period_start:from,period_end:until,
@@ -258,20 +257,17 @@ async function handle(job:Job) {
     const report=await row<{id:string;type:string;period_start:string;period_end:string;work_done:string|null;whats_next:string|null;status:string}>('report_sends',`id=eq.${reportId}&client_account_id=eq.${account.id}`);
     if(!report||report.status==='sent')return 'cancelled';
     if(!report.work_done?.trim()||!report.whats_next?.trim())throw Error('Report narrative must be completed before sending');
-    const from=`${report.period_start}T00:00:00Z`;const until=`${report.period_end}T23:59:59Z`;
-    const [leads,bookings,calls,recovered,reviews,spend,recipients]=await Promise.all([
-      rest<Array<{id:string}>>(`leads?client_account_id=eq.${account.id}&created_at=gte.${from}&created_at=lte.${until}&select=id`),
-      rest<Array<{id:string}>>(`booking_appointments?client_account_id=eq.${account.id}&start_at=gte.${from}&start_at=lte.${until}&status=not.in.(cancelled,no_show)&select=id`),
-      rest<Array<{id:string}>>(`client_call_details?client_account_id=eq.${account.id}&occurred_at=gte.${from}&occurred_at=lte.${until}&status=in.(Answered,Connected,answered,connected)&select=id`),
-      rest<Array<{id:string}>>(`client_automation_jobs?client_account_id=eq.${account.id}&kind=eq.missed_call_text&status=eq.sent&sent_at=gte.${from}&sent_at=lte.${until}&select=id`),
-      rest<Array<{rating:number}>>(`reviews?client_account_id=eq.${account.id}&created_at=gte.${from}&created_at=lte.${until}&select=rating`),
-      rest<Array<{amount_cents:number}>>(`ad_spend_entries?client_account_id=eq.${account.id}&month=gte.${report.period_start.slice(0,7)}-01&month=lte.${report.period_end.slice(0,7)}-01&select=amount_cents`),
+    const range=reportMetricRange({start:report.period_start,end:report.period_end});
+    const [rawMetrics,recipients]=await Promise.all([
+      rest<unknown>('rpc/client_dashboard_metric_values','POST',
+        {p_account:account.id,p_start:range.start,p_end:range.endExclusive}),
       rest<Array<{email:string}>>(`report_recipients?client_account_id=eq.${account.id}&active=eq.true&select=email`),
     ]);
+    const metrics=z.object({newLeads:z.number(),bookedJobs:z.number(),answeredCalls:z.number(),
+      missedCallsRecovered:z.number(),reviewsReceived:z.number(),averageRating:z.number().nullable(),
+      adSpendCents:z.number()}).parse(rawMetrics);
     const pdf=await clientReportPdf({accountName:account.name,periodStart:report.period_start,periodEnd:report.period_end,
-      newLeads:leads.length,bookedJobs:bookings.length,answeredCalls:calls.length,missedCallsRecovered:recovered.length,
-      reviewsReceived:reviews.length,averageRating:reviews.length?reviews.reduce((n,r)=>n+r.rating,0)/reviews.length:null,
-      adSpendCents:spend.reduce((n,x)=>n+x.amount_cents,0),workDone:report.work_done,whatsNext:report.whats_next,brandPrimary:account.brand?.primary});
+      ...metrics,workDone:report.work_done,whatsNext:report.whats_next,brandPrimary:account.brand?.primary});
     const base=process.env.SUPABASE_URL;if(!base)throw Error('Supabase URL missing');const key=serviceKey();
     const path=`${account.id}/${report.id}.pdf`;
     const uploaded=await fetch(`${base}/storage/v1/object/client-reports/${path}`,{method:'POST',headers:{apikey:key,authorization:`Bearer ${key}`,'content-type':'application/pdf','x-upsert':'true'},body:Buffer.from(pdf),signal:AbortSignal.timeout(15000)});

@@ -21,7 +21,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Client calls and recordings | `client_call_details`, `client-portal.tsx` | partial | source review | Live MightyCall event path unverified. |
 | Client pages and forms | `marketing_landing_pages`, `forms` | partial | `marketing-forms-pages.test.ts` | Template draft and public publish need browser QA. |
 | Client reviews and requests | `client-portal.tsx`, `review_requests` | partial | `review-stats.test.ts` | Timing and provider sends unverified. |
-| Report archive and PDF | `report_sends`, report PDF code | partial | `client-report-pdf.test.ts` | Same-range numeric parity needs test. |
+| Report archive and PDF | `report_sends`, report PDF code | partial | `client-report-pdf.test.ts`, `client-metrics-shared.test.ts` | Dashboard and PDF now share one aggregate; browser archive and delivery QA remain. |
 | Client billing portal | `api/portal.ts`, Stripe | partial | source review | Needs sandbox Stripe webhook and browser test. |
 | Client settings and branding | `client-portal.tsx` | partial | source review | Mobile layout and permissions need QA. |
 | Client notifications | delivery worker | partial | `mightycall-endpoints.test.ts`, `external-send-mode.test.ts` | Product paths and preview send gate verified; external email and SMS not tested. |
@@ -34,7 +34,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Ad spend | `ad_spend_entries`, portal | partial | source review | Manual UI and later API sync need QA. |
 | Workflow list and editor | `automation.tsx` | partial | `native-workflows.test.ts` | Visual builder branches, goals and logs need audit. |
 | Workflow execution logs and retry | `automation_runs`, portal | partial | `account-templates-ops.test.mjs` | Mock provider execution needed. |
-| Scheduled weekly and monthly reports | report worker | partial | source review | Delivery and numeric parity need test. |
+| Scheduled weekly and monthly reports | report worker | partial | `client-report-period.test.ts`, `client-metrics-shared.test.ts` | Prior full calendar periods and aggregate parity tested; delivery still needs sandbox QA. |
 | Landing page editor sections | `landing-page-editor.tsx` | partial | `landing-theme-editor.test.ts` | Browser add, hide, duplicate, undo and redo QA needed. |
 | Page publish and versions | marketing pages API | partial | `marketing-pages.test.mjs` | Draft isolation and restore browser test needed. |
 | Public page renderer | `api/client-landing.ts` | partial | `marketing-pages.test.mjs` | Lighthouse and custom domain QA needed. |
