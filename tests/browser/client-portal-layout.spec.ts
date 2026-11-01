@@ -82,3 +82,34 @@ for(const [section,visibleText] of [
     await page.screenshot({path:testInfo.outputPath(`${section}.png`),fullPage:true});
   });
 }
+
+test('client owner can schedule a consented review request',async({page})=>{
+  let submitted:Record<string,unknown>|null=null;
+  await page.route('**/api/portal',async route=>{
+    if(route.request().method()!=='POST')return route.fallback();
+    const body=route.request().postDataJSON() as Record<string,unknown>;
+    if(body.action!=='request_review')return route.fallback();
+    submitted=body;
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:'review-request-1'})});
+  });
+  await page.goto('/client-portal/reviews');
+  await page.getByLabel('Customer name').fill('Alex Customer');
+  await page.getByLabel('Customer phone').fill('+15125550101');
+  await page.getByRole('button',{name:'Request review'}).click();
+  await expect(page.getByText('Review request scheduled.')).toBeVisible();
+  expect(submitted).toMatchObject({action:'request_review',name:'Alex Customer',phone:'+15125550101'});
+});
+
+test('review request explains when the customer lacks consent',async({page})=>{
+  await page.route('**/api/portal',async route=>{
+    if(route.request().method()!=='POST'||route.request().postDataJSON()?.action!=='request_review')
+      return route.fallback();
+    return route.fulfill({status:400,contentType:'application/json',
+      body:JSON.stringify({error:'An opted-in lead with this phone is required'})});
+  });
+  await page.goto('/client-portal/reviews');
+  await page.getByLabel('Customer name').fill('Unknown Customer');
+  await page.getByLabel('Customer phone').fill('+15125550999');
+  await page.getByRole('button',{name:'Request review'}).click();
+  await expect(page.getByRole('alert')).toContainText('An opted-in lead with this phone is required');
+});

@@ -20,7 +20,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Client lead timeline | `portal_lead_timeline` | partial | source review | Calls, texts, email and notes need browser QA. |
 | Client calls and recordings | `client_call_details`, `client-portal.tsx` | partial | `client-call-routing.test.ts`, browser screenshots | Failed saves retry and basic call page renders; live MightyCall event path unverified. |
 | Client pages and forms | `marketing_landing_pages`, `forms` | partial | `marketing-forms-pages.test.ts`, browser screenshots | Basic lists render; template draft and public publish need browser QA. |
-| Client reviews and requests | `client-portal.tsx`, `review_requests` | partial | `review-stats.test.ts`, browser screenshots | Basic review page renders; timing and provider sends unverified. |
+| Client reviews and requests | `client-portal.tsx`, `review_requests` | partial | `review-stats.test.ts`, browser screenshots and interaction mocks | Scheduling and consent-error UI pass desktop/mobile; database timing and provider sends unverified. |
 | Report archive and PDF | `report_sends`, report PDF code | partial | `client-report-pdf.test.ts`, `client-metrics-shared.test.ts`, browser screenshots | Dashboard and PDF share one aggregate; basic archive renders; delivery QA remains. |
 | Client billing portal | `api/portal.ts`, Stripe | partial | `client-portal-layout.spec.ts` desktop/mobile screenshots | Basic page renders; needs sandbox Stripe webhook and customer portal test. |
 | Client settings and branding | `client-portal.tsx` | partial | source review | Mobile layout and permissions need QA. |
