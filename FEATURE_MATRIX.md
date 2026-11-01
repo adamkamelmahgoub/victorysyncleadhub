@@ -60,7 +60,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Opportunity kanban and list | pipeline pages | partial | source review | Counts, values, drag and filters need tests. |
 | Payments | billing pages | partial | source review | Stripe sandbox and status flows needed. |
 | Marketing planner and DM | marketing pages | partial | existing source | Agency/client placement and visual QA pending. |
-| Reputation | reputation pages | partial | `reputation-db.test.mjs` | Browser request and source refresh QA needed. |
+| Reputation | reputation pages | partial | `reputation-db.test.mjs`, UI typecheck | Load failures now display a retry action; browser request and source refresh QA needed. |
 | Reporting | reporting pages | partial | existing source | Unified report metrics QA needed. |
 | Call Center | call pages | partial | existing source | Account-scoped usage and agent QA needed. |
 | Settings secondary navigation | settings pages | partial | source review | GHL pattern and mobile QA pending. |
