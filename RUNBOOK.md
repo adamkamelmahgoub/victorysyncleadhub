@@ -34,6 +34,8 @@ Enable `landing_page_builder` and `landing_page_ai` in the feature manager. Open
 
 The **Accounts overview** table shows package, MRR, health, lead goal, response time, answering minutes, texts, AI tokens, and manager. Agency admins can edit MRR. A nightly database job refreshes health scores. **Failed automations** shows recent failed runs; correct the underlying provider or data issue, then select **Retry**. The delivery worker must be scheduled and `delivery_automation` enabled for jobs to run. Reports are drafted from account data and require a manager to review the narrative before sending.
 
+Missed-call text-back reserves the caller's number for 24 hours before sending. If MightyCall times out after accepting a message, the reservation remains to prevent a duplicate. Check the failed automation and MightyCall message history before retrying; a new automatic text-back can send after the 24-hour window.
+
 ## Secrets and provider activation
 
 Set server secrets in Vercel production environment variables, then redeploy. Never place them in client code or `NEXT_PUBLIC_` variables. The main variables are `SUPABASE_SERVICE_ROLE_KEY`, `PORTAL_BASE_URL`, `PUBLIC_PAGES_BASE_URL`, `MIGHTYCALL_API_KEY`, `MIGHTYCALL_WEBHOOK_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`, `INVITE_FROM_EMAIL`, `SLACK_WEBHOOK_URL`, and `CLIENT_DELIVERY_WORKER_SECRET`. The app also uses its existing OpenRouter variables. Check the specific integration handlers before changing a provider secret name.

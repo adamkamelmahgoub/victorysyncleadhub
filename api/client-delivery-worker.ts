@@ -192,7 +192,11 @@ async function handle(job:Job) {
     if(leadId)await rest(`client_call_details?client_account_id=eq.${account.id}&external_call_id=eq.${encodeURIComponent(event.external_call_id)}&lead_id=is.null`,'PATCH',{lead_id:leadId});
     const recent=await rest<Array<{id:string}>>(`mightycall_sms_messages?client_account_id=eq.${account.id}&to_number=eq.${encodeURIComponent(caller)}&direction=eq.outbound&created_at=gte.${encodeURIComponent(new Date(Date.now()-86400_000).toISOString())}&metadata->>automation_kind=eq.missed_call_text&select=id&limit=1`);
     if(recent.length)return 'cancelled';
-    return await sendText(account,caller,`Sorry we missed your call! This is ${account.name}. How can we help?`,job)?'sent':'cancelled';
+    const claimed=await rest<boolean>('rpc/client_claim_missed_call_text','POST',{p_account:account.id,p_phone:caller,p_job:job.id});
+    if(!claimed)return 'cancelled';
+    const sent=await sendText(account,caller,`Sorry we missed your call! This is ${account.name}. How can we help?`,job);
+    if(sent)await rest('rpc/client_mark_missed_call_text_sent','POST',{p_account:account.id,p_phone:caller,p_job:job.id});
+    return sent?'sent':'cancelled';
   }
   if(job.kind==='review_request') {
     if(!account.google_review_link||!/^https:\/\//.test(account.google_review_link))return 'cancelled';
