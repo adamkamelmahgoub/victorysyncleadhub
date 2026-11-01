@@ -6,7 +6,7 @@ Date: 2026-10-31. Branch: `codex/client-portal-main-deploy`.
 
 - Created an isolated persistent PGlite database with three synthetic client accounts and 2,105 synthetic leads. `node scripts/setup-local-qa-db.mjs` is repeatable and does not read production customer records.
 - `pnpm run test:phase1`: 16 passing tests for pipeline pagination above 1,000 leads, date restoration, unified tasks, social inbox access SQL, social matching for agency prospects without an organization ID, Unipile polling, and reconnect health.
-- `pnpm run test`: 127 passing TypeScript tests across the API, portal, CRM, social, landing page, report, and migration helpers, including the account-scoped Launchpad SQL test, MightyCall product URL test, and external send gate tests.
+- `pnpm run test`: 130 passing TypeScript tests across the API, portal, CRM, social, landing page, report, and migration helpers, including the account-scoped Launchpad SQL test, MightyCall product URL test, external send gate tests, and legacy client creation test.
 - `pnpm run typecheck:api`, API-server and leadgen typechecks: pass.
 - `pnpm run build`: pass. Vite prints pre-existing sourcemap and chunk warnings.
 - A pull-request workflow now runs the TypeScript tests, API typecheck, and build. The client Launchpad checklist is implemented locally, with access tests; its database migration and browser flow remain unverified.
@@ -14,6 +14,7 @@ Date: 2026-10-31. Branch: `codex/client-portal-main-deploy`.
 - Delivery workers and selected outbound providers are gated to Vercel production and can be disabled with `CLIENT_DELIVERY_SANDBOX=1`. No real SMS, email, Slack alert, or social reply was sent in QA.
 - `pnpm run test:bundle-secrets`: scanned 148 generated browser assets for server-only environment variable names and any configured secret values; none were found. This is now a pull-request CI gate after build.
 - AI page validation now checks title, SEO copy, buttons, proof section types, years, prices, credentials and image URLs against client media. Focused policy tests pass; live model samples remain pending.
+- The legacy Client accounts create action now calls canonical client provisioning and template application. A mocked API test confirms the invite URL and template call; browser acceptance is pending.
 
 ## Not yet verified
 

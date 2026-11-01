@@ -3,7 +3,7 @@
 ## Create a client
 
 1. Sign in as an agency admin with two-step verification enabled.
-2. Open **Client portal** in the workspace. In **Add a client**, select a company marked Client or enter a new business name, phone, and website.
+2. Open **Client portal** in the workspace. In **Add a client**, select a company marked Client or enter a new business name, phone, and website. The **Client accounts** screen uses the same provisioning flow.
 3. Choose the package and enter the owner's name and email. Select **Create client account**. The package template is applied automatically.
 4. If the email provider is configured, the owner receives a seven-day invitation. Otherwise, copy the private invitation link shown on screen and share it securely.
 5. Review the new account's onboarding tasks, business settings, and monthly recurring revenue in **Accounts overview**.

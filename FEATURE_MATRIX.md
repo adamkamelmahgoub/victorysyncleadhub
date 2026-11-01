@@ -4,7 +4,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 
 | Feature | Route or file | Status | Evidence | Notes |
 | --- | --- | --- | --- | --- |
-| Client sub-accounts | `api/portal.ts`, `sub_accounts` | partial | `client-create-db.test.mjs` | Three production accounts remain; no visual QA. |
+| Client sub-accounts | `api/portal.ts`, `sub_accounts` | partial | `client-create-db.test.mjs`, `legacy-client-create.test.ts` | Both UI entry points use canonical provisioning; full browser and production-copy QA pending. |
 | Client tenancy and RLS | `20261026_01_client_tenancy_foundation.sql` | partial | `client-tenancy-db.test.mjs` | Existing RLS test passes; all 270 tables need exhaustive review. |
 | Agency account switcher | `account-switcher.tsx` | partial | source review | Search and mobile behavior need QA. |
 | Agency staff assignments | `sub_account_assignments` | partial | `client-tenancy-db.test.mjs` | Assigned-account restrictions need per-route test. |
