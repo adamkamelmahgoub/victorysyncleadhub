@@ -106,7 +106,7 @@ async function routeCalls() {
       const matched=business?accounts.find(item=>e164(item.mightycall_number)===business):undefined;
       if(!matched){await rest(`mightycall_webhook_inbox?id=eq.${event.id}`,'PATCH',{client_route_attempted_at:new Date().toISOString()});continue;}
       const caller=e164(details.caller?.phone);
-      const lead=caller?await rest<Lead[]>(`leads?client_account_id=eq.${matched.id}&phone=ilike.*${caller.slice(-10)}&select=id&limit=1`):[];
+      const lead=caller?await rest<Lead[]>(`leads?client_account_id=eq.${matched.id}&normalized_phone=eq.${encodeURIComponent(caller)}&select=id&limit=1`):[];
       const durationMs=Number(details.duration);
       const recording=details.callRecord?.uri;
       await rest('client_call_details?on_conflict=client_account_id,external_call_id','POST',{
@@ -182,12 +182,16 @@ async function handle(job:Job) {
     const details=(call?.data||call) as {businessNumber?:string;caller?:{phone?:string};direction?:string};
     if(!e164(details.businessNumber)||e164(details.businessNumber)!==e164(account.mightycall_number)||!details.caller?.phone)return 'cancelled';
     const caller=e164(details.caller.phone);if(!caller)return 'cancelled';
+    if(await rest<boolean>('rpc/client_phone_dnc','POST',{p_account:account.id,p_phone:caller}))return 'cancelled';
+    const leads=await rest<Lead[]>(`leads?client_account_id=eq.${account.id}&normalized_phone=eq.${encodeURIComponent(caller)}&select=id,dnc,phone,source,opt_in_source&limit=1`);
+    if(leads[0]?.dnc)return 'cancelled';
+    let leadId=leads[0]?.id;
+    if(!leadId){const created=await rest<Array<{id:string}>>('leads','POST',{client_account_id:account.id,
+      first_name:'Caller',last_name:'',phone:caller,source:'missed_call',opt_in_source:'call',status:'new'});
+      leadId=created[0]?.id;}
+    if(leadId)await rest(`client_call_details?client_account_id=eq.${account.id}&external_call_id=eq.${encodeURIComponent(event.external_call_id)}&lead_id=is.null`,'PATCH',{lead_id:leadId});
     const recent=await rest<Array<{id:string}>>(`mightycall_sms_messages?client_account_id=eq.${account.id}&to_number=eq.${encodeURIComponent(caller)}&direction=eq.outbound&created_at=gte.${encodeURIComponent(new Date(Date.now()-86400_000).toISOString())}&metadata->>automation_kind=eq.missed_call_text&select=id&limit=1`);
     if(recent.length)return 'cancelled';
-    const leads=await rest<Lead[]>(`leads?client_account_id=eq.${account.id}&phone=ilike.*${encodeURIComponent(caller.slice(-10))}&select=id,dnc,phone,source,opt_in_source&limit=1`);
-    if(leads[0]?.dnc)return 'cancelled';
-    if(!leads[0])await rest('leads','POST',{client_account_id:account.id,
-      first_name:'Caller',last_name:'',phone:caller,source:'missed_call',opt_in_source:'call',status:'new'});
     return await sendText(account,caller,`Sorry we missed your call! This is ${account.name}. How can we help?`,job)?'sent':'cancelled';
   }
   if(job.kind==='review_request') {
