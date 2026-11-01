@@ -13,7 +13,7 @@ Date: 2026-10-31. Branch: `codex/client-portal-main-deploy`.
 - MightyCall Classic and Call Center URL mappings pass a focused test. Live account product type and SMS delivery remain unverified.
 - Delivery workers and selected outbound providers are gated to Vercel production and can be disabled with `CLIENT_DELIVERY_SANDBOX=1`. No real SMS, email, Slack alert, or social reply was sent in QA.
 - `pnpm run test:bundle-secrets`: scanned 148 generated browser assets for server-only environment variable names and any configured secret values; none were found. This is now a pull-request CI gate after build.
-- `pnpm run test:browser`: desktop and mobile Chromium checks passed against a synthetic client session. The dashboard had no horizontal overflow or serious WCAG 2/2.1 axe findings; screenshots are saved as CI artifacts. This does not exercise live Supabase or provider APIs.
+- `pnpm run test:browser`: 16 desktop and mobile Chromium checks passed against a synthetic client session. Dashboard, leads, calls, pages, forms, reviews, reports and billing had no horizontal overflow or serious WCAG 2/2.1 axe findings; screenshots are saved as CI artifacts. This does not exercise live Supabase or provider APIs.
 - AI page validation now checks title, SEO copy, buttons, proof section types, years, prices, credentials and image URLs against client media. Focused policy tests pass; live model samples remain pending.
 - The legacy Client accounts create action now calls canonical client provisioning and template application. A mocked API test confirms the invite URL and template call; browser acceptance is pending.
 

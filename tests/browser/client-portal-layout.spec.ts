@@ -6,6 +6,20 @@ const userId='20000000-0000-4000-8000-000000000001';
 const tokenPart=(value:unknown)=>Buffer.from(JSON.stringify(value)).toString('base64url');
 const jwt=`${tokenPart({alg:'HS256',typ:'JWT'})}.${tokenPart({sub:userId,role:'authenticated',
   crm_role:'client_owner',crm_client_account_id:accountId,exp:4102444800})}.test-signature`;
+const lead={id:'30000000-0000-4000-8000-000000000001',first_name:'Alex',last_name:'Customer',
+  company:'',phone:'+15125550101',email:'alex@example.test',pipeline_stage_id:null,
+  notes:null,created_at:'2026-10-15T12:00:00Z'};
+function snapshot(section:string|null){
+  const data:Record<string,unknown>={
+    dashboard:[],leads:{rows:[lead],stages:[{id:'40000000-0000-4000-8000-000000000001',name:'New'}]},
+    calls:[],pages:[{id:'50000000-0000-4000-8000-000000000001',name:'Demo service page',slug:'demo-service',
+      status:'published',seo_description:'Demo page',sections:[],theme:{background:'#ffffff',foreground:'#172033',accent:'#285ce6',font:'sans'},created_at:'2026-10-01T00:00:00Z'}],
+    forms:[{id:'60000000-0000-4000-8000-000000000001',name:'Contact form',status:'active'}],
+    reviews:{reviews:[{id:'70000000-0000-4000-8000-000000000001',reviewer:'Verified customer',rating:5,created_at:'2026-10-15T00:00:00Z'}],requests:[]},
+    reports:[],billing:[],settings:{},
+  };
+  return {accountId,readOnly:false,data:data[section||'dashboard']??[]};
+}
 
 test.beforeEach(async({page})=>{
   await page.addInitScript(({jwt,userId})=>{
@@ -23,10 +37,17 @@ test.beforeEach(async({page})=>{
       const data=action==='accounts'?{accounts:[{id:accountId,name:'Demo Plumbing',health_score:82,
           leads_this_week:8,overdue_tasks:0,failed_payments:0}],selected:{accountId,viewAsClient:false}}:
         action==='branding'?{name:'Demo Plumbing',logoUrl:null,brand:{primary:'#2563eb',text:'#172033',background:'#ffffff'}}:
-        action==='snapshot'?{accountId,readOnly:false,data:[]}:
+        action==='snapshot'?snapshot(url.searchParams.get('section')):
         action==='metrics'?{account:{id:accountId,name:'Demo Plumbing',goal_metric:'new_leads',goal_value:20},
           newLeads:8,bookedJobs:3,answeredCalls:21,missedCallsRecovered:2,reviewsReceived:4,
-          averageRating:4.8,adSpendCents:30000,sourceBreakdown:{website:5,calls:3}}:[];
+          averageRating:4.8,adSpendCents:30000,sourceBreakdown:{website:5,calls:3}}:
+        action==='calls'?[{id:'80000000-0000-4000-8000-000000000001',occurred_at:'2026-10-15T12:00:00Z',
+          caller_number:'+15125550101',status:'answered',duration_seconds:120,outcome:'booked',summary:'Booked a repair',recording_url:null,agent_name:'Agent',booked:true}]:
+        action==='usage'?{minutesUsed:120,minutesIncluded:600,agentHours:2}:
+        action==='reports'?[{id:'90000000-0000-4000-8000-000000000001',type:'monthly',
+          period_start:'2026-09-01',period_end:'2026-09-30',status:'sent',work_done:'Updated campaign pages',
+          whats_next:'Improve follow-up',pdf_path:'demo.pdf'}]:
+        action==='page_stats'?[{id:'50000000-0000-4000-8000-000000000001',visits:100,leads:12}]:[];
       return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});
     }
     return route.fulfill({status:200,contentType:'application/json',body:'[]'});
@@ -44,3 +65,20 @@ test('client dashboard fits the viewport and has no serious accessibility violat
     .flatMap(item=>item.nodes.map(node=>`${item.id}: ${node.target.join(' ')} ${node.html}`))).toEqual([]);
   await page.screenshot({path:testInfo.outputPath('client-dashboard.png'),fullPage:true});
 });
+
+for(const [section,visibleText] of [
+  ['leads','Alex Customer'],['calls','Booked a repair'],['pages','Demo service page'],
+  ['forms','Contact form'],['reviews','Verified customer'],['reports','Monthly report'],
+  ['billing','Manage billing'],
+] as const){
+  test(`${section} page renders without clipping or serious accessibility violations`,async({page},testInfo)=>{
+    await page.goto(`/client-portal/${section}`);
+    await expect(page.getByRole('heading',{name:'Demo Plumbing portal'})).toBeVisible();
+    await expect(page.getByText(visibleText,{exact:false}).first()).toBeVisible();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);
+    const result=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze();
+    expect(result.violations.filter(item=>['critical','serious'].includes(item.impact||''))
+      .flatMap(item=>item.nodes.map(node=>`${item.id}: ${node.target.join(' ')} ${node.html}`))).toEqual([]);
+    await page.screenshot({path:testInfo.outputPath(`${section}.png`),fullPage:true});
+  });
+}
