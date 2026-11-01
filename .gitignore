@@ -47,6 +47,8 @@ Thumbs.db
 .cache/
 .local/
 supabase/.temp/
+test-results/
+playwright-report/
 
 # Local secrets
 .env

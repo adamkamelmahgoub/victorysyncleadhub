@@ -15,7 +15,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Agency account overview | `client-portal.tsx`, `portal_agency_overview` | partial | `account-templates-ops.test.mjs` | UI screenshot and health formula validation pending. |
 | Package snapshots | `account_templates`, `portal_apply_account_template` | partial | `account-templates-ops.test.mjs` | Ten templates and idempotence tested; visual QA pending. |
 | Onboarding checklist | `company_tasks`, template payload | partial | template DB test | Needs unified task model. |
-| Client dashboard | `client-portal.tsx`, `portal_dashboard_metrics` | partial | source review | Compare PDF and date filters end to end. |
+| Client dashboard | `client-portal.tsx`, `portal_dashboard_metrics` | partial | `client-portal-layout.spec.ts` desktop/mobile screenshots | Synthetic browser layout, overflow and axe checks pass; live date filters still need QA. |
 | Client leads list and board | `client-portal.tsx` | partial | source review | Board over 1,000 records unverified. |
 | Client lead timeline | `portal_lead_timeline` | partial | source review | Calls, texts, email and notes need browser QA. |
 | Client calls and recordings | `client_call_details`, `client-portal.tsx` | partial | `client-call-routing.test.ts` | Failed call-detail saves now retain the webhook for retry; live MightyCall event path unverified. |
@@ -51,7 +51,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Social reconnect health | Settings and Slack | partial | `social-reconnect-health.test.ts` | Health query tested locally; live route and Slack QA pending. |
 | Social contact matching | `social_profiles`, social inbox | partial | `social-inbox.ts` source review | Manual link exists; auto-match remains incomplete. |
 | GHL-style agency shell | navigation components | partial | source review | Public reference and parity QA pending. |
-| GHL-style client shell | portal layout | partial | source review | Mobile and theme QA pending. |
+| GHL-style client shell | portal layout | partial | `client-portal-layout.spec.ts` desktop/mobile screenshots | Synthetic dashboard fits both viewports and has no serious axe findings; remaining pages need visual QA. |
 | Launchpad | `/client-portal/launchpad` | partial | `client-portal-permissions.test.ts` | Account-scoped checklist added; migration, browser and RLS QA pending. |
 | Unified conversations | `social-inbox.tsx` | partial | source review | SMS, email, calls in one thread unverified. |
 | Calendar week/month | `calendar.tsx` | partial | source review | Appointment slide-over QA needed. |
@@ -67,7 +67,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Global search and quick add | app shell | partial | source review | Keyboard and account scoping need test. |
 | Light and dark themes | app shell | partial | source review | Screenshots and contrast QA needed. |
 | Seeded demo environment | scripts | missing | source review | No isolated full demo seed with >1,000 leads. |
-| Vitest, Playwright, Lighthouse, axe CI | test tooling | partial | `.github/workflows/quality.yml`, `check-browser-secrets.mjs` | Pull-request unit/build and browser secret scan gates added; browser, RLS, Lighthouse and axe gates remain absent. |
+| Vitest, Playwright, Lighthouse, axe CI | test tooling | partial | `.github/workflows/quality.yml`, `client-portal-layout.spec.ts` | Playwright and axe run on a synthetic client dashboard in CI; broader browser, RLS and Lighthouse gates remain. |
 | Production launch checks | Vercel and Supabase | partial | prior deployment check | Provider secrets and webhook test events pending. |
 
 ## Audit findings
