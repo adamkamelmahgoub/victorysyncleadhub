@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 const accountId='10000000-0000-4000-8000-000000000001';
 const leadId='20000000-0000-4000-8000-000000000001';
 const jobId='30000000-0000-4000-8000-000000000001';
-type Scenario={existingLead:boolean;recentText:boolean;optedOut:boolean};
+type Scenario={existingLead:boolean;recentText:boolean;optedOut:boolean;claimDenied?:boolean};
 
 async function runScenario(scenario:Scenario){
   const keys=['VERCEL_ENV','CLIENT_DELIVERY_SANDBOX','CLIENT_DELIVERY_WORKER_SECRET','SUPABASE_URL',
@@ -15,7 +15,7 @@ async function runScenario(scenario:Scenario){
     CLIENT_DELIVERY_WORKER_SECRET:'missed-call-test',SUPABASE_URL:'https://supabase.test',
     SUPABASE_SERVICE_ROLE_KEY:'test-service-key',MIGHTYCALL_API_KEY:'test-api-key',
     MIGHTYCALL_SECRET_KEY:'test-user-key'});
-  const result={newLeads:0,linkedCalls:0,sms:[] as string[],jobStatus:'',usedNormalizedPhone:false};
+  const result={newLeads:0,linkedCalls:0,sms:[] as string[],jobStatus:'',usedNormalizedPhone:false,claims:0,markedSent:0};
   globalThis.fetch=async(input,init)=>{
     const url=new URL(String(input));
     const method=init?.method||'GET';
@@ -32,6 +32,13 @@ async function runScenario(scenario:Scenario){
       kind:'missed_call_text',source_id:'call:call-1',attempts:1,payload:{}}]);
     if(url.pathname==='/rest/v1/rpc/client_delivery_enabled')return Response.json(true);
     if(url.pathname==='/rest/v1/rpc/client_phone_dnc')return Response.json(scenario.optedOut);
+    if(url.pathname==='/rest/v1/rpc/client_claim_missed_call_text'){
+      assert.deepEqual(body,{p_account:accountId,p_phone:'+15125550101',p_job:jobId});
+      result.claims++;return Response.json(!scenario.claimDenied);
+    }
+    if(url.pathname==='/rest/v1/rpc/client_mark_missed_call_text_sent'){
+      result.markedSent++;return Response.json(null);
+    }
     if(url.pathname==='/v4/auth/token')return Response.json({access_token:'test-mighty-token',expires_in:3600});
     if(url.pathname==='/v4/api/calls/call-1')return Response.json({businessNumber:'+15125550100',
       caller:{phone:'+15125550101'},callStatus:'missed',direction:'incoming'});
@@ -78,6 +85,8 @@ test('first missed call creates a lead, links its log, and texts with opt-out la
   assert.equal(result.sms.length,1);
   assert.match(result.sms[0]!,/Reply STOP to opt out/);
   assert.equal(result.jobStatus,'sent');
+  assert.equal(result.claims,1);
+  assert.equal(result.markedSent,1);
 });
 
 test('second missed call within 24 hours links an existing formatted-number lead without another text',async()=>{
@@ -85,6 +94,15 @@ test('second missed call within 24 hours links an existing formatted-number lead
   assert.equal(result.usedNormalizedPhone,true);
   assert.equal(result.newLeads,0);
   assert.equal(result.linkedCalls,1);
+  assert.deepEqual(result.sms,[]);
+  assert.equal(result.jobStatus,'cancelled');
+  assert.equal(result.claims,0);
+});
+
+test('a competing worker holding the text window prevents a second send',async()=>{
+  const result=await runScenario({existingLead:true,recentText:false,optedOut:false,claimDenied:true});
+  assert.equal(result.claims,1);
+  assert.equal(result.markedSent,0);
   assert.deepEqual(result.sms,[]);
   assert.equal(result.jobStatus,'cancelled');
 });
