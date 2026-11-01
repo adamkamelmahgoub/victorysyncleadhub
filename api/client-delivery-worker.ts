@@ -105,12 +105,6 @@ async function routeCalls() {
       const business=e164(details.businessNumber);
       const matched=business?accounts.find(item=>e164(item.mightycall_number)===business):undefined;
       if(!matched){await rest(`mightycall_webhook_inbox?id=eq.${event.id}`,'PATCH',{client_route_attempted_at:new Date().toISOString()});continue;}
-      await rest(`mightycall_webhook_inbox?id=eq.${event.id}`,'PATCH',{
-        client_account_id:matched.id,caller_number:e164(details.caller?.phone),
-        business_number:e164(details.businessNumber),call_status:details.callStatus||null,
-        call_direction:details.direction||null,client_route_attempted_at:new Date().toISOString(),
-        client_routed_at:new Date().toISOString(),
-      });
       const caller=e164(details.caller?.phone);
       const lead=caller?await rest<Lead[]>(`leads?client_account_id=eq.${matched.id}&phone=ilike.*${caller.slice(-10)}&select=id&limit=1`):[];
       const durationMs=Number(details.duration);
@@ -122,6 +116,12 @@ async function routeCalls() {
         duration_seconds:Number.isFinite(durationMs)&&durationMs>=0?Math.round(durationMs/1000):null,
         recording_url:recording&&recording.startsWith('https://')?recording:null,
         agent_name:details.called?.find(x=>x.isConnected)?.name||null,summary:details.note||null,
+      });
+      await rest(`mightycall_webhook_inbox?id=eq.${event.id}`,'PATCH',{
+        client_account_id:matched.id,caller_number:caller,
+        business_number:business,call_status:details.callStatus||null,
+        call_direction:details.direction||null,client_route_attempted_at:new Date().toISOString(),
+        client_routed_at:new Date().toISOString(),
       });
       if(process.env.SLACK_WEBHOOK_URL&&externalSendsEnabled()){
         const usage=await rest<{minutesUsed:number;minutesIncluded:number}>('rpc/client_usage_meter','POST',{p_account:matched.id});

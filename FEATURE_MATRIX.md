@@ -18,7 +18,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Client dashboard | `client-portal.tsx`, `portal_dashboard_metrics` | partial | source review | Compare PDF and date filters end to end. |
 | Client leads list and board | `client-portal.tsx` | partial | source review | Board over 1,000 records unverified. |
 | Client lead timeline | `portal_lead_timeline` | partial | source review | Calls, texts, email and notes need browser QA. |
-| Client calls and recordings | `client_call_details`, `client-portal.tsx` | partial | source review | Live MightyCall event path unverified. |
+| Client calls and recordings | `client_call_details`, `client-portal.tsx` | partial | `client-call-routing.test.ts` | Failed call-detail saves now retain the webhook for retry; live MightyCall event path unverified. |
 | Client pages and forms | `marketing_landing_pages`, `forms` | partial | `marketing-forms-pages.test.ts` | Template draft and public publish need browser QA. |
 | Client reviews and requests | `client-portal.tsx`, `review_requests` | partial | `review-stats.test.ts` | Timing and provider sends unverified. |
 | Report archive and PDF | `report_sends`, report PDF code | partial | `client-report-pdf.test.ts`, `client-metrics-shared.test.ts` | Dashboard and PDF now share one aggregate; browser archive and delivery QA remain. |
