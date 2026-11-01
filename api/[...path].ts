@@ -16,6 +16,7 @@ import { reviewStats } from '../lib/review-stats.js';
 import { readPortalSelection } from '../lib/portal-cookie.js';
 import { newFormSlug } from '../lib/form-slug.js';
 import {pipelineBoardQuerySchema,fetchPipelinePage} from '../lib/pipeline-board.js';
+import {clientInviteUrl} from '../lib/client-invite.js';
 import { z } from 'zod';
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 
@@ -2108,34 +2109,31 @@ async function deleteLead(id: string, currentUser: AuthenticatedUser, req: Verce
 }
 
 async function createSubAccount(req: VercelRequest, res: VercelResponse) {
-  const body = (await readJson(req)) as Record<string, unknown>;
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  const ownerName = typeof body.ownerName === "string" ? body.ownerName.trim() : "";
-  const ownerEmail = typeof body.ownerEmail === "string" ? body.ownerEmail.trim().toLowerCase() : "";
-  if (!name || !ownerName || !ownerEmail.includes("@")) {
-    sendJson(res, 400, { error: "Business name, owner name, and a valid owner email are required" });
-    return;
-  }
-  const baseSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "client";
-  const payload = {
-    ...(toSnakeValue(body) as Record<string, unknown>),
-    name,
-    slug: `${baseSlug}-${crypto.randomBytes(2).toString("hex")}`,
-    owner_name: ownerName,
-    owner_email: ownerEmail,
-    status: body.status ?? "active",
-    plan: body.plan ?? "starter",
+  const parsed=z.object({name:z.string().trim().min(1).max(200),ownerName:z.string().trim().min(1).max(200),
+    ownerEmail:z.string().trim().email().max(320),phone:z.string().max(40).default(''),
+    website:z.union([z.literal(''),z.string().url().startsWith('https://')]).default(''),
+    plan:z.enum(['starter','scale','domination','overflow','business_hours','coverage_247','appt_part_time','appt_full_time','revive','custom']).default('starter')
+  }).passthrough().safeParse(await readJson(req));
+  if(!parsed.success){sendJson(res,400,{error:'Enter a business name, owner details, and a valid package'});return;}
+  if(!supabaseUrl||!supabaseKey)throw new Error('Supabase server environment is not configured');
+  const authorization=getHeader(req,'authorization');
+  if(!authorization?.startsWith('Bearer ')){sendJson(res,401,{error:'Sign in first'});return;}
+  const call=async(name:string,payload:Record<string,unknown>)=>{
+    const response=await fetch(`${supabaseUrl}/rest/v1/rpc/${name}`,{method:'POST',headers:{apikey:supabaseKey,
+      authorization,'content-type':'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(15000)});
+    const data=await response.json() as Record<string,unknown>;
+    if(!response.ok)throw new Error(String(data.message||`Client setup failed (${response.status})`));
+    return data;
   };
-  const rows = await supabaseRest("sub_accounts", { method: "POST", body: JSON.stringify(payload) }, req) as Array<Record<string, unknown>>;
-  const account = rows[0];
-  if (account?.id) {
-    await supabaseRest("white_label_settings", {
-      method: "POST",
-      body: JSON.stringify({ sub_account_id: account.id, brand_name: "VictorySync" }),
-      headers: { prefer: "resolution=ignore-duplicates,return=representation" },
-    }, req);
-  }
-  sendJson(res, 201, toCamelValue(account));
+  const input=parsed.data;
+  const created=await call('portal_create_client_manual',{p_name:input.name,p_phone:input.phone,p_website:input.website,
+    p_package:input.plan,p_owner_email:input.ownerEmail,p_owner_name:input.ownerName});
+  const accountId=String(created.accountId||'');
+  if(!accountId)throw new Error('Client setup did not return an account');
+  await call('portal_apply_account_template',{p_account:accountId,p_template:input.plan});
+  const inviteUrl=typeof created.inviteCode==='string'
+    ?clientInviteUrl(created.inviteCode,input.ownerEmail,input.ownerName):null;
+  sendJson(res,201,{id:accountId,accountId,inviteUrl,inviteSent:false});
 }
 
 async function getClientWorkspaceStats(clientId: string, req: VercelRequest, res: VercelResponse) {

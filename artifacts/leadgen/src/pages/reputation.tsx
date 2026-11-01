@@ -172,15 +172,21 @@ export default function Reputation() {
     setTimeout(() => setToast(null), 3000);
   }
 
-  const {data:accountContext}=useQuery<{selected:{accountId:string|null}|null}>({
+  const accountQuery=useQuery<{selected:{accountId:string|null}|null}>({
     queryKey:['portal-accounts'],queryFn:()=>apiFetch('/api/portal?action=accounts'),retry:false,
   });
+  const accountContext=accountQuery.data;
   const scopeKey=accountContext?.selected?.accountId??'agency';
 
-  const { data: sourcesResponse = [] } = useQuery<ReviewSource[]>({ queryKey: ["review-sources",scopeKey], queryFn: () => apiFetch("/api/review-sources"),enabled:!!accountContext });
-  const { data: stats } = useQuery<ReviewStats>({ queryKey: ["review-stats",scopeKey], queryFn: () => apiFetch("/api/reviews/stats"),enabled:!!accountContext });
-  const { data: reviewsResponse = [] } = useQuery<Review[]>({ queryKey: ["reviews",scopeKey, platformFilter, ratingFilter, replyFilter], queryFn: () => apiFetch(`/api/reviews?platform=${platformFilter === "all" ? "" : platformFilter}&rating=${ratingFilter === "all" ? "" : ratingFilter}&replied=${replyFilter === "unanswered" ? "false" : ""}`),enabled:!!accountContext });
-  const { data: requestsResponse = [] } = useQuery<ReviewRequest[]>({ queryKey: ["review-requests",scopeKey], queryFn: () => apiFetch("/api/review-requests"),enabled:!!accountContext });
+  const sourcesQuery=useQuery<ReviewSource[]>({ queryKey: ["review-sources",scopeKey], queryFn: () => apiFetch("/api/review-sources"),enabled:!!accountContext });
+  const statsQuery=useQuery<ReviewStats>({ queryKey: ["review-stats",scopeKey], queryFn: () => apiFetch("/api/reviews/stats"),enabled:!!accountContext });
+  const reviewsQuery=useQuery<Review[]>({ queryKey: ["reviews",scopeKey, platformFilter, ratingFilter, replyFilter], queryFn: () => apiFetch(`/api/reviews?platform=${platformFilter === "all" ? "" : platformFilter}&rating=${ratingFilter === "all" ? "" : ratingFilter}&replied=${replyFilter === "unanswered" ? "false" : ""}`),enabled:!!accountContext });
+  const requestsQuery=useQuery<ReviewRequest[]>({ queryKey: ["review-requests",scopeKey], queryFn: () => apiFetch("/api/review-requests"),enabled:!!accountContext });
+  const sourcesResponse=sourcesQuery.data??[];
+  const stats=statsQuery.data;
+  const reviewsResponse=reviewsQuery.data??[];
+  const requestsResponse=requestsQuery.data??[];
+  const loadError=[accountQuery.error,sourcesQuery.error,statsQuery.error,reviewsQuery.error,requestsQuery.error].find(Boolean);
   const sources = asArray<ReviewSource>(sourcesResponse);
   const reviews = asArray<Review>(reviewsResponse);
   const requests = asArray<ReviewRequest>(requestsResponse);
@@ -233,6 +239,7 @@ export default function Reputation() {
   return (
     <>
       <div className="page-stack ">
+        {loadError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>Could not load reputation data: {loadError instanceof Error?loadError.message:String(loadError)}</span><button type="button" className="rounded-lg border border-red-300 px-3 py-2 font-medium" onClick={()=>{void Promise.all([accountQuery.refetch(),sourcesQuery.refetch(),statsQuery.refetch(),reviewsQuery.refetch(),requestsQuery.refetch()])}}>Retry</button></div>}
         {actionError && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{String(actionError)}</div>}
         {scopeKey==='agency' && <p className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">Agency view shows reviews across accessible accounts. Select a client account in the top bar to manage that client's reviews and sources.</p>}
         {toast && (

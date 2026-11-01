@@ -9,7 +9,6 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { asArray } from "@/lib/data-shape";
 import { Link } from "wouter";
@@ -39,8 +38,7 @@ function PlanBadge({ plan }: { plan: string }) {
   return <Badge className={`capitalize ${colors[plan] || "bg-gray-100 text-gray-700"}`}>{plan}</Badge>;
 }
 
-const PLANS = ["starter", "pro", "agency", "enterprise"];
-const INDUSTRIES = ["SaaS", "E-Commerce", "Real Estate", "Marketing Agency", "Consulting", "Finance", "Healthcare", "Retail", "Other"];
+const PLANS = ["starter", "scale", "domination", "overflow", "business_hours", "coverage_247", "appt_part_time", "appt_full_time", "revive", "custom"];
 
 export default function SubAccounts() {
   const { toast } = useToast();
@@ -49,15 +47,19 @@ export default function SubAccounts() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState<SubAccount | null>(null);
-  const [form, setForm] = useState({ name: "", ownerName: "", ownerEmail: "", phone: "", industry: "", plan: "starter", notes: "" });
+  const [form, setForm] = useState({ name: "", ownerName: "", ownerEmail: "", phone: "", website: "", plan: "starter" });
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
 
   const { data: accountsResponse = [], isLoading } = useQuery<SubAccount[]>({ queryKey: ["sub-accounts"], queryFn: () => apiFetch("/sub-accounts") });
   const { data: stats } = useQuery({ queryKey: ["sub-accounts-stats"], queryFn: () => apiFetch("/sub-accounts-stats") });
   const accounts = asArray<SubAccount>(accountsResponse);
 
-  const addMutation = useMutation({
-    mutationFn: (data: typeof form) => apiFetch("/sub-accounts", { method: "POST", body: JSON.stringify(data) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["sub-accounts"] }); qc.invalidateQueries({ queryKey: ["sub-accounts-stats"] }); setShowAdd(false); setForm({ name: "", ownerName: "", ownerEmail: "", phone: "", industry: "", plan: "starter", notes: "" }); toast({ title: "Account created" }); },
+  const addMutation = useMutation<{accountId:string;inviteSent:boolean;inviteUrl:string|null},Error,typeof form>({
+    mutationFn: (data: typeof form) => apiFetch("/api/portal", { method: "POST", body: JSON.stringify({
+      action:"create_client_manual",name:data.name,phone:data.phone,website:data.website,
+      package:data.plan,ownerEmail:data.ownerEmail,ownerName:data.ownerName,
+    }) }),
+    onSuccess: (result) => { void qc.invalidateQueries({ queryKey: ["sub-accounts"] }); void qc.invalidateQueries({ queryKey: ["sub-accounts-stats"] }); void qc.invalidateQueries({queryKey:["portal-accounts"]}); setInviteUrl(result.inviteUrl); if (!result.inviteUrl) setShowAdd(false); setForm({ name: "", ownerName: "", ownerEmail: "", phone: "", website: "", plan: "starter" }); toast({ title: result.inviteSent ? "Account created and invitation sent" : "Account created" }); },
   });
 
   const updateMutation = useMutation({
@@ -180,33 +182,29 @@ export default function SubAccounts() {
         </table>
       </div>
 
-      <Dialog open={showAdd} onOpenChange={setShowAdd}>
+      <Dialog open={showAdd} onOpenChange={open=>{setShowAdd(open);if(!open)setInviteUrl(null)}}>
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Add Sub-Account</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="col-span-2 space-y-1"><Label>Agency / Business Name *</Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Enter business name" /></div>
+              <div className="col-span-2 space-y-1"><Label>Business name *</Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Enter business name" /></div>
               <div className="space-y-1"><Label>Owner Name *</Label><Input value={form.ownerName} onChange={e => setForm(f => ({ ...f, ownerName: e.target.value }))} placeholder="Enter owner name" /></div>
               <div className="space-y-1"><Label>Owner Email *</Label><Input value={form.ownerEmail} onChange={e => setForm(f => ({ ...f, ownerEmail: e.target.value }))} placeholder="Enter owner email" /></div>
               <div className="space-y-1"><Label>Phone</Label><Input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+1 555 000 0000" /></div>
-              <div className="space-y-1"><Label>Industry</Label>
-                <Select value={form.industry} onValueChange={v => setForm(f => ({ ...f, industry: v }))}>
-                  <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
-                  <SelectContent>{INDUSTRIES.map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1"><Label>Plan</Label>
+              <div className="space-y-1"><Label>Website</Label><Input value={form.website} onChange={e => setForm(f => ({ ...f, website: e.target.value }))} placeholder="https://example.com" /></div>
+              <div className="space-y-1"><Label>Package</Label>
                 <Select value={form.plan} onValueChange={v => setForm(f => ({ ...f, plan: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>{PLANS.map(p => <SelectItem key={p} value={p} className="capitalize">{p}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <div className="col-span-2 space-y-1"><Label>Notes</Label><Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder="Internal notes…" /></div>
             </div>
+            {addMutation.error&&<p role="alert" className="text-sm text-red-600">{String(addMutation.error)}</p>}
+            {inviteUrl&&<div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm"><p>Client account created. Share this private invitation link with the owner. It expires in seven days.</p><Input aria-label="Client invitation link" readOnly value={inviteUrl}/><Button size="sm" variant="outline" onClick={()=>void navigator.clipboard.writeText(inviteUrl)}>Copy invite link</Button></div>}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
-            <Button className="bg-primary text-white" onClick={() => addMutation.mutate(form)} disabled={!form.name || !form.ownerEmail || !form.ownerName || addMutation.isPending}>{addMutation.isPending ? "Creating…" : "Create Account"}</Button>
+            <Button className="bg-primary text-white" onClick={() => addMutation.mutate(form)} disabled={!form.name || !form.ownerEmail || !form.ownerName || addMutation.isPending || !!inviteUrl}>{addMutation.isPending ? "Creating…" : "Create client"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
