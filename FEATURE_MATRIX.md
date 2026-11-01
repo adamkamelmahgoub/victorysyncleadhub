@@ -16,13 +16,13 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Package snapshots | `account_templates`, `portal_apply_account_template` | partial | `account-templates-ops.test.mjs` | Ten templates and idempotence tested; visual QA pending. |
 | Onboarding checklist | `company_tasks`, template payload | partial | template DB test | Needs unified task model. |
 | Client dashboard | `client-portal.tsx`, `portal_dashboard_metrics` | partial | `client-portal-layout.spec.ts` desktop/mobile screenshots | Synthetic browser layout, overflow and axe checks pass; live date filters still need QA. |
-| Client leads list and board | `client-portal.tsx` | partial | source review | Board over 1,000 records unverified. |
+| Client leads list and board | `client-portal.tsx` | partial | `client-portal-layout.spec.ts` desktop/mobile screenshots | Basic lead page renders; board over 1,000 records unverified. |
 | Client lead timeline | `portal_lead_timeline` | partial | source review | Calls, texts, email and notes need browser QA. |
-| Client calls and recordings | `client_call_details`, `client-portal.tsx` | partial | `client-call-routing.test.ts` | Failed call-detail saves now retain the webhook for retry; live MightyCall event path unverified. |
-| Client pages and forms | `marketing_landing_pages`, `forms` | partial | `marketing-forms-pages.test.ts` | Template draft and public publish need browser QA. |
-| Client reviews and requests | `client-portal.tsx`, `review_requests` | partial | `review-stats.test.ts` | Timing and provider sends unverified. |
-| Report archive and PDF | `report_sends`, report PDF code | partial | `client-report-pdf.test.ts`, `client-metrics-shared.test.ts` | Dashboard and PDF now share one aggregate; browser archive and delivery QA remain. |
-| Client billing portal | `api/portal.ts`, Stripe | partial | source review | Needs sandbox Stripe webhook and browser test. |
+| Client calls and recordings | `client_call_details`, `client-portal.tsx` | partial | `client-call-routing.test.ts`, browser screenshots | Failed saves retry and basic call page renders; live MightyCall event path unverified. |
+| Client pages and forms | `marketing_landing_pages`, `forms` | partial | `marketing-forms-pages.test.ts`, browser screenshots | Basic lists render; template draft and public publish need browser QA. |
+| Client reviews and requests | `client-portal.tsx`, `review_requests` | partial | `review-stats.test.ts`, browser screenshots | Basic review page renders; timing and provider sends unverified. |
+| Report archive and PDF | `report_sends`, report PDF code | partial | `client-report-pdf.test.ts`, `client-metrics-shared.test.ts`, browser screenshots | Dashboard and PDF share one aggregate; basic archive renders; delivery QA remains. |
+| Client billing portal | `api/portal.ts`, Stripe | partial | `client-portal-layout.spec.ts` desktop/mobile screenshots | Basic page renders; needs sandbox Stripe webhook and customer portal test. |
 | Client settings and branding | `client-portal.tsx` | partial | source review | Mobile layout and permissions need QA. |
 | Client notifications | delivery worker | partial | `mightycall-endpoints.test.ts`, `external-send-mode.test.ts` | Product paths and preview send gate verified; external email and SMS not tested. |
 | Form lead dedupe and UTM | form submit route | partial | `marketing-forms-pages.test.ts` | Full workflow trigger test needed. |
@@ -51,7 +51,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Social reconnect health | Settings and Slack | partial | `social-reconnect-health.test.ts` | Health query tested locally; live route and Slack QA pending. |
 | Social contact matching | `social_profiles`, social inbox | partial | `social-inbox.ts` source review | Manual link exists; auto-match remains incomplete. |
 | GHL-style agency shell | navigation components | partial | source review | Public reference and parity QA pending. |
-| GHL-style client shell | portal layout | partial | `client-portal-layout.spec.ts` desktop/mobile screenshots | Synthetic dashboard fits both viewports and has no serious axe findings; remaining pages need visual QA. |
+| GHL-style client shell | portal layout | partial | `client-portal-layout.spec.ts` desktop/mobile screenshots | Eight synthetic portal pages fit both viewports with no serious axe findings; live data and interaction QA remain. |
 | Launchpad | `/client-portal/launchpad` | partial | `client-portal-permissions.test.ts` | Account-scoped checklist added; migration, browser and RLS QA pending. |
 | Unified conversations | `social-inbox.tsx` | partial | source review | SMS, email, calls in one thread unverified. |
 | Calendar week/month | `calendar.tsx` | partial | source review | Appointment slide-over QA needed. |
@@ -67,7 +67,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Global search and quick add | app shell | partial | source review | Keyboard and account scoping need test. |
 | Light and dark themes | app shell | partial | source review | Screenshots and contrast QA needed. |
 | Seeded demo environment | scripts | missing | source review | No isolated full demo seed with >1,000 leads. |
-| Vitest, Playwright, Lighthouse, axe CI | test tooling | partial | `.github/workflows/quality.yml`, `client-portal-layout.spec.ts` | Playwright and axe run on a synthetic client dashboard in CI; broader browser, RLS and Lighthouse gates remain. |
+| Vitest, Playwright, Lighthouse, axe CI | test tooling | partial | `.github/workflows/quality.yml`, `client-portal-layout.spec.ts` | Playwright and axe run on eight synthetic portal pages in CI; live browser, RLS and Lighthouse gates remain. |
 | Production launch checks | Vercel and Supabase | partial | prior deployment check | Provider secrets and webhook test events pending. |
 
 ## Audit findings
