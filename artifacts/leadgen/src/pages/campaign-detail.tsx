@@ -129,7 +129,7 @@ export default function CampaignDetail() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{lead.company ?? "—"}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{lead.company ?? "–"}</td>
                     <td className="px-4 py-3">
                       <Badge variant="outline" className="text-xs capitalize" style={{ borderColor: (STATUS_COLORS[lead.status] ?? "hsl(215 20% 65%)") + "60", color: STATUS_COLORS[lead.status] }}>
                         {lead.status}

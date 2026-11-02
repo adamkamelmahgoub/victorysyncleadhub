@@ -120,7 +120,7 @@
   --opaque-button-border-intensity: 10;
 }
 
-/* No separate dark class — this app is always light-mode with dark sidebar */
+/* No separate dark class: this app is always light-mode with dark sidebar */
 
 @layer base {
   * {

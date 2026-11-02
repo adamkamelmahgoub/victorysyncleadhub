@@ -2931,7 +2931,7 @@ async function createLeadChild(leadId: string, kind: keyof typeof leadChildTable
   }
   if (kind === "activities" && !payload.type) payload.type = "other";
   if (kind === "activities" && typeof payload.description === "string") {
-    payload.description = `${payload.description} — recorded by ${actorLabelForUser(currentUser)}`;
+    payload.description = `${payload.description}: recorded by ${actorLabelForUser(currentUser)}`;
   }
   if (kind === "tasks" && !payload.priority) payload.priority = "medium";
   const rows = await supabaseRest(table, {

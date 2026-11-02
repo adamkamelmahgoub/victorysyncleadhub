@@ -118,7 +118,7 @@ export default function SequenceAnalytics() {
         ))}
       </ReportMetrics>
       {sequences.length === 0 ? (
-        <div className="text-center py-16 text-muted-foreground"><Mail className="w-10 h-10 mx-auto mb-3 opacity-40" /><p>No sequences yet — create one in the Sequences section to see analytics here.</p></div>
+        <div className="text-center py-16 text-muted-foreground"><Mail className="w-10 h-10 mx-auto mb-3 opacity-40" /><p>No sequences yet: create one in the Sequences section to see analytics here.</p></div>
       ) : (
         <div className="space-y-3">{sorted.map(seq => <SequenceCard key={seq.id} seq={seq} />)}</div>
       )}

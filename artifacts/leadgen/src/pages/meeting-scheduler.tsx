@@ -138,7 +138,7 @@ export default function MeetingScheduler() {
               </div>
             </div>
           )}
-          {appointments.length === 0 && <div className="text-center py-16 text-muted-foreground">No appointments yet — share your booking link to get started</div>}
+          {appointments.length === 0 && <div className="text-center py-16 text-muted-foreground">No appointments yet: share your booking link to get started</div>}
         </div>
       )}
 

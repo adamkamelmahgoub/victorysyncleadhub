@@ -8,7 +8,7 @@ import { ReportHeader, ReportMetric, ReportMetrics, ReportPanel } from "@/compon
 type Call = { id: number; lead_id: string; created_at: string; disposition: string; connected: boolean | null; conversation: boolean | null; meeting_held_at: string | null };
 type Reply = { id: string; from_email: string; subject: string; body: string; received_at: string; positive_reply: boolean | null };
 type Report = { calls: { dials: number; connects: number; conversations: number; meetingsBooked: number; meetingsHeld: number; unclassified: number }; email: Array<{ mailbox: string; sent: number; delivered: number; open_rate: null; reply_rate: number | null; positive_reply_rate: number | null; bounce_rate: number | null }>; callReview: Call[]; replyReview: Reply[] };
-const percent = (value: number | null) => value === null ? "—" : `${(Number(value) * 100).toFixed(1)}%`;
+const percent = (value: number | null) => value === null ? "–" : `${(Number(value) * 100).toFixed(1)}%`;
 function monday() { const date = new Date(); date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7); return date.toISOString().slice(0, 10); }
 
 function CallOutcome({ call, save, disabled }: { call: Call; save: (data: unknown) => Promise<unknown>; disabled: boolean }) {
@@ -20,7 +20,7 @@ function CallOutcome({ call, save, disabled }: { call: Call; save: (data: unknow
     <td className="capitalize">{call.disposition.replaceAll("_", " ")}</td>
     <td><input aria-label="Call connected" type="checkbox" checked={connected} onChange={event => { setConnected(event.target.checked); if (!event.target.checked) setConversation(false); }} /></td>
     <td><input aria-label="Conversation" type="checkbox" checked={conversation} onChange={event => { setConversation(event.target.checked); if (event.target.checked) setConnected(true); }} /></td>
-    <td>{call.disposition === "meeting_booked" ? <input aria-label="Meeting held at UTC" className={workspaceInput} type="datetime-local" value={held} onChange={event => setHeld(event.target.value)} /> : "—"}</td>
+    <td>{call.disposition === "meeting_booked" ? <input aria-label="Meeting held at UTC" className={workspaceInput} type="datetime-local" value={held} onChange={event => setHeld(event.target.value)} /> : "–"}</td>
     <td><button className="rounded-lg border px-3 py-2 text-xs font-medium hover:bg-slate-50 disabled:opacity-50" disabled={disabled} onClick={() => save({ id: call.id, connected, conversation, meetingHeldAt: held ? `${held}:00Z` : null })}>Save</button>{call.connected === null && <span className="block text-xs text-amber-700">Unclassified</span>}</td>
   </tr>;
 }

@@ -361,7 +361,7 @@ export default function Conversations() {
                 <div className="space-y-1.5 text-xs">
                   <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className="capitalize font-medium">{selected.status ?? "New"}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Score</span><span className="font-medium">{selected.score ?? 0}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Source</span><span className="capitalize font-medium">{selected.source ?? "—"}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Source</span><span className="capitalize font-medium">{selected.source ?? "–"}</span></div>
                 </div>
               </div>
               <div>

@@ -164,7 +164,7 @@ export default function ProspectSearch() {
             ) : isLoading ? (
               <div className="text-center py-16 text-muted-foreground">Searching…</div>
             ) : prospects.length === 0 ? (
-              <div className="text-center py-16 text-muted-foreground">No prospects found — try adjusting your filters</div>
+              <div className="text-center py-16 text-muted-foreground">No prospects found: try adjusting your filters</div>
             ) : prospects.map(p => (
               <div key={p.id} className={`flex min-w-[720px] items-center gap-3 px-4 py-3 border-b last:border-0 hover:bg-muted/20 transition-colors ${selected.has(p.id) ? "bg-primary/5" : ""}`}>
                 <button onClick={() => toggleSelect(p.id)} disabled={p.savedToLeads} className="text-muted-foreground hover:text-foreground disabled:opacity-30">

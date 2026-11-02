@@ -67,7 +67,7 @@ const MODULES = [
       "Use the pipeline that matches the client or sales process.",
       "Drag contacts only after the stage qualification criteria are met.",
       "Keep unassigned contacts from sitting without an owner or next step.",
-      "A pipeline stage describes the current deal position—not the activity you completed.",
+      "A pipeline stage describes the current deal position, not the activity you completed.",
     ],
   },
   {
@@ -144,7 +144,7 @@ export default function AgentTraining() {
       <Card className="p-5 border-amber-200 bg-amber-50">
         <h2 className="font-semibold text-amber-900 mb-2">When something does not work</h2>
         <ol className="list-decimal pl-5 space-y-1 text-sm text-amber-900">
-          <li>Copy the full error message—do not report only “it does not work.”</li>
+          <li>Copy the full error message. Do not report only “it does not work.”</li>
           <li>Record the page, button, contact/client, and time of the error.</li>
           <li>Refresh once and retry only if repeating the action cannot create duplicates.</li>
           <li>Send the details to your administrator. Never repeatedly click Create, Import, or Send.</li>

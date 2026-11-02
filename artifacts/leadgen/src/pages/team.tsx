@@ -422,7 +422,7 @@ export default function Team() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setEditMember(null)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm border border-border" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-              <h3 className="font-semibold text-foreground">Edit Role — {editMember.name}</h3>
+              <h3 className="font-semibold text-foreground">Edit Role: {editMember.name}</h3>
               <button onClick={() => setEditMember(null)} className="text-muted-foreground hover:text-foreground">x</button>
             </div>
             <div className="p-6 space-y-3">
