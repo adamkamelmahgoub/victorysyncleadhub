@@ -20,6 +20,7 @@ import { supabase } from "@/lib/supabase";
 import { label, type CompanyTask, type CompanyFile } from "@/lib/company-crm";
 import { CrmError } from "./company-crm";
 import { crmSelect, toLocalDateTime } from "./company-editor";
+type UnifiedTask=CompanyTask&{source?:'company'|'contact';lead_id?:string|null};
 
 export function TaskEditor({
   companyId,
@@ -27,16 +28,20 @@ export function TaskEditor({
   onSaved,
 }: {
   companyId: string;
-  task?: CompanyTask;
+  task?: UnifiedTask;
   onSaved: () => void;
 }) {
   const qc = useQueryClient();
   const mutation = useMutation({
-    mutationFn: (data: Record<string, unknown>) =>
-      apiFetch(
+    mutationFn: (data: Record<string, unknown>) => {
+      const contact=task?.source==='contact'&&task.lead_id;
+      return apiFetch(contact?`/api/leads/${task.lead_id}/tasks/${task.id}`:
         `/api/companies/${companyId}/tasks${task ? `/${task.id}` : ""}`,
-        { method: task ? "PATCH" : "POST", body: JSON.stringify(data) },
-      ),
+        {method:task?'PATCH':'POST',body:JSON.stringify(contact?{
+          title:data.title,description:data.notes,dueDate:data.due_at,
+          priority:data.priority==='normal'?'medium':data.priority,isCompleted:data.status==='completed',
+        }:data)});
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["company-crm", "tasks"] });
       onSaved();
@@ -69,7 +74,7 @@ export function TaskEditor({
           />
         </label>
         <div className="grid grid-cols-2 gap-3">
-          <label className="space-y-1.5 text-xs">
+          {task?.source!=='contact'&&<label className="space-y-1.5 text-xs">
             Type
             <select
               name="kind"
@@ -85,7 +90,7 @@ export function TaskEditor({
                 ),
               )}
             </select>
-          </label>
+          </label>}
           <label className="space-y-1.5 text-xs">
             Priority
             <select
@@ -111,7 +116,7 @@ export function TaskEditor({
             defaultValue={toLocalDateTime(task?.due_at)}
           />
         </label>
-        <label className="block space-y-1.5 text-xs">
+        {task?.source!=='contact'&&<label className="block space-y-1.5 text-xs">
           Assignee
           <Input
             name="assignee"
@@ -120,7 +125,7 @@ export function TaskEditor({
             defaultValue={task?.assignee ?? ""}
             placeholder="Name of the person responsible"
           />
-        </label>
+        </label>}
         <label className="block space-y-1.5 text-xs">
           Status
           <select
@@ -129,7 +134,7 @@ export function TaskEditor({
             className={crmSelect}
             defaultValue={task?.status ?? "pending"}
           >
-            {["pending", "in_progress", "completed"].map((status) => (
+            {(task?.source==='contact'?["pending","completed"]:["pending", "in_progress", "completed"]).map((status) => (
               <option key={status} value={status}>
                 {label(status)}
               </option>
@@ -166,12 +171,12 @@ export function CompanyTasks({
   companyId: string;
   readOnly?: boolean;
 }) {
-  const [editing, setEditing] = useState<CompanyTask | null | undefined>(
+  const [editing, setEditing] = useState<UnifiedTask | null | undefined>(
     undefined,
   );
   const qc = useQueryClient();
   const query = useInfiniteQuery<{
-    items: CompanyTask[];
+    items: UnifiedTask[];
     nextOffset: number | null;
   }>({
     queryKey: ["company-crm", "tasks", companyId],
@@ -181,8 +186,8 @@ export function CompanyTasks({
     getNextPageParam: (page) => page.nextOffset ?? undefined,
   });
   const toggle = useMutation({
-    mutationFn: (task: CompanyTask) =>
-      apiFetch(`/api/companies/${companyId}/tasks/${task.id}`, {
+    mutationFn: (task: UnifiedTask) =>
+      apiFetch(`/api/company-crm/tasks/${task.id}`, {
         method: "PATCH",
         body: JSON.stringify({
           status: task.status === "completed" ? "pending" : "completed",

@@ -79,7 +79,7 @@ const PRIORITY_STYLES: Record<string, string> = {
 
 interface PipelineStage { id: number | string; key?: string | null; name: string; color: string; position: number; }
 interface ContactTask {
-  id: number; leadId: number; title: string; description?: string;
+  id: string; leadId: string; title: string; description?: string;
   dueDate?: string; isCompleted: boolean; completedAt?: string; priority: string; createdAt: string;
 }
 type ContactContext = {
@@ -257,12 +257,12 @@ export default function LeadDetail() {
   });
 
   const updateTask = useMutation({
-    mutationFn: ({ taskId, ...body }: { taskId: number } & Record<string, unknown>) => apiFetch(`/api/leads/${id}/tasks/${taskId}`, { method: "PATCH", body: JSON.stringify(body) }),
+    mutationFn: ({ taskId, ...body }: { taskId: string } & Record<string, unknown>) => apiFetch(`/api/leads/${id}/tasks/${taskId}`, { method: "PATCH", body: JSON.stringify(body) }),
     onSuccess: () => refetchTasks(),
   });
 
   const deleteTask = useMutation({
-    mutationFn: (taskId: number) => apiFetch(`/api/leads/${id}/tasks/${taskId}`, { method: "DELETE" }),
+    mutationFn: (taskId: string) => apiFetch(`/api/leads/${id}/tasks/${taskId}`, { method: "DELETE" }),
     onSuccess: () => refetchTasks(),
   });
 

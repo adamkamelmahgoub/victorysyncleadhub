@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, ExternalLink, Facebook, Instagram, MessageCircle, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 
-type Account={id:string;platform:string;display_platform:string|null;profile_url:string|null;external_account_id:string|null;connection_mode:string;label:string;status:string;token_expires_at:string|null;last_webhook_at:string|null;last_error:string|null;daily_new_dm_cap:number;daily_followup_cap:number;warmup_enabled:boolean};
+type Account={id:string;platform:string;display_platform:string|null;profile_url:string|null;external_account_id:string|null;connection_mode:string;label:string;status:string;health:string|null;token_expires_at:string|null;last_webhook_at:string|null;last_error:string|null;daily_new_dm_cap:number;daily_followup_cap:number;warmup_enabled:boolean};
 type Config={configured:boolean;app_id:string;graph_version:string;callback_url:string;webhook_url:string};
 type ThreadsConfig={configured:boolean;app_id:string;callback_url:string};
 type UnipileConfig={configured:boolean;api_version:'v1'|'v2'|null;dsn:string|null;webhook_configured:boolean;callback_url:string;webhook_url:string};
@@ -66,7 +66,7 @@ export function ConnectedAccounts(){
       {accounts.isError&&<p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">Accounts could not be loaded.</p>}
       <div className="mt-5 grid gap-3 lg:grid-cols-2">{visibleAccounts.map((account)=><div key={account.id} className="rounded-xl border border-border bg-background p-4">
         <div className="flex items-start justify-between gap-2"><div className="flex items-center gap-2">{account.platform==='instagram'?<Instagram className="h-5 w-5 text-pink-600"/>:account.platform==='facebook'?<Facebook className="h-5 w-5 text-blue-600"/>:<MessageCircle className="h-5 w-5 text-emerald-600"/>}<div><strong>{account.label}</strong><div className="text-xs capitalize text-muted-foreground">{account.platform}</div></div></div>
-          <span className={`rounded-full px-2.5 py-1 text-xs ${account.status==='active'?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-700'}`}>{account.status}</span></div>
+          <span className={`rounded-full px-2.5 py-1 text-xs ${account.health==='reconnect_needed'?'bg-red-50 text-red-700':account.status==='active'?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-700'}`}>{account.health==='reconnect_needed'?'Reconnect needed':account.status}</span></div>
         <div className="mt-3 space-y-1 text-xs text-muted-foreground"><div>{account.connection_mode==='manual'?'Manual-assisted connection':`Webhook: ${account.last_webhook_at?new Date(account.last_webhook_at).toLocaleString():'Waiting for first event'}`}</div><div>Token expiry: {account.connection_mode==='manual'?'No API token':account.token_expires_at?new Date(account.token_expires_at).toLocaleString():'Not reported'}</div></div>
         {account.profile_url&&<a className="mt-2 inline-block text-xs text-primary underline" href={account.profile_url} target="_blank" rel="noreferrer">Open profile</a>}
         {account.last_error&&<p role="alert" className="mt-2 text-xs text-red-700">{account.last_error}</p>}

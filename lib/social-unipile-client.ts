@@ -3,6 +3,22 @@ import {socialVaultRead} from './social-vault.js';
 import {normalizeSocial} from './social-handles.js';
 
 export type UnipileConfig={api_key_vault_id:string;api_base_url:string|null;api_version:'v1'|'v2'};
+export function unipileChatQuery(version:'v1'|'v2',accountId:string,mode:'recent'|'history',cursor:string|null){
+  const limit=mode==='recent'?20:25;
+  const query=new URLSearchParams(version==='v1'?{account_id:accountId,limit:String(limit)}:
+    {type:'1to1',limit:String(limit)});
+  if(mode==='history'&&cursor){
+    if(/^offset:\d+$/.test(cursor))query.set('offset',cursor.slice(7));
+    else query.set('cursor',cursor);
+  }
+  return query;
+}
+export function nextUnipileHistoryCursor(response:Record<string,unknown>,previous:string|null,count:number,limit=25){
+  const next=response.next_cursor||response.cursor;
+  if(typeof next==='string'&&next)return next;
+  if(count>=limit)return `offset:${(previous?.startsWith('offset:')?Number(previous.slice(7)):0)+limit}`;
+  return null;
+}
 export function normalizeUnipileDsn(value:string):string{
   const raw=value.trim();
   const url=new URL(raw.startsWith('https://')?raw:`https://${raw}`);

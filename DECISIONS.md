@@ -15,3 +15,11 @@ The audit reads only catalog metadata from production. Local Supabase and Docker
 ## 2026-10-30: Audit first
 
 The attached request requires an audit commit before fixes. `FEATURE_MATRIX.md`, `AUDIT_INVENTORY.md`, and `qa/audit/schema-metadata.json` form the baseline. A feature marked partial may have working code but lacks the required passing end-to-end test and screenshot.
+
+## 2026-10-31: Docker-free local database for focused tests
+
+The PostgreSQL Windows installer download returned HTTP 403. `scripts/setup-local-qa-db.mjs` now creates a persistent PGlite database under ignored `.local/victorysync-qa` with synthetic accounts, contacts and more than 1,000 leads in one stage. It supports focused SQL and API-adapter tests, but it is not a full Supabase stack: Auth, Storage, Realtime, and Edge Functions still require a disposable Supabase branch or local container runtime before end-to-end sign-off.
+
+## 2026-10-31: Unified tasks use a security-invoker view
+
+`company_tasks` and `contact_tasks` already have production writers and client-scoped RLS. Dropping either table would risk existing automations. The migration retains both write tables and adds `unified_tasks` as the shared read model, with source-aware updates. Exact duplicate contact tasks with the same lead, title and due time appear once. The original rows remain for rollback and compatibility. A contact task links to a company only when the company name resolves uniquely.
