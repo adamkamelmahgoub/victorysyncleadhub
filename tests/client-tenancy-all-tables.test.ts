@@ -2,6 +2,24 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {PGlite} from '@electric-sql/pglite';
+import {Client} from 'pg';
+
+type QaDb={exec:(sql:string)=>Promise<unknown>;query:<T=Record<string,unknown>>(
+  sql:string,params?:unknown[])=>Promise<{rows:T[]}>;close:()=>Promise<void>};
+async function openQaDb():Promise<QaDb>{
+  const connection=process.env.LOCAL_POSTGRES_URL;
+  if(!connection)return new PGlite() as unknown as QaDb;
+  const url=new URL(connection);
+  if(!['127.0.0.1','localhost'].includes(url.hostname)||url.pathname!=='/victorysync_tenancy_qa')
+    throw new Error('Native RLS tests require the local victorysync_tenancy_qa database');
+  const client=new Client({connectionString:connection,ssl:false});
+  await client.connect();
+  await client.query('drop schema if exists auth cascade; drop schema if exists public cascade; create schema public');
+  return {exec:async sql=>{await client.query(sql)},query:async(sql,params)=>{
+    const result=await client.query(sql,params);
+    return {rows:result.rows};
+  },close:async()=>{await client.end()}};
+}
 
 const org='cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
 const accountA='10000000-0000-4000-8000-000000000001';
@@ -23,11 +41,13 @@ const scopedTables=[
 ] as const;
 
 test('the tenancy migrations restrict every client table for clients and assigned staff',async()=>{
-  const db=new PGlite();
+  const db=await openQaDb();
   try{
     await db.exec(`
-      create role authenticated;
-      create role anon;
+      do $$ begin if not exists(select 1 from pg_roles where rolname='authenticated') then
+        create role authenticated; end if;
+        if not exists(select 1 from pg_roles where rolname='anon') then create role anon; end if;
+      end $$;
       create schema auth;
       create table auth.users(id uuid primary key);
       create function auth.uid() returns uuid language sql stable as $$
