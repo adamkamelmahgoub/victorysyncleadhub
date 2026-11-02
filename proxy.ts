@@ -1,7 +1,5 @@
 import {next,rewrite} from '@vercel/functions';
 
-export const config={matcher:'/'};
-
 export function isClientPageHost(value:string){
   const host=value.trim().toLowerCase().replace(/:\d+$/,'').replace(/\.$/,'');
   if(!/^[a-z0-9.-]+$/.test(host)||!host.includes('.'))return false;
