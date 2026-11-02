@@ -15,8 +15,12 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
     if(page){
       if(!slugPattern.test(page[1]))return reply(res,404,'Page not found');
       const rows=await mcpPool.query<{id:string;title:string;seo_description:string;sections:LandingSection[];theme:LandingTheme;client_account_id:string|null;canonical_page_id:string|null;status:string}>(
-        `select id,title,seo_description,sections,theme,client_account_id,canonical_page_id,status
-         from public.marketing_landing_pages where slug=$1 and organization_id=$2 limit 1`,[page[1],org]);
+        `select m.id,m.title,m.seo_description,m.sections,m.theme,m.client_account_id,
+          m.canonical_page_id,m.status
+         from public.marketing_landing_pages m
+         left join public.landing_pages p on p.id=m.canonical_page_id
+         where m.organization_id=$2 and (m.slug=$1 or (p.slug=$1 and p.status='published'))
+         order by (p.slug=$1 and p.status='published') desc limit 1`,[page[1],org]);
       const found=rows.rows[0];if(!found)return reply(res,404,'Page not found');
       if(found.canonical_page_id){
         const canonical=await mcpPool.query<{slug:string}>(`select slug from public.landing_pages

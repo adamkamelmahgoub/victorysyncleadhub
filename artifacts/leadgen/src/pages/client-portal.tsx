@@ -11,7 +11,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
-type Page = {id:string;name:string;slug:string;status:'draft'|'published';seo_description:string;
+type Page = {id:string;name:string;slug:string;public_slug?:string|null;status:'draft'|'published';seo_description:string;
   sections:Section[];theme:Theme;created_at:string};
 type Section = {id:string;type:'hero'|'text'|'features'|'image'|'cta'|'form';heading?:string;body?:string;
   buttonText?:string;buttonUrl?:string;imageUrl?:string;formId?:string;items?:string[]};
@@ -233,12 +233,15 @@ function PageBuilder({initial,readOnly,onSaved}:{initial?:Page;readOnly:boolean;
   const {data:availableForms}=useQuery<Snapshot>({queryKey:['portal','forms'],
     queryFn:()=>apiFetch('/api/portal?action=snapshot&section=forms')});
   const [draft,setDraft] = useState({id:initial?.id ?? null,title:initial?.name ?? 'New landing page',
-    slug:initial?.slug ?? `new-page-${Math.random().toString(36).slice(2,7)}`,status:initial?.status ?? 'draft' as 'draft'|'published',
+    slug:initial?.slug ?? `new-page-${Math.random().toString(36).slice(2,7)}`,
     seoDescription:initial?.seo_description ?? '',sections:initial?.sections ?? [] as Section[],theme:{...themeDefault,...initial?.theme}});
   const [selected,setSelected] = useState<string|null>(draft.sections[0]?.id ?? null);
   const [prompt,setPrompt] = useState('');
   const [error,setError] = useState('');
-  const save = useMutation({mutationFn:() => apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'save_page',...draft})}),
+  const save = useMutation({mutationFn:async (publish:boolean) => {
+    const saved=await apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'save_page',...draft,status:'draft'})}) as {id:string};
+    if(publish)await apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'publish_page',pageId:saved.id})});
+  },
     onSuccess:()=>{setError('');onSaved()},onError:e=>setError(String(e))});
   const generate = useMutation({mutationFn:() => apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'ai_page',prompt,currentSections:draft.sections})}) as Promise<{sections:Section[];theme:Theme;title:string;seoDescription:string}>,
     onSuccess:value=>{setDraft(current=>({...current,...value}));setSelected(value.sections[0]?.id ?? null);setError('')},onError:e=>setError(String(e))});
@@ -246,8 +249,8 @@ function PageBuilder({initial,readOnly,onSaved}:{initial?:Page;readOnly:boolean;
   const patchSection = (patch:Partial<Section>) => setDraft(old=>({...old,sections:old.sections.map(item=>item.id===selected?{...item,...patch}:item)}));
   const move = (index:number,shift:number) => setDraft(old=>{const next=[...old.sections];const [item]=next.splice(index,1);next.splice(index+shift,0,item);return {...old,sections:next}});
   return <div className="space-y-4"><div className="flex items-center gap-2"><Input aria-label="Page title" value={draft.title} disabled={readOnly} onChange={event=>setDraft(old=>({...old,title:event.target.value}))}/>
-    <Button disabled={readOnly||save.isPending} onClick={()=>save.mutate()}><Save className="mr-1 h-4 w-4"/>Save</Button>
-    <Button variant="outline" disabled={readOnly||save.isPending} onClick={()=>setDraft(old=>({...old,status:old.status==='draft'?'published':'draft'}))}>{draft.status==='draft'?'Set published':'Set draft'}</Button></div>
+    <Button disabled={readOnly||save.isPending} onClick={()=>save.mutate(false)}><Save className="mr-1 h-4 w-4"/>Save draft</Button>
+    <Button variant="outline" disabled={readOnly||save.isPending||!draft.sections.length} onClick={()=>save.mutate(true)}>Publish</Button></div>
     {error&&<p role="alert" className="text-sm text-red-600">{error}</p>}
     <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)_300px]">
       <Card className="space-y-3 p-4"><h3 className="font-semibold">Sections</h3>{draft.sections.map((item,index)=><div key={item.id} className={`flex items-center gap-1 rounded border p-1 ${selected===item.id?'border-blue-500':''}`}>
@@ -442,7 +445,7 @@ export default function ClientPortal() {
         {['leads','calls','reviews','reports'].includes(tab)&&<div className="flex justify-end"><Button variant="outline" size="sm" disabled={snapshot.readOnly} onClick={()=>void exportData()}><Download className="mr-1 h-4 w-4"/>Export</Button></div>}
         {tab==='dashboard'&&<Dashboard admin={admin}/>}
         {tab==='leads'&&<LeadTable data={snapshot.data as {rows:Lead[];stages:{id:string;name:string}[]}} readOnly={snapshot.readOnly||limited}/>}
-        {tab==='pages'&&<div className="space-y-4"><Button disabled={snapshot.readOnly} onClick={()=>{setCreating(true);setEditing(undefined)}}><Plus className="mr-1 h-4 w-4"/>New page</Button>{(creating||editing)?<PageBuilder key={editing?.id??'new'} initial={editing} readOnly={snapshot.readOnly} onSaved={()=>{setCreating(false);setEditing(undefined);void queryClient.invalidateQueries({queryKey:['portal','pages']});void queryClient.invalidateQueries({queryKey:['portal-page-stats']})}}/>:<div className="grid gap-3 md:grid-cols-2">{(snapshot.data as Page[]).map(page=>{const stats=pageStats?.find(x=>x.id===page.id);return <Card key={page.id} className="p-4"><h3 className="font-semibold">{page.name}</h3><p className="mb-2 text-xs text-muted-foreground">/{page.slug} · {page.status}</p><p className="mb-3 text-sm">{stats?.visits??0} visits · {stats?.leads??0} leads · {stats?.visits?((stats.leads/stats.visits)*100).toFixed(1):'0'}% conversion</p><div className="flex gap-2"><Button size="sm" variant="outline" onClick={()=>setEditing(page)}>{snapshot.readOnly?'View':'Edit'}</Button>{page.status==='published'&&<a aria-label={`Open ${page.name} published page`} href={`${BASE}/api/public/landing/${page.slug}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-white px-3 hover:bg-slate-50"><ExternalLink className="h-4 w-4"/></a>}</div></Card>})}</div>}</div>}
+        {tab==='pages'&&<div className="space-y-4"><Button disabled={snapshot.readOnly} onClick={()=>{setCreating(true);setEditing(undefined)}}><Plus className="mr-1 h-4 w-4"/>New page</Button>{(creating||editing)?<PageBuilder key={editing?.id??'new'} initial={editing} readOnly={snapshot.readOnly} onSaved={()=>{setCreating(false);setEditing(undefined);void queryClient.invalidateQueries({queryKey:['portal','pages']});void queryClient.invalidateQueries({queryKey:['portal-page-stats']})}}/>:<div className="grid gap-3 md:grid-cols-2">{(snapshot.data as Page[]).map(page=>{const stats=pageStats?.find(x=>x.id===page.id);return <Card key={page.id} className="p-4"><h3 className="font-semibold">{page.name}</h3><p className="mb-2 text-xs text-muted-foreground">/{page.slug} · {page.status}</p><p className="mb-3 text-sm">{stats?.visits??0} visits · {stats?.leads??0} leads · {stats?.visits?((stats.leads/stats.visits)*100).toFixed(1):'0'}% conversion</p><div className="flex gap-2"><Button size="sm" variant="outline" onClick={()=>setEditing(page)}>{snapshot.readOnly?'View':'Edit'}</Button>{page.status==='published'&&<a aria-label={`Open ${page.name} published page`} href={`${BASE}/p/${page.public_slug||page.slug}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-white px-3 hover:bg-slate-50"><ExternalLink className="h-4 w-4"/></a>}</div></Card>})}</div>}</div>}
         {tab==='billing'&&<BillingPanel rows={snapshot.data as Record<string,unknown>[]} readOnly={snapshot.readOnly}/>}
         {tab==='settings'&&<div className="space-y-4">{(admin||role==='client_owner')&&<ClientSettings readOnly={snapshot.readOnly}/>}{admin&&!snapshot.readOnly&&<AccountSettings value={snapshot.data as Record<string,unknown>} onSaved={()=>void queryClient.invalidateQueries({queryKey:['portal','settings']})}/>}{admin&&!snapshot.readOnly&&<ReviewDelaySettings/>}{admin&&<StaffAssignments/>}{(admin||role==='client_owner'||role==='client')&&<ClientStaffInvite/>}</div>}
         {tab==='calls'&&<CallLog canEdit={agency&&!snapshot.readOnly} admin={admin&&!snapshot.readOnly}/>}

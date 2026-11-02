@@ -93,6 +93,7 @@ const postSchema = z.discriminatedUnion('action', [
   z.object({action:z.literal('invite_staff'),name:z.string().trim().min(1).max(200),email:z.string().email().max(320)}).strict(),
   z.object({action:z.literal('set_ai_model'),model:z.string().regex(/^[a-zA-Z0-9._:-]+\/[a-zA-Z0-9._:-]+$/).max(150)}).strict(),
   z.object({action:z.literal('update_account'),settings:accountSettingsSchema}).strict(),
+  z.object({action:z.literal('publish_page'),pageId:uuid}).strict(),
   z.object({action:z.literal('apply_template'),accountId:uuid,template:z.enum(['starter','scale','domination','overflow','business_hours','coverage_247','appt_part_time','appt_full_time','revive','custom'])}).strict(),
   z.object({action:z.literal('retry_automation'),runId:uuid}).strict(),
   z.object({action:z.literal('set_account_mrr'),accountId:uuid,mrrCents:z.number().int().min(0).max(100_000_000)}).strict(),
@@ -309,7 +310,9 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
         {p_account:selected.id,p_start:parsed.from,p_end:parsed.to,p_outcome:parsed.outcome||null}));
       if (parsed.action === 'staff') return send(res,200,await rpc(user.token,'portal_staff',{p_account:selected.id}));
       if (parsed.action === 'export' && selected.viewAsClient) return send(res,403,{error:'Client view is read only'});
-      const data = await rpc<unknown>(user.token,'portal_snapshot',{p_account:selected.id,p_page:parsed.section});
+      const data = parsed.section==='pages'
+        ? await rpc<unknown>(user.token,'portal_pages',{p_account:selected.id})
+        : await rpc<unknown>(user.token,'portal_snapshot',{p_account:selected.id,p_page:parsed.section});
       if (parsed.action === 'export') {
         const rows = Array.isArray(data) ? data : (data && typeof data === 'object' ?
           Object.values(data).find(Array.isArray) as Array<Record<string,unknown>> || [] : []);
@@ -448,6 +451,10 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
       const data = await rpc(user.token,'portal_save_page',{p_account:selected.id,p_page:parsed.id,
         p_title:parsed.title,p_slug:parsed.slug,p_sections:parsed.sections,p_theme:parsed.theme,
         p_seo_description:parsed.seoDescription,p_status:parsed.status});
+      return send(res,200,data);
+    }
+    if (parsed.action === 'publish_page') {
+      const data=await rpc(user.token,'portal_publish_page',{p_account:selected.id,p_page:parsed.pageId});
       return send(res,200,data);
     }
     if (parsed.action === 'ai_page') {
