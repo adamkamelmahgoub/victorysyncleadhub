@@ -579,15 +579,15 @@ export default function CompanyWorkspace() {
                         className="max-w-56 px-3 py-4 text-slate-600"
                       >
                         {(socialColumns as readonly string[]).includes(column) ? (
-                          socialsById.get(company.id)?.[column] ? `@${socialsById.get(company.id)?.[column]}` : "—"
+                          socialsById.get(company.id)?.[column] ? `@${socialsById.get(company.id)?.[column]}` : "–"
                         ) : column === "industry" ? (
-                          company.industry || "—"
+                          company.industry || "–"
                         ) : column === "contact" ? (
                           <>
                             <p>
                               {company.contact_name ||
                                 company.contacts?.[0]?.name ||
-                                "—"}
+                                "–"}
                             </p>
                             <p className="mt-1 text-[11px] text-slate-400">
                               {company.email || company.phone}
@@ -596,7 +596,7 @@ export default function CompanyWorkspace() {
                         ) : column === "next_action" ? (
                           <>
                             <p className="line-clamp-2">
-                              {company.next_action || "—"}
+                              {company.next_action || "–"}
                             </p>
                             {company.next_follow_up_at && (
                               <p
@@ -617,12 +617,12 @@ export default function CompanyWorkspace() {
                               </p>
                             </>
                           ) : (
-                            "—"
+                            "–"
                           )
                         ) : company.proposed_monthly_price != null ? (
                           `${company.currency ?? "USD"} ${Number(company.proposed_monthly_price).toLocaleString()} / mo`
                         ) : (
-                          "—"
+                          "–"
                         )}
                       </td>
                     ))}

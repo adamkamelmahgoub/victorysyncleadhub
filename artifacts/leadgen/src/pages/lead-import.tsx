@@ -271,7 +271,7 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
                       onChange={(e) => setMapping((m) => ({ ...m, [f.key]: e.target.value }))}
                       className="workspace-control flex-1 px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 bg-background"
                     >
-                      <option value="">— Skip this field —</option>
+                      <option value="">– Skip this field –</option>
                       {parsed.headers.map((h) => <option key={h} value={h}>{h}</option>)}
                     </select>
                   </div>
@@ -361,12 +361,12 @@ export default function LeadImport({ companyMode = false }: { companyMode?: bool
                   {getPreviewLeads().map((lead, i) => (
                     <tr key={i} className="border-b border-border/50 hover:bg-muted/20">
                       {fields.filter((f) => mapping[f.key]).map((f) => (
-                        <td key={f.key} className="px-4 py-2 text-xs text-foreground">{String(lead[f.key] || "") || <span className="text-muted-foreground">—</span>}</td>
+                        <td key={f.key} className="px-4 py-2 text-xs text-foreground">{String(lead[f.key] || "") || <span className="text-muted-foreground">–</span>}</td>
                       ))}
                       {companyMode && <td className="px-4 py-2 text-xs min-w-52">{(lead.contacts as Array<{ name: string; role: string; email: string; phone: string }>).map((person, index) => <div key={index} className="mb-2"><span className="font-medium">{person.name || "Unnamed contact"}</span>{[person.role, person.email, person.phone].filter(Boolean).map((value, item) => <div key={item} className="text-muted-foreground">{value}</div>)}</div>)}</td>}
                       {customMappings.filter((field) => field.name.trim() && field.column).map((field) => (
                         <td key={field.id} className="px-4 py-2 text-xs text-foreground">
-                          {String(((companyMode ? lead.custom_fields : lead.customFields) as Record<string, string>)[field.name.trim()] || "") || <span className="text-muted-foreground">—</span>}
+                          {String(((companyMode ? lead.custom_fields : lead.customFields) as Record<string, string>)[field.name.trim()] || "") || <span className="text-muted-foreground">–</span>}
                         </td>
                       ))}
                     </tr>

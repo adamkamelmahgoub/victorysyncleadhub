@@ -106,7 +106,7 @@ export default function SubAccounts() {
       {atRisk.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-4 h-4 text-amber-600" /><span className="font-semibold text-amber-800 text-sm">{atRisk.length} account{atRisk.length > 1 ? "s" : ""} at risk</span></div>
-          <div className="flex flex-wrap gap-2">{atRisk.map(a => <span key={a.id} className="text-xs bg-amber-100 text-amber-700 rounded px-2 py-0.5">{a.name} — score {a.healthScore}</span>)}</div>
+          <div className="flex flex-wrap gap-2">{atRisk.map(a => <span key={a.id} className="text-xs bg-amber-100 text-amber-700 rounded px-2 py-0.5">{a.name}: score {a.healthScore}</span>)}</div>
         </div>
       )}
 

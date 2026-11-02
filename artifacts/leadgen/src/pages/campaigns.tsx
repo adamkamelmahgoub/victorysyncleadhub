@@ -282,7 +282,7 @@ export default function Campaigns() {
               <div className="space-y-4">
                 <div>
                   <Label className="text-xs font-medium text-muted-foreground">Campaign Name *</Label>
-                  <Input className="mt-1" placeholder="Q3 Outbound — SaaS Founders" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+                  <Input className="mt-1" placeholder="Q3 Outbound: SaaS Founders" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
                 </div>
                 <div>
                   <Label className="text-xs font-medium text-muted-foreground">Description</Label>
@@ -368,7 +368,7 @@ export default function Campaigns() {
                 <div className="border border-border rounded-lg overflow-hidden max-h-[320px] overflow-y-auto">
                   {filteredLeads.length === 0 ? (
                     <div className="py-10 text-center text-sm text-muted-foreground">
-                      {leadsData?.leads?.length === 0 ? "No leads yet — import or add leads first" : "No leads match your search"}
+                      {leadsData?.leads?.length === 0 ? "No leads yet: import or add leads first" : "No leads match your search"}
                     </div>
                   ) : (
                     filteredLeads.slice(0,visibleLeads).map((lead) => {
@@ -397,7 +397,7 @@ export default function Campaigns() {
                 {loadingLeads&&<p role="status">Loading all contacts...</p>}{leadsError&&<p role="alert">{leadsError.message}</p>}{filteredLeads.length>visibleLeads&&<Button variant="outline" onClick={()=>setVisibleLeads(n=>n+100)}>Show more contacts</Button>}{launching&&<p role="status">Added {assignedCount} of {selectedLeadIds.length} contacts...</p>}
                 {selectedLeadIds.length === 0 && (
                   <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                    No leads selected — you can still save as draft and add leads later
+                    No leads selected: you can still save as draft and add leads later
                   </p>
                 )}
               </div>
@@ -468,7 +468,7 @@ export default function Campaigns() {
                   <p className="font-medium text-foreground">Campaign Summary</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-xs">
                     <span className="text-muted-foreground">Campaign</span><span className="font-medium truncate">{form.name}</span>
-                    <span className="text-muted-foreground">Subject</span><span className="font-medium truncate">{form.subject || "—"}</span>
+                    <span className="text-muted-foreground">Subject</span><span className="font-medium truncate">{form.subject || "–"}</span>
                     <span className="text-muted-foreground">Recipients</span><span className="font-medium">{selectedLeadIds.length} leads</span>
                     <span className="text-muted-foreground">Send rate</span><span className="font-medium">{form.sendRatePerHour}/hr · max {form.dailyLimit}/day</span>
                     <span className="text-muted-foreground">Window</span><span className="font-medium">{form.sendWindowStart} – {form.sendWindowEnd}</span>
