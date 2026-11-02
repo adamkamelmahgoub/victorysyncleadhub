@@ -1,5 +1,5 @@
 import type {IncomingMessage,ServerResponse} from 'node:http';
-import {createHmac,randomUUID} from 'node:crypto';
+import {createHmac,randomUUID,timingSafeEqual} from 'node:crypto';
 import {mcpPool} from '../mcp-auth.js';
 import {SOCIAL_WORKSPACE_ORG_ID} from '../social-workspace-auth.js';
 import {sectionTypes as registeredSectionTypes,sectionsSchema,themeSchema} from '../landing-section-registry.js';
@@ -98,19 +98,31 @@ function formShape(row:FormRow,req:IncomingMessage){const base=origin(req),url=`
   submissionCount:Number(row.submission_count||0),publicUrl:url,embedCode:`<iframe src="${url}" title="${html(row.name)}" loading="lazy" style="width:100%;min-height:560px;border:0" referrerpolicy="strict-origin-when-cross-origin"></iframe>`,
   createdAt:row.created_at,updatedAt:row.updated_at};}
 function pageShape(row:PageRow,req:IncomingMessage,stats?:Record<string,unknown>){return {...row,sections:row.draft_sections||row.sections,theme:row.draft_theme||row.theme,publicUrl:`${origin(req)}/p/${row.slug}`,stats:stats||null};}
-function securityHeaders(res:ServerResponse,embed=false){res.setHeader('content-type','text/html; charset=utf-8');res.setHeader('x-content-type-options','nosniff');
-  res.setHeader('referrer-policy','strict-origin-when-cross-origin');res.setHeader('content-security-policy',`default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; frame-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors ${embed?'*':"'self'"}`);}
+function securityHeaders(res:ServerResponse,embed=false,successScript=false){res.setHeader('content-type','text/html; charset=utf-8');res.setHeader('x-content-type-options','nosniff');
+  res.setHeader('referrer-policy','strict-origin-when-cross-origin');res.setHeader('content-security-policy',`default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; frame-src 'self'; form-action 'self'; ${successScript?"script-src 'unsafe-inline'; ":''}base-uri 'none'; frame-ancestors ${embed?'*':"'self'"}`);}
+function formSuccessSignature(formId:string,submissionId:string,pageId:string|null){
+  const salt=process.env.TOKEN_ENCRYPTION_KEY||process.env.SUPABASE_SERVICE_ROLE_KEY||process.env.DATABASE_URL;
+  return salt?createHmac('sha256',salt).update(`${formId}:${submissionId}:${pageId||''}`).digest('base64url'):null;
+}
+function validFormSuccess(formId:string,submissionId:string,pageId:string|null,signature:string){
+  if(!uuid.test(submissionId))return false;
+  const expected=formSuccessSignature(formId,submissionId,pageId);
+  return Boolean(expected&&signature.length===expected.length&&timingSafeEqual(Buffer.from(signature),Buffer.from(expected)));
+}
 function fieldHtml(field:Field){const id=`field-${field.id}`,name=`field_${field.id}`,required=field.required?' required':'',placeholder=field.placeholder?` placeholder="${html(field.placeholder)}"`:'';
   const label=`<label for="${id}">${html(field.label)}${field.required?' <span aria-hidden="true">*</span>':''}</label>`;
   if(field.fieldType==='checkbox')return `<div class="field check"><input id="${id}" name="${name}" type="checkbox" value="yes"${required}>${label}</div>`;
   if(field.fieldType==='textarea')return `<div class="field">${label}<textarea id="${id}" name="${name}" rows="4"${required}${placeholder}></textarea></div>`;
   if(field.fieldType==='select')return `<div class="field">${label}<select id="${id}" name="${name}"${required}><option value="">Choose an option</option>${field.options.map(option=>`<option value="${html(option)}">${html(option)}</option>`).join('')}</select></div>`;
   return `<div class="field">${label}<input id="${id}" name="${name}" type="${field.fieldType}"${required}${placeholder}></div>`;}
-function formHtml(row:FormRow,req:IncomingMessage,submitted:boolean,pageId:string|null,utm:Record<string,string>){
+function formHtml(row:FormRow,req:IncomingMessage,submitted:boolean,pageId:string|null,utm:Record<string,string>,verifiedSuccess=false,submissionId:string|null=null){
   const hidden=Object.entries(utm).map(([key,value])=>`<input type="hidden" name="${html(key)}" value="${html(value)}">`).join('');
+  const redirect=row.redirect_url&&/^https:\/\//.test(row.redirect_url)?row.redirect_url:null;
+  const startScript=!submitted&&pageId?`<script>let formStarted=false;document.addEventListener('focusin',event=>{if(formStarted||!event.target.closest('input,textarea,select'))return;formStarted=true;if(parent!==window)parent.postMessage({type:'landing-form-start',pageId:${JSON.stringify(pageId)}},location.origin)});</script>`:'';
+  const successScript=submitted&&verifiedSuccess?`<script>${pageId&&submissionId?`if(parent!==window){let emit=true;try{const key=${JSON.stringify(`landing-form-submit:${submissionId}`)};emit=!sessionStorage.getItem(key);sessionStorage.setItem(key,'1')}catch{}if(emit)parent.postMessage({type:'landing-form-submit',pageId:${JSON.stringify(pageId)}},location.origin)}`:''}${redirect?`setTimeout(()=>location.replace(${JSON.stringify(redirect).replace(/</g,'\\u003c')}),100);`:''}</script>`:'';
   const content=submitted?`<div class="success" role="status">${html(row.success_message||'Thank you! We will be in touch.')}</div>`:
     `<form method="post" action="/f/${encodeURIComponent(row.slug)}"><input class="trap" type="text" name="website_confirm" tabindex="-1" autocomplete="off" aria-hidden="true"><input type="hidden" name="submission_key" value="${randomUUID()}">${pageId?`<input type="hidden" name="landing_page_id" value="${html(pageId)}">`:''}${hidden}${(row.fields||[]).map(fieldHtml).join('')}<button type="submit">${html(row.submit_button_text||'Submit')}</button></form>`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${html(row.name)}</title><style>:root{font:16px system-ui;color:#17243d}*{box-sizing:border-box}body{margin:0;padding:24px;background:#fff}.wrap{max-width:600px;margin:0 auto}h1{font-size:1.6rem;margin:0 0 8px}p{color:#5f6c80}.field{display:grid;gap:7px;margin:17px 0}label{font-weight:600;font-size:14px}input,textarea,select{width:100%;padding:11px 13px;border:1px solid #cfd8e5;border-radius:10px;font:inherit;background:#fff}.check{display:flex;align-items:center}.check input{width:auto}button{background:#245eea;color:#fff;border:0;border-radius:10px;padding:12px 20px;font:600 15px system-ui;cursor:pointer}.trap{position:absolute;left:-9999px}.success{padding:20px;background:#eef9f1;border-radius:12px;color:#17643c}</style></head><body><main class="wrap"><h1>${html(row.name)}</h1>${row.description?`<p>${html(row.description)}</p>`:''}${content}</main></body></html>`;}
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${html(row.name)}</title><style>:root{font:16px system-ui;color:#17243d}*{box-sizing:border-box}body{margin:0;padding:24px;background:#fff}.wrap{max-width:600px;margin:0 auto}h1{font-size:1.6rem;margin:0 0 8px}p{color:#5f6c80}.field{display:grid;gap:7px;margin:17px 0}label{font-weight:600;font-size:14px}input,textarea,select{width:100%;padding:11px 13px;border:1px solid #cfd8e5;border-radius:10px;font:inherit;background:#fff}.check{display:flex;align-items:center}.check input{width:auto}button{background:#245eea;color:#fff;border:0;border-radius:10px;padding:12px 20px;font:600 15px system-ui;cursor:pointer}.trap{position:absolute;left:-9999px}.success{padding:20px;background:#eef9f1;border-radius:12px;color:#17643c}</style></head><body><main class="wrap"><h1>${html(row.name)}</h1>${row.description?`<p>${html(row.description)}</p>`:''}${content}${submitted&&verifiedSuccess&&redirect?`<p><a href="${html(redirect)}">Continue</a></p>`:''}</main>${startScript}${successScript}</body></html>`;}
 export function validateSubmission(fields:Field[],input:Record<string,unknown>){const data:Record<string,string|boolean>={},mapped:Record<string,string>={};
   for(const field of fields){const raw=input[`field_${field.id}`],value=field.fieldType==='checkbox'?raw==='yes':plain(raw,2000);
     if(field.required&&(value===false||!value))throw new Error(`“${field.label}” is required`);
@@ -159,7 +171,14 @@ async function publicForm(req:IncomingMessage,res:ServerResponse,slug:string,sub
   form.fields=validatedFields(form.fields||[]);
   if(!Array.isArray(form.fields)||!form.fields.length)return json(res,404,{error:'Form is not ready'});
   const url=new URL(req.url||'/','https://local.invalid'),utm=Object.fromEntries(['utm_source','utm_medium','utm_campaign','utm_term','utm_content'].map(key=>[key,plain(url.searchParams.get(key),120)]).filter(([,value])=>value));
-  if(!submit){securityHeaders(res,true);res.setHeader('cache-control','no-store');res.end(formHtml(form,req,url.searchParams.get('submitted')==='1',url.searchParams.get('lp'),utm));return;}
+  if(!submit){
+    const submitted=url.searchParams.get('submitted')==='1',pageId=url.searchParams.get('lp');
+    const attributedPage=pageId&&uuid.test(pageId)?pageId:null;
+    const verified=submitted&&validFormSuccess(form.id,url.searchParams.get('sid')||'',
+      attributedPage,url.searchParams.get('sig')||'');
+    securityHeaders(res,true,verified||Boolean(attributedPage&&!submitted));res.setHeader('cache-control','no-store');
+    res.end(formHtml(form,req,submitted,attributedPage,utm,verified,url.searchParams.get('sid')));return;
+  }
   const input=await body(req),isHtml=String(req.headers['content-type']||'').includes('application/x-www-form-urlencoded');
   for(const key of ['utm_source','utm_medium','utm_campaign','utm_term','utm_content'])if(input[key])utm[key]=plain(input[key],120);
   if(input.website_confirm){if(isHtml){res.statusCode=303;res.setHeader('location',`/f/${slug}?submitted=1`);res.end();}else json(res,201,{accepted:true});return;}
@@ -169,7 +188,7 @@ async function publicForm(req:IncomingMessage,res:ServerResponse,slug:string,sub
   const ip=String(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').split(',')[0].trim();
   const hash=createHmac('sha256',salt).update(ip).digest('hex'),bucket=new Date(Math.floor(Date.now()/600000)*600000);
   const pageId=uuid.test(String(input.landing_page_id||''))?String(input.landing_page_id):null;
-  const db=await mcpPool.connect();let submissionId:string|undefined;
+  const db=await mcpPool.connect();let submissionId:string|undefined,attributedPageId:string|null=null;
   try{await db.query('begin');
     const attempts=await db.query<{attempts:number}>(`insert into public.form_rate_limits(form_id,ip_hash,window_started_at,attempts)
       values($1,$2,$3,1) on conflict(form_id,ip_hash,window_started_at) do update set attempts=public.form_rate_limits.attempts+1
@@ -199,7 +218,7 @@ async function publicForm(req:IncomingMessage,res:ServerResponse,slug:string,sub
         where id=$1`,[leadId,phone,email,JSON.stringify({utm})]);
       const landing=pageId?await db.query<{variant_of:string|null}>(formLandingLookupSql,
         [pageId,org,form.id,form.client_account_id]):null;
-      const resolvedPage=landing?.rowCount?pageId:null;
+      const resolvedPage=landing?.rowCount?pageId:null;attributedPageId=resolvedPage;
       const marketingPage=pageId&&!resolvedPage?await db.query(`select 1 from public.marketing_landing_pages p where p.id=$1 and p.organization_id=$2
         and p.status='published' and p.client_account_id is not distinct from $4::uuid
         and exists(select 1 from jsonb_array_elements(p.sections) section where section->>'type'='form' and section->>'formId'=$3)`,
@@ -216,8 +235,10 @@ async function publicForm(req:IncomingMessage,res:ServerResponse,slug:string,sub
       await db.query('commit');
     }
   }catch(error){await db.query('rollback').catch(()=>{});throw error;}finally{db.release();}
-  if(isHtml){if(form.redirect_url){res.statusCode=303;res.setHeader('location',form.redirect_url);res.end();return;}
-    res.statusCode=303;res.setHeader('location',`/f/${slug}?submitted=1`);res.end();return;}
+  if(isHtml){const signature=submissionId?formSuccessSignature(form.id,submissionId,attributedPageId):null;
+    const success=new URLSearchParams({submitted:'1',...(submissionId&&signature?{sid:submissionId,sig:signature}:{}),
+      ...(attributedPageId?{lp:attributedPageId}:{}),...utm});
+    res.statusCode=303;res.setHeader('location',`/f/${slug}?${success}`);res.end();return;}
   json(res,201,{accepted:true,submissionId,message:form.success_message,redirectUrl:form.redirect_url});
 }
 async function publicPage(req:IncomingMessage,res:ServerResponse,slug:string|null){
