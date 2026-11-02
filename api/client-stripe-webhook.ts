@@ -9,7 +9,8 @@ const checkout=z.object({id:z.string(),object:z.literal('checkout.session'),paym
   customer_details:z.object({email:z.string().email().nullable().optional(),name:z.string().nullable().optional()}).nullable().optional(),
   metadata:z.object({company_id:z.string().uuid(),package:z.enum(['starter','scale','domination','overflow','business_hours','coverage_247','appt_part_time','appt_full_time','revive','custom']),owner_email:z.string().email().optional(),owner_name:z.string().optional()}).passthrough(),
 }).passthrough();
-const eventSchema=z.object({id:z.string(),type:z.literal('checkout.session.completed'),data:z.object({object:checkout})}).passthrough();
+const checkoutEventTypes=['checkout.session.completed','checkout.session.async_payment_succeeded'] as const;
+const eventSchema=z.object({id:z.string(),type:z.enum(checkoutEventTypes),data:z.object({object:checkout})}).passthrough();
 const envelopeSchema=z.object({id:z.string(),type:z.string()}).passthrough();
 function reply(res:ServerResponse,status:number,value:unknown){res.statusCode=status;res.setHeader('content-type','application/json');res.end(JSON.stringify(value))}
 async function raw(req:IncomingMessage){
@@ -54,7 +55,8 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
     const signature=String(req.headers['stripe-signature']||'');
     if(!verifyStripeSignature(payload,signature,secret))return reply(res,400,{error:'Invalid signature'});
     const event=envelopeSchema.parse(JSON.parse(payload.toString('utf8')));
-    if(event.type!=='checkout.session.completed')return reply(res,200,{received:true});
+    if(event.type!=='checkout.session.completed'&&event.type!=='checkout.session.async_payment_succeeded')
+      return reply(res,200,{received:true});
     const parsed=eventSchema.parse(event);
     const session=parsed.data.object;
     if(session.payment_status!=='paid')return reply(res,200,{received:true,pendingPayment:true});
