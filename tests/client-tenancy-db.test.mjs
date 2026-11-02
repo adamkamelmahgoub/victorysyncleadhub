@@ -49,6 +49,13 @@ test('client tenancy is enforced in the database', { skip: !process.env.DATABASE
     assert.equal(team.has_team_guard, true);
     assert.equal(invites.rls_enabled, true);
     assert.equal(invites.authenticated_can_select, false);
+    const accountRoot = await db.query(`select c.relrowsecurity as rls_enabled,
+      exists (select 1 from pg_policies p where p.schemaname='public'
+        and p.tablename='sub_accounts' and p.policyname='sub_account_tenancy_guard'
+        and p.permissive='RESTRICTIVE') as has_guard
+      from pg_class c where c.oid='public.sub_accounts'::regclass`);
+    assert.equal(accountRoot.rows[0].rls_enabled, true);
+    assert.equal(accountRoot.rows[0].has_guard, true);
     await db.query('begin');
     await db.query('set local role authenticated');
     await db.query("select set_config('request.jwt.claim.sub', $1, true)", ['00000000-0000-4000-8000-000000000000']);

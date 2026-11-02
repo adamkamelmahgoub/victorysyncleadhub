@@ -854,7 +854,7 @@ async function supabaseRest(path: string, init: FetchInit, req?: VercelRequest) 
   }
 
   const inboundAuth = req ? getHeader(req, "authorization") : undefined;
-  const authorization = /^(?:leads|forms|sequences|sequence_steps|automation_workflows|pipelines|pipeline_stages|reviews|review_sources|review_requests|contact_tasks|company_tasks|unified_tasks)(?:\?|$)/.test(path) && inboundAuth
+  const authorization = /^(?:leads|sub_accounts|forms|sequences|sequence_steps|automation_workflows|pipelines|pipeline_stages|reviews|review_sources|review_requests|contact_tasks|company_tasks|unified_tasks)(?:\?|$)/.test(path) && inboundAuth
     ? inboundAuth
     : hasServiceRole ? `Bearer ${supabaseKey}` : inboundAuth;
 
@@ -3549,6 +3549,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (/^\/api\/team(?:\/|$)/.test(path) && !canManageClientAccounts(currentUser)) {
       sendJson(res, 403, { message: "Only agency administrators can manage the team directory" });
+      return;
+    }
+    if (/^\/api\/sub-accounts(?:\/|$)/.test(path) && method !== "GET" && !canManageClientAccounts(currentUser)) {
+      sendJson(res, 403, { message: "Only agency administrators can change client accounts" });
       return;
     }
     const pagePermissions = currentUser.user_metadata?.page_permissions;
