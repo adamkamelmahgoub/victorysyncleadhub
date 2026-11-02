@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'wouter';
-import { ArrowDown, ArrowUp, Plus, Save, Sparkles, Download, ExternalLink, CheckCircle2, Circle } from 'lucide-react';
+import { ArrowDown, ArrowUp, Plus, Save, Sparkles, Download, ExternalLink, CheckCircle2, Circle, Undo2, Redo2, Eye, EyeOff, Copy, Trash2 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
@@ -14,7 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 type Page = {id:string;name:string;slug:string;public_slug?:string|null;status:'draft'|'published';seo_description:string;
   sections:Section[];theme:Theme;created_at:string};
 type Section = {id:string;type:'hero'|'text'|'features'|'image'|'cta'|'form';heading?:string;body?:string;
-  buttonText?:string;buttonUrl?:string;imageUrl?:string;formId?:string;items?:string[]};
+  buttonText?:string;buttonUrl?:string;imageUrl?:string;formId?:string;items?:string[];hidden?:boolean};
 type Theme = {background:string;foreground:string;accent:string;font:'sans'|'serif'};
 type Account = {id:string;name:string;health_score:number;leads_this_week:number;overdue_tasks:number;failed_payments:number;last_active_at:string|null};
 type ClosedCompany = {id:string;name:string;email:string|null;contact_name:string|null};
@@ -240,27 +240,85 @@ function PageBuilder({initial,readOnly,onSaved}:{initial?:Page;readOnly:boolean;
   const [draft,setDraft] = useState({id:initial?.id ?? null,title:initial?.name ?? 'New landing page',
     slug:initial?.slug ?? `new-page-${Math.random().toString(36).slice(2,7)}`,
     seoDescription:initial?.seo_description ?? '',sections:initial?.sections ?? [] as Section[],theme:{...themeDefault,...initial?.theme}});
+  const latest=useRef(draft),undo=useRef<typeof draft[]>([]),redo=useRef<typeof draft[]>([]);
+  const pageId=useRef(initial?.id??null),writeQueue=useRef<Promise<void>>(Promise.resolve());
+  const revision=useRef(0),[changeNumber,setChangeNumber]=useState(0);
+  const [saveState,setSaveState]=useState<'saved'|'unsaved'|'saving'>('saved');
+  const [historyCount,setHistoryCount]=useState({undo:0,redo:0});
+  function edit(change:(current:typeof draft)=>typeof draft){
+    const next=change(latest.current);
+    if(next===latest.current)return;
+    undo.current.push(structuredClone(latest.current));
+    if(undo.current.length>60)undo.current.shift();
+    redo.current=[];latest.current=next;setDraft(next);
+    revision.current++;setChangeNumber(revision.current);setSaveState('unsaved');
+    setHistoryCount({undo:undo.current.length,redo:0});
+  }
+  function step(direction:'undo'|'redo'){
+    const from=direction==='undo'?undo.current:redo.current;
+    const to=direction==='undo'?redo.current:undo.current;
+    const previous=from.pop();if(!previous)return;
+    to.push(structuredClone(latest.current));latest.current=previous;setDraft(previous);
+    revision.current++;setChangeNumber(revision.current);setSaveState('unsaved');
+    setSelected(previous.sections.some(item=>item.id===selected)?selected:previous.sections[0]?.id??null);
+    setHistoryCount({undo:undo.current.length,redo:redo.current.length});
+  }
   const [selected,setSelected] = useState<string|null>(draft.sections[0]?.id ?? null);
   const [prompt,setPrompt] = useState('');
+  const [suggestion,setSuggestion]=useState<{sections:Section[];theme:Theme;title:string;seoDescription:string}|null>(null);
   const [error,setError] = useState('');
+  function saveDraft(snapshot:typeof draft){
+    const write=writeQueue.current.then(async()=>{
+      const saved=await apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'save_page',
+        ...snapshot,id:pageId.current,status:'draft'})}) as {id:string};
+      if(!pageId.current){pageId.current=saved.id;void queryClient.invalidateQueries({queryKey:['portal','pages']});}
+      return saved;
+    });
+    writeQueue.current=write.then(()=>undefined,()=>undefined);
+    return write;
+  }
+  useEffect(()=>{
+    if(readOnly||!changeNumber)return;
+    const timer=setTimeout(()=>{
+      const snapshot=latest.current,atRevision=revision.current;
+      setSaveState('saving');
+      void saveDraft(snapshot).then(()=>{if(revision.current===atRevision)setSaveState('saved');setError('')})
+        .catch(e=>{setSaveState('unsaved');setError(String(e))});
+    },2000);
+    return()=>clearTimeout(timer);
+  },[changeNumber,readOnly]);
   const save = useMutation({mutationFn:async (publish:boolean) => {
-    const saved=await apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'save_page',...draft,status:'draft'})}) as {id:string};
+    const saved=await saveDraft(latest.current);
     if(publish)await apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'publish_page',pageId:saved.id})});
   },
-    onSuccess:()=>{setError('');void queryClient.invalidateQueries({queryKey:['portal-page-versions',initial?.id]});onSaved()},
+    onSuccess:()=>{setError('');setSaveState('saved');void queryClient.invalidateQueries({queryKey:['portal-page-versions',pageId.current]});onSaved()},
     onError:e=>setError(String(e))});
   const restore=useMutation({mutationFn:(version:number)=>apiFetch('/api/portal',{method:'POST',
     body:JSON.stringify({action:'restore_page',pageId:initial?.id,version})}) as Promise<{sections:Section[];theme:Theme}>,
-    onSuccess:value=>{setDraft(old=>({...old,sections:value.sections,theme:{...themeDefault,...value.theme}}));
+    onSuccess:value=>{edit(old=>({...old,sections:value.sections,theme:{...themeDefault,...value.theme}}));
       setSelected(value.sections[0]?.id??null);setError('');
       void queryClient.invalidateQueries({queryKey:['portal','pages']});},
     onError:e=>setError(String(e))});
   const generate = useMutation({mutationFn:() => apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'ai_page',prompt,currentSections:draft.sections})}) as Promise<{sections:Section[];theme:Theme;title:string;seoDescription:string}>,
-    onSuccess:value=>{setDraft(current=>({...current,...value}));setSelected(value.sections[0]?.id ?? null);setError('')},onError:e=>setError(String(e))});
+    onSuccess:value=>{setSuggestion(value);setError('')},onError:e=>setError(String(e))});
   const current = draft.sections.find(item=>item.id===selected);
-  const patchSection = (patch:Partial<Section>) => setDraft(old=>({...old,sections:old.sections.map(item=>item.id===selected?{...item,...patch}:item)}));
-  const move = (index:number,shift:number) => setDraft(old=>{const next=[...old.sections];const [item]=next.splice(index,1);next.splice(index+shift,0,item);return {...old,sections:next}});
-  return <div className="space-y-4"><div className="flex items-center gap-2"><Input aria-label="Page title" value={draft.title} disabled={readOnly} onChange={event=>setDraft(old=>({...old,title:event.target.value}))}/>
+  const patchSection = (patch:Partial<Section>) => edit(old=>({...old,sections:old.sections.map(item=>item.id===selected?{...item,...patch}:item)}));
+  const move = (index:number,shift:number) => edit(old=>{const next=[...old.sections];const [item]=next.splice(index,1);next.splice(index+shift,0,item);return {...old,sections:next}});
+  useEffect(()=>{if(readOnly)return;function key(event:KeyboardEvent){
+    if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'){
+      event.preventDefault();step(event.shiftKey?'redo':'undo');
+    }else if(event.key==='Escape')setSelected(null);
+    else if(event.key==='Delete'&&selected&&
+      !(event.target instanceof HTMLInputElement)&&!(event.target instanceof HTMLTextAreaElement)&&
+      !(event.target instanceof HTMLSelectElement)){
+      edit(old=>({...old,sections:old.sections.filter(item=>item.id!==selected)}));
+      setSelected(null);
+    }
+  }window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)});
+  return <div className="space-y-4"><div className="flex flex-wrap items-center gap-2"><Input aria-label="Page title" className="min-w-48 flex-1" value={draft.title} disabled={readOnly} onChange={event=>edit(old=>({...old,title:event.target.value}))}/>
+    <span role="status" className="text-xs text-muted-foreground">{saveState==='saved'?'Saved':saveState==='saving'?'Saving...':'Unsaved changes'}</span>
+    <Button size="icon" variant="outline" aria-label="Undo" disabled={readOnly||!historyCount.undo} onClick={()=>step('undo')}><Undo2 className="h-4 w-4"/></Button>
+    <Button size="icon" variant="outline" aria-label="Redo" disabled={readOnly||!historyCount.redo} onClick={()=>step('redo')}><Redo2 className="h-4 w-4"/></Button>
     <Button disabled={readOnly||save.isPending} onClick={()=>save.mutate(false)}><Save className="mr-1 h-4 w-4"/>Save draft</Button>
     <Button variant="outline" disabled={readOnly||save.isPending||!draft.sections.length} onClick={()=>save.mutate(true)}>Publish</Button></div>
     {error&&<p role="alert" className="text-sm text-red-600">{error}</p>}
@@ -273,12 +331,15 @@ function PageBuilder({initial,readOnly,onSaved}:{initial?:Page;readOnly:boolean;
       <Card className="space-y-3 p-4"><h3 className="font-semibold">Sections</h3>{draft.sections.map((item,index)=><div key={item.id} className={`flex items-center gap-1 rounded border p-1 ${selected===item.id?'border-blue-500':''}`}>
         <button className="flex-1 text-left px-2 text-sm" onClick={()=>setSelected(item.id)}>{nice(item.type)}</button>
         <button aria-label="Move up" disabled={readOnly||index===0} onClick={()=>move(index,-1)}><ArrowUp className="h-3 w-3"/></button>
-        <button aria-label="Move down" disabled={readOnly||index===draft.sections.length-1} onClick={()=>move(index,1)}><ArrowDown className="h-3 w-3"/></button></div>)}
-        <div className="grid grid-cols-2 gap-1">{sections.map(type=><Button key={type} size="sm" variant="outline" disabled={readOnly} onClick={()=>{const item:Section={id:crypto.randomUUID(),type,heading:`New ${type} section`,body:''};setDraft(old=>({...old,sections:[...old.sections,item]}));setSelected(item.id)}}><Plus className="mr-1 h-3 w-3"/>{nice(type)}</Button>)}</div>
+        <button aria-label="Move down" disabled={readOnly||index===draft.sections.length-1} onClick={()=>move(index,1)}><ArrowDown className="h-3 w-3"/></button>
+        <button aria-label={item.hidden?'Show section':'Hide section'} disabled={readOnly} onClick={()=>{setSelected(item.id);edit(old=>({...old,sections:old.sections.map(section=>section.id===item.id?{...section,hidden:!section.hidden}:section)}))}}>{item.hidden?<EyeOff className="h-3 w-3"/>:<Eye className="h-3 w-3"/>}</button>
+        <button aria-label="Duplicate section" disabled={readOnly||draft.sections.length>=40} onClick={()=>{const duplicate={...structuredClone(item),id:crypto.randomUUID()};edit(old=>({...old,sections:[...old.sections.slice(0,index+1),duplicate,...old.sections.slice(index+1)]}));setSelected(duplicate.id)}}><Copy className="h-3 w-3"/></button>
+        <button aria-label="Delete section" disabled={readOnly} onClick={()=>{edit(old=>({...old,sections:old.sections.filter(section=>section.id!==item.id)}));if(selected===item.id)setSelected(null)}}><Trash2 className="h-3 w-3"/></button></div>)}
+        <div className="grid grid-cols-2 gap-1">{sections.map(type=><Button key={type} size="sm" variant="outline" disabled={readOnly||draft.sections.length>=40} onClick={()=>{const item:Section={id:crypto.randomUUID(),type,heading:`New ${type} section`,body:''};edit(old=>({...old,sections:[...old.sections,item]}));setSelected(item.id)}}><Plus className="mr-1 h-3 w-3"/>{nice(type)}</Button>)}</div>
       </Card>
       <div className="overflow-hidden rounded-xl border bg-white"><div className="border-b bg-slate-50 px-4 py-2 text-xs">Live preview</div>
         <div style={{background:draft.theme.background,color:draft.theme.foreground,fontFamily:draft.theme.font==='serif'?'Georgia,serif':'Arial,sans-serif'}}>
-          {draft.sections.map(item=><section key={item.id} onClick={()=>setSelected(item.id)} className={`cursor-pointer border-2 p-10 ${selected===item.id?'border-blue-500':'border-transparent'}`}>
+          {draft.sections.filter(item=>!item.hidden).map(item=><section key={item.id} onClick={()=>setSelected(item.id)} className={`cursor-pointer border-2 p-10 ${selected===item.id?'border-blue-500':'border-transparent'}`}>
             <h2 className="mb-3 text-3xl font-bold">{item.heading}</h2><p>{item.body}</p>
             {item.type==='features'&&<div className="mt-3 grid gap-2 sm:grid-cols-3">{item.items?.map((text,index)=><div key={index} className="rounded border p-3">{text}</div>)}</div>}
             {item.type==='image'&&item.imageUrl&&<img alt={item.heading||''} src={item.imageUrl} className="mt-3 max-h-80 rounded object-cover"/>}
@@ -293,16 +354,21 @@ function PageBuilder({initial,readOnly,onSaved}:{initial?:Page;readOnly:boolean;
           {current.type==='form'&&<label className="text-xs">Form<select className="mt-1 w-full rounded border p-2" value={current.formId??''}
             disabled={readOnly} onChange={event=>patchSection({formId:event.target.value})}><option value="">Select a form</option>
             {(Array.isArray(availableForms?.data)?availableForms.data as Array<{id:string;name:string}>:[]).map(form=><option key={form.id} value={form.id}>{form.name}</option>)}</select></label>}
-          <Button variant="outline" disabled={readOnly} onClick={()=>{setDraft(old=>({...old,sections:old.sections.filter(item=>item.id!==selected)}));setSelected(null)}}>Remove section</Button></>}
-        <label className="text-xs">Page slug<Input value={draft.slug} disabled={readOnly} onChange={event=>setDraft(old=>({...old,slug:event.target.value}))}/></label>
-        <label className="text-xs">SEO description<Textarea value={draft.seoDescription} disabled={readOnly} onChange={event=>setDraft(old=>({...old,seoDescription:event.target.value}))}/></label>
-        <div className="grid grid-cols-3 gap-1">{(['background','foreground','accent'] as const).map(key=><label key={key} className="text-xs">{nice(key)}<input type="color" className="block h-9 w-full" value={draft.theme[key]} disabled={readOnly} onChange={event=>setDraft(old=>({...old,theme:{...old.theme,[key]:event.target.value}}))}/></label>)}</div>
+          <Button variant="outline" disabled={readOnly} onClick={()=>{edit(old=>({...old,sections:old.sections.filter(item=>item.id!==selected)}));setSelected(null)}}>Remove section</Button></>}
+        <label className="text-xs">Page slug<Input value={draft.slug} disabled={readOnly} onChange={event=>edit(old=>({...old,slug:event.target.value}))}/></label>
+        <label className="text-xs">SEO description<Textarea value={draft.seoDescription} disabled={readOnly} onChange={event=>edit(old=>({...old,seoDescription:event.target.value}))}/></label>
+        <div className="grid grid-cols-3 gap-1">{(['background','foreground','accent'] as const).map(key=><label key={key} className="text-xs">{nice(key)}<input type="color" className="block h-9 w-full" value={draft.theme[key]} disabled={readOnly} onChange={event=>edit(old=>({...old,theme:{...old.theme,[key]:event.target.value}}))}/></label>)}</div>
         <label className="text-xs">Font<select className="mt-1 w-full rounded border p-2" value={draft.theme.font} disabled={readOnly}
-          onChange={event=>setDraft(old=>({...old,theme:{...old.theme,font:event.target.value as Theme['font']}}))}>
+          onChange={event=>edit(old=>({...old,theme:{...old.theme,font:event.target.value as Theme['font']}}))}>
           <option value="sans">Sans serif</option><option value="serif">Serif</option></select></label>
         <div className="border-t pt-3"><h3 className="mb-2 flex items-center gap-1 font-semibold"><Sparkles className="h-4 w-4"/>AI page assistant</h3>
           <Textarea aria-label="Page request" placeholder="Describe the page or change you want" value={prompt} disabled={readOnly} onChange={event=>setPrompt(event.target.value)}/>
-          <Button className="mt-2" disabled={readOnly||generate.isPending||prompt.trim().length<5} onClick={()=>generate.mutate()}>{generate.isPending?'Creating…':'Create or edit'}</Button></div>
+          <Button className="mt-2" disabled={readOnly||generate.isPending||prompt.trim().length<5} onClick={()=>generate.mutate()}>{generate.isPending?'Creating...':'Suggest edits'}</Button></div>
+        {suggestion&&<div className="space-y-2 rounded border border-blue-200 bg-blue-50 p-3 text-sm"><p className="font-medium">Review AI suggestion</p>
+          <p>{suggestion.sections.length} sections · {suggestion.title}</p>
+          <p className="text-xs">Check every claim before applying. The change can be undone in one step.</p>
+          <div className="flex gap-2"><Button size="sm" disabled={readOnly} onClick={()=>{edit(old=>({...old,title:suggestion.title,seoDescription:suggestion.seoDescription,sections:suggestion.sections,theme:suggestion.theme}));setSelected(suggestion.sections[0]?.id??null);setSuggestion(null)}}>Apply to draft</Button>
+            <Button size="sm" variant="outline" onClick={()=>setSuggestion(null)}>Discard</Button></div></div>}
       </Card></div></div>;
 }
 
