@@ -31,3 +31,34 @@ test('agency admin sees delivery setup without clipping or secret values',async(
   expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);
   await page.screenshot({path:testInfo.outputPath('agency-delivery-setup.png'),fullPage:true});
 });
+
+test('agency admin can enable the portal from its disabled screen',async({page})=>{
+  await page.addInitScript(({jwt,userId})=>{
+    localStorage.setItem('sb-supabase-auth-token',JSON.stringify({access_token:jwt,
+      refresh_token:'fake-refresh',token_type:'bearer',expires_in:3600,expires_at:4102444800,
+      user:{id:userId,aud:'authenticated',role:'authenticated',email:'agency@example.test',
+        app_metadata:{},user_metadata:{},created_at:'2026-01-01T00:00:00Z'}}));
+  },{jwt,userId});
+  await page.route('https://supabase.test/**',route=>route.fulfill({status:200,
+    contentType:'application/json',body:'{}'}));
+  let enabled=false;
+  await page.route('**/api/**',async route=>{
+    const request=route.request();const url=new URL(request.url());
+    const action=url.searchParams.get('action');
+    if(action==='accounts'&&!enabled)return route.fulfill({status:403,
+      contentType:'application/json',body:JSON.stringify({error:'Client portal is disabled'})});
+    if(request.method()==='POST'){
+      const data=request.postDataJSON() as {action?:string;feature?:string;enabled?:boolean};
+      if(data.action==='set_feature'&&data.feature==='client_portal')enabled=data.enabled===true;
+      return route.fulfill({status:200,contentType:'application/json',body:'{}'});
+    }
+    const body=action==='accounts'?{accounts:[],selected:{accountId:null,viewAsClient:false}}:
+      action==='features'?[{feature_key:'client_portal',user_id:null,enabled}]:[];
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(body)});
+  });
+  await page.goto('/client-portal');
+  await expect(page.getByText('Client portal unavailable')).toBeVisible();
+  await page.getByRole('checkbox',{name:'Client Portal'}).click();
+  await expect(page.getByRole('heading',{name:'Delivery setup'})).toBeVisible();
+  expect(enabled).toBe(true);
+});
