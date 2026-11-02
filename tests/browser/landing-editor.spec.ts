@@ -90,3 +90,59 @@ test('editor keeps an unsaved draft out of published versions',async({page})=>{
   await expect(page.getByText('Draft could not be saved',{exact:true})).toBeVisible();
   expect(publishCalls).toBe(0);
 });
+
+test('editor hides, duplicates, reorders and removes sections',async({page},testInfo)=>{
+  let saved:Array<{id:string;type:string;hidden?:boolean}>|null=null;
+  await page.route('**/api/landing-pages/**',route=>{
+    const path=new URL(route.request().url()).pathname;
+    if(path===`/api/landing-pages/${pageId}`&&route.request().method()==='PATCH'){
+      const body=route.request().postDataJSON() as {sections:Array<{id:string;type:string;hidden?:boolean}>};
+      saved=body.sections;
+      return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({...initialPage,...body})});
+    }
+    return route.fallback();
+  });
+  await page.goto(`/landing-pages/${pageId}`);
+  await expect(page.getByRole('heading',{name:'Demo service page'})).toBeVisible();
+  await page.getByRole('button',{name:'Add section'}).click();
+  await page.getByRole('button',{name:'Services grid',exact:true}).click();
+  const hero=page.getByRole('button',{name:/HeroOriginal heading/}).locator('..');
+  const service=page.getByRole('button',{name:/Services gridOur services/}).locator('..');
+  await service.getByRole('button',{name:'Hide'}).click();
+  await expect(service.getByRole('button',{name:'Show'})).toBeVisible();
+  await service.getByRole('button',{name:'Duplicate'}).click();
+  await expect(page.getByRole('button',{name:/Services gridOur services/})).toHaveCount(2);
+  await page.getByRole('button',{name:/Services gridOur services/}).last().locator('..')
+    .getByRole('button',{name:'Remove'}).click();
+  await expect(page.getByRole('button',{name:/Services gridOur services/})).toHaveCount(1);
+  if(testInfo.project.name==='mobile')await service.getByRole('button',{name:'Move section up'}).click();
+  else await service.dragTo(hero);
+  await expect.poll(async()=>page.locator('[draggable="true"] > button:first-child').allTextContents())
+    .toEqual(['Services gridOur services','HeroOriginal heading']);
+  await expect.poll(()=>saved?.map(section=>section.type)||[]).toEqual(['services','hero']);
+  expect(saved?.[0]?.hidden).toBe(true);
+});
+
+test('editor restores a published version into the draft',async({page})=>{
+  let requestedVersion:number|null=null;
+  await page.route('**/api/landing-pages/**',route=>{
+    const path=new URL(route.request().url()).pathname;
+    if(path===`/api/landing-pages/${pageId}/versions`)return route.fulfill({status:200,
+      contentType:'application/json',body:JSON.stringify({versions:[{version:1,published_at:'2026-10-01T12:00:00Z'}]})});
+    if(path===`/api/landing-pages/${pageId}`&&route.request().method()==='GET')return route.fulfill({status:200,
+      contentType:'application/json',body:JSON.stringify({...initialPage,status:'published',version:2,
+        sections:[{id:'hero-2',type:'hero',heading:'Newer draft',body:'Different details'}]})});
+    if(path===`/api/landing-pages/${pageId}/restore`){
+      requestedVersion=Number(route.request().postDataJSON()?.version);
+      return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({...initialPage,
+        sections:[{id:'hero-1',type:'hero',heading:'Original heading',body:'Service details'}]})});
+    }
+    return route.fallback();
+  });
+  await page.goto(`/landing-pages/${pageId}`);
+  await expect(page.getByRole('heading',{name:'Demo service page'})).toBeVisible();
+  await page.getByRole('button',{name:'Version history'}).click();
+  await page.getByRole('button',{name:'Restore'}).click();
+  await expect(page.getByRole('button',{name:/HeroOriginal heading/})).toBeVisible();
+  expect(requestedVersion).toBe(1);
+});
