@@ -62,6 +62,28 @@ test('client page backfill links legacy pages without changing existing canonica
     assert.equal(linked.rows[2].canonical_page_id,null);
     const versions = await db.query('select * from public.landing_page_versions');
     assert.equal(versions.rows.length,1);
+    const syncSql = readFileSync(new URL('../supabase/migrations/20261102_05_client_page_draft_sync.sql',import.meta.url),'utf8');
+    await db.exec(syncSql);
+    await db.exec(syncSql);
+    await db.exec(`update public.marketing_landing_pages set title='Changed draft',status='draft',
+      sections='[{"id":"hero","type":"hero","heading":"Unpublished change"}]'
+      where id='40000000-0000-4000-8000-000000000001'`);
+    const edited = await db.query<{name:string;status:string;draft_name:string;sections:Array<{heading:string}>;
+      draft_sections:Array<{heading:string}>;published_sections:Array<{heading:string}>}>(
+      `select name,status,draft_name,sections,draft_sections,published_sections
+       from public.landing_pages where id='40000000-0000-4000-8000-000000000001'`);
+    assert.equal(edited.rows[0].status,'published');
+    assert.equal(edited.rows[0].name,'Plumbing');
+    assert.equal(edited.rows[0].draft_name,'Changed draft');
+    assert.equal(edited.rows[0].published_sections[0].heading,'Real plumbing');
+    assert.equal(edited.rows[0].draft_sections[0].heading,'Unpublished change');
+    await db.exec(`insert into public.marketing_landing_pages values
+      ('40000000-0000-4000-8000-000000000005',null,'${org}','${account}',
+       'New page','new-page','draft','[]','{}','',null,now(),now())`);
+    const fresh = await db.query<{canonical_page_id:string|null}>(
+      `select canonical_page_id from public.marketing_landing_pages
+       where id='40000000-0000-4000-8000-000000000005'`);
+    assert.equal(fresh.rows[0].canonical_page_id,'40000000-0000-4000-8000-000000000005');
   } finally {
     await db.close();
   }

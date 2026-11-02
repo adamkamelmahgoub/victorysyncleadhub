@@ -14,10 +14,25 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
     const page=url.pathname.match(/^\/api\/public\/landing\/([^/]+)$/);
     if(page){
       if(!slugPattern.test(page[1]))return reply(res,404,'Page not found');
-      const rows=await mcpPool.query<{id:string;title:string;seo_description:string;sections:LandingSection[];theme:LandingTheme;client_account_id:string|null}>(
-        `select id,title,seo_description,sections,theme,client_account_id from public.marketing_landing_pages
-         where slug=$1 and status='published' and organization_id=$2 limit 1`,[page[1],org]);
+      const rows=await mcpPool.query<{id:string;title:string;seo_description:string;sections:LandingSection[];theme:LandingTheme;client_account_id:string|null;canonical_page_id:string|null;status:string}>(
+        `select id,title,seo_description,sections,theme,client_account_id,canonical_page_id,status
+         from public.marketing_landing_pages where slug=$1 and organization_id=$2 limit 1`,[page[1],org]);
       const found=rows.rows[0];if(!found)return reply(res,404,'Page not found');
+      if(found.canonical_page_id){
+        const canonical=await mcpPool.query<{slug:string}>(`select slug from public.landing_pages
+          where id=$1 and organization_id=$2 and client_account_id is not distinct from $3::uuid
+            and status='published' limit 1`,[found.canonical_page_id,org,found.client_account_id]);
+        if(!canonical.rows[0])return reply(res,404,'Page not found');
+        const query=new URLSearchParams();
+        for(const key of ['utm_source','utm_medium','utm_campaign','utm_term','utm_content']){
+          const value=url.searchParams.get(key);
+          if(value)query.set(key,value.slice(0,200));
+        }
+        res.statusCode=307;res.setHeader('cache-control','no-store');
+        res.setHeader('location',`/p/${encodeURIComponent(canonical.rows[0].slug)}${query.size?`?${query}`:''}`);
+        return res.end();
+      }
+      if(found.client_account_id||found.status!=='published')return reply(res,404,'Page not found');
       await mcpPool.query(`insert into public.marketing_landing_page_events(page_id,event_type,client_account_id)
         values($1,'view',$2)`,[found.id,found.client_account_id]).catch(()=>undefined);
       const host=String(req.headers.host||'');
