@@ -8,6 +8,43 @@ on:
 jobs:
   code:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test
+      - run: pnpm run test:rls
+      - run: pnpm run test:qa-seed
+      - run: pnpm run typecheck:api
+      - run: pnpm run build
+      - run: pnpm run test:bundle-secrets
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm run test:e2e
+      - run: pnpm run test:a11y
+      - run: pnpm run test:lh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-qa
+          path: test-results/
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lighthouse-qa
+          path: .local/lighthouse-results/
+          if-no-files-found: ignore
+
+  rls-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17
@@ -31,28 +68,6 @@ jobs:
           node-version: '22'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run test
-      - run: pnpm run test:rls
       - run: pnpm exec tsx --test tests/client-tenancy-all-tables.test.ts
         env:
           LOCAL_POSTGRES_URL: postgres://postgres:postgres@127.0.0.1:5432/victorysync_tenancy_qa
-      - run: pnpm run test:qa-seed
-      - run: pnpm run typecheck:api
-      - run: pnpm run build
-      - run: pnpm run test:bundle-secrets
-      - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm run test:e2e
-      - run: pnpm run test:a11y
-      - run: pnpm run test:lh
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: browser-qa
-          path: test-results/
-          if-no-files-found: ignore
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: lighthouse-qa
-          path: .local/lighthouse-results/
-          if-no-files-found: ignore
