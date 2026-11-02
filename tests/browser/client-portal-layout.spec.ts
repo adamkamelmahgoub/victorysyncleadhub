@@ -113,3 +113,25 @@ test('review request explains when the customer lacks consent',async({page})=>{
   await page.getByRole('button',{name:'Request review'}).click();
   await expect(page.getByRole('alert')).toContainText('An opted-in lead with this phone is required');
 });
+
+test('client page draft and publish use separate actions',async({page})=>{
+  const actions:string[]=[];
+  await page.route('**/api/portal',async route=>{
+    if(route.request().method()!=='POST')return route.fallback();
+    const body=route.request().postDataJSON() as Record<string,unknown>;
+    if(body.action!=='save_page'&&body.action!=='publish_page')return route.fallback();
+    actions.push(String(body.action));
+    if(body.action==='save_page')expect(body.status).toBe('draft');
+    if(body.action==='publish_page')expect(body.pageId).toBe('50000000-0000-4000-8000-000000000001');
+    return route.fulfill({status:200,contentType:'application/json',
+      body:JSON.stringify({id:'50000000-0000-4000-8000-000000000001'})});
+  });
+  await page.goto('/client-portal/pages');
+  await page.getByRole('button',{name:'Edit'}).click();
+  await page.getByRole('button',{name:'Save draft'}).click();
+  await expect.poll(()=>actions).toEqual(['save_page']);
+  await page.getByRole('button',{name:'Edit'}).click();
+  await page.getByRole('button',{name:'Hero'}).click();
+  await page.getByRole('button',{name:'Publish'}).click();
+  await expect.poll(()=>actions).toEqual(['save_page','save_page','publish_page']);
+});
