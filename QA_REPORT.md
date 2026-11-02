@@ -18,6 +18,7 @@ Date: 2026-10-31. Branch: `codex/client-portal-main-deploy`.
 - AI page validation now checks title, SEO copy, buttons, proof section types, years, prices, credentials and image URLs against client media. Focused policy tests pass; live model samples remain pending.
 - The legacy Client accounts create action now calls canonical client provisioning and template application. A mocked API test confirms the invite URL and template call; browser acceptance is pending.
 - Stripe billing portal return URLs use the configured HTTPS portal origin. A route test confirms a forged Host header cannot redirect the customer. The checkout webhook verifies raw bytes, including a split UTF-8 character; mocked signed checkout provisioning and invite delivery pass. An unpaid completed checkout waits for a signed asynchronous payment success before provisioning. Live Stripe sandbox verification remains pending.
+- The actual billing customer SQL function passes an isolated role test: client owner A receives only A's customer ID, cross-account access fails, client and agency staff are rejected, and agency admin can read B. This does not replace a full production-copy RLS audit.
 
 ## Not yet verified
 
