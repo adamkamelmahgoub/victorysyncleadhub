@@ -5,7 +5,7 @@ const accountId='10000000-0000-4000-8000-000000000001';
 const userId='20000000-0000-4000-8000-000000000001';
 const tokenPart=(value:unknown)=>Buffer.from(JSON.stringify(value)).toString('base64url');
 const jwt=`${tokenPart({alg:'HS256',typ:'JWT'})}.${tokenPart({sub:userId,role:'authenticated',
-  crm_role:'admin',crm_client_account_id:accountId,exp:4102444800})}.test-signature`;
+  crm_role:'admin',crm_client_account_id:accountId,aal:'aal2',exp:4102444800})}.test-signature`;
 const source={id:'30000000-0000-4000-8000-000000000001',platform:'google',name:'Demo Google profile',
   reviewUrl:'https://example.test/review',status:'active',reviewCount:1,avgRating:'5.0',isActive:true,
   createdAt:'2026-10-01T12:00:00Z'};
