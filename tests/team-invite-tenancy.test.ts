@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 
-test('team and invite migration is repeatable and enforces account reads', async () => {
+test('team, invite and account migrations are repeatable and enforce account reads', async () => {
   const db = new PGlite();
   try {
     await db.exec(`
@@ -17,23 +17,32 @@ test('team and invite migration is repeatable and enforces account reads', async
       create function public.is_agency_admin() returns boolean language sql stable as $$
         select public.auth_role() = 'agency_admin' $$;
       create function public.can_access_account(uuid) returns boolean language sql stable as $$
-        select $1::text = current_setting('qa.account', true) $$;
+        select public.is_agency_admin() or $1::text = current_setting('qa.account', true) $$;
       create table public.team_members (
         id uuid primary key, user_id uuid, auth_user_id text,
         client_account_id uuid, name text
       );
       create table public.invite_codes (code_hash text primary key);
+      create table public.sub_accounts (id uuid primary key, name text);
       grant usage on schema public, auth to authenticated;
       grant execute on all functions in schema public, auth to authenticated;
-      grant all on public.team_members, public.invite_codes to authenticated;
+      grant all on public.team_members, public.invite_codes, public.sub_accounts to authenticated;
+      create policy client_sub_accounts_read on public.sub_accounts
+        for select to authenticated using (public.can_access_account(id));
       insert into public.team_members values
         ('00000000-0000-4000-8000-000000000001',null,null,'10000000-0000-4000-8000-000000000001','Account A'),
         ('00000000-0000-4000-8000-000000000002',null,null,'10000000-0000-4000-8000-000000000002','Account B');
       insert into public.invite_codes values ('secret-hash');
+      insert into public.sub_accounts values
+        ('10000000-0000-4000-8000-000000000001','Account A'),
+        ('10000000-0000-4000-8000-000000000002','Account B');
     `);
     const sql = readFileSync(new URL('../supabase/migrations/20261102_01_team_invite_tenancy.sql', import.meta.url), 'utf8');
     await db.exec(sql);
     await db.exec(sql);
+    const accountSql = readFileSync(new URL('../supabase/migrations/20261102_02_sub_account_rls.sql', import.meta.url), 'utf8');
+    await db.exec(accountSql);
+    await db.exec(accountSql);
     const policies = await db.query<{ policyname: string }>(
       "select policyname from pg_policies where tablename='team_members' order by policyname",
     );
@@ -48,6 +57,8 @@ test('team and invite migration is repeatable and enforces account reads', async
     `);
     const visible = await db.query<{ name: string }>('select name from public.team_members');
     assert.deepEqual(visible.rows.map(row => row.name), ['Account A']);
+    const ownAccount = await db.query<{ name: string }>('select name from public.sub_accounts');
+    assert.deepEqual(ownAccount.rows.map(row => row.name), ['Account A']);
     await db.exec("set qa.role = 'client_staff'");
     const staff = await db.query('select name from public.team_members');
     assert.equal(staff.rows.length, 0);
@@ -60,6 +71,8 @@ test('team and invite migration is repeatable and enforces account reads', async
     await db.exec("set qa.role = 'agency_admin'");
     const admin = await db.query('select name from public.team_members');
     assert.equal(admin.rows.length, 2);
+    const allAccounts = await db.query('select name from public.sub_accounts');
+    assert.equal(allAccounts.rows.length, 2);
   } finally {
     await db.close();
   }
