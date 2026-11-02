@@ -50,25 +50,32 @@ async function actor(req:IncomingMessage,permission:'forms'|'landing-pages'){
     if(!feature.rows[0]?.enabled)throw new Error('Landing page builder access is disabled');
   }
   const membership=await mcpPool.query<{role:string;page_permissions:string[]|null}>(`select role,page_permissions from public.team_members where auth_user_id=$1 and org_id=$2
-    and status='active' and client_account_id is null and role in ('owner','admin','member','agency_admin') limit 1`,[user.id,org]);
+    and status='active' and client_account_id is null and role in ('owner','admin','member','agency_admin','agency_staff') limit 1`,[user.id,org]);
   const platform=await mcpPool.query(`select 1 from public.profiles where id=$1 and global_role='platform_admin'`,[user.id]);
   if(!membership.rowCount&&!platform.rowCount)throw new Error('Internal workspace access required');
   const permissions=membership.rows[0]?.page_permissions;
   if(!platform.rowCount&&!['owner','admin','agency_admin'].includes(membership.rows[0]?.role||'')&&Array.isArray(permissions)
-    &&!permissions.includes('forms'))
+    &&!(permission==='forms'?permissions.includes('forms'):permissions.includes('pages')||permissions.includes('forms')))
     throw new Error(`${permission} access is disabled for this account`);
-  return user;
+  return {...user,agencyViewAllowed:Boolean(platform.rowCount)||['owner','admin','agency_admin'].includes(membership.rows[0]?.role||'')};
 }
-async function selectedAccount(req:IncomingMessage,userId:string){
+async function selectedAccount(req:IncomingMessage,userId:string,agencyViewAllowed:boolean){
   const cookie=Array.isArray(req.headers.cookie)?req.headers.cookie[0]:req.headers.cookie;
   const selected=readPortalSelection(cookie,userId);
-  if(!selected?.accountId)return {id:null,readOnly:false};
+  if(!selected?.accountId){
+    if(!agencyViewAllowed)throw new Error('Client account access denied. Select an assigned client account');
+    return {id:null,readOnly:false,canEdit:true};
+  }
   const base=process.env.SUPABASE_URL,key=process.env.SUPABASE_ANON_KEY||process.env.VITE_SUPABASE_ANON_KEY;
   const response=await fetch(`${base}/rest/v1/rpc/can_access_account`,{method:'POST',
     headers:{apikey:key||'',authorization:String(req.headers.authorization||''),'content-type':'application/json'},
     body:JSON.stringify({p_account_id:selected.accountId}),signal:AbortSignal.timeout(10000)});
   if(!response.ok||await response.json()!==true)throw new Error('Client account access denied');
-  return {id:selected.accountId,readOnly:selected.viewAsClient};
+  if(agencyViewAllowed)return {id:selected.accountId,readOnly:selected.viewAsClient,canEdit:true};
+  const assignment=await mcpPool.query<{role_in_account:string}>(`select role_in_account from public.sub_account_assignments
+    where sub_account_id=$1 and user_id=$2 limit 1`,[selected.accountId,userId]);
+  return {id:selected.accountId,readOnly:selected.viewAsClient,
+    canEdit:['account_manager','marketing'].includes(assignment.rows[0]?.role_in_account||'')};
 }
 export function validatedFields(value:unknown):Field[]{
   if(!Array.isArray(value)||value.length>50)throw new Error('A form can have up to 50 fields');
@@ -239,7 +246,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
   if(path==='/api/marketing/reports'){
     if(method!=='GET')return json(res,405,{error:'Method not allowed'});
     const reportUser=await actor(req,'forms');
-    const reportAccount=await selectedAccount(req,reportUser.id);
+    const reportAccount=await selectedAccount(req,reportUser.id,reportUser.agencyViewAllowed);
     const period=url.searchParams.get('period')||'30d';
     if(!['7d','30d','all'].includes(period))return json(res,400,{error:'Invalid reporting period'});
     const since=period==='all'?null:period==='7d'?7:30;
@@ -259,8 +266,8 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
   }
   if(!path.startsWith('/api/forms')&&!path.startsWith('/api/landing-pages'))return json(res,404,{error:'Not found'});
   const isForms=path.startsWith('/api/forms'),user=await actor(req,isForms?'forms':'landing-pages');
-  const selected=await selectedAccount(req,user.id);
-  if(selected.readOnly&&method!=='GET')return json(res,403,{error:'Client view is read only'});
+  const selected=await selectedAccount(req,user.id,user.agencyViewAllowed);
+  if(method!=='GET'&&(selected.readOnly||!selected.canEdit))return json(res,403,{error:'Page and form changes require a marketing assignment'});
   if(path==='/api/landing-pages/media'&&method==='POST'){
     const input=z.object({pageId:z.string().uuid(),mime:z.enum(['image/jpeg','image/png','image/webp']),data:z.string().min(100).max(7500000)}).strict().parse(await body(req,8000000));
     const owned=await mcpPool.query(`select 1 from public.landing_pages where id=$1 and organization_id=$2 and ($3::uuid is null or client_account_id=$3)`,[input.pageId,org,selected.id]);
