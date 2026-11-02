@@ -160,6 +160,13 @@ test('client call log loads older calls in the selected range',async({page})=>{
   await expect(page.getByRole('button',{name:'Load older calls'})).toHaveCount(0);
 });
 
+test('clearing a call date shows a useful validation message',async({page})=>{
+  await page.goto('/client-portal/calls');
+  await page.getByLabel('Calls from').fill('');
+  await expect(page.getByRole('alert')).toContainText('Choose a valid start and end date.');
+  await expect(page.getByRole('heading',{name:'Demo Plumbing portal'})).toBeVisible();
+});
+
 for(const [section,visibleText] of [
   ['leads','Alex Customer'],['calls','Booked a repair'],['pages','Demo service page'],
   ['forms','Contact form'],['reviews','Verified customer'],['reports','Monthly report'],
