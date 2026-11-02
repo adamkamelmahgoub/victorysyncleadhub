@@ -318,9 +318,9 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
         res.setHeader('content-disposition',`attachment; filename="${parsed.section}.csv"`);
         return res.end(csv(rows));
       }
-      const clientPagesReadOnly=parsed.section==='pages'&&user.role==='client_owner'&&
-        !await rpc<boolean>(user.token,'client_feature_enabled',{p_feature:'client_page_editing'});
-      return send(res,200,{accountId:selected.id,readOnly:selected.viewAsClient||clientPagesReadOnly,data});
+      const pagesReadOnly=parsed.section==='pages'&&
+        !await rpc<boolean>(user.token,'portal_page_edit_allowed',{p_account:selected.id});
+      return send(res,200,{accountId:selected.id,readOnly:selected.viewAsClient||pagesReadOnly,data});
     }
     if (req.method !== 'POST') return send(res,405,{error:'Method not allowed'});
     const parsed = postSchema.parse(await read(req));
@@ -450,7 +450,11 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
         p_seo_description:parsed.seoDescription,p_status:parsed.status});
       return send(res,200,data);
     }
-    if (parsed.action === 'ai_page') return send(res,200,await generatePage(user,selected.id,parsed.prompt,parsed.currentSections));
+    if (parsed.action === 'ai_page') {
+      if(!await rpc<boolean>(user.token,'portal_page_edit_allowed',{p_account:selected.id}))
+        return send(res,403,{error:'Page editing is unavailable for this account'});
+      return send(res,200,await generatePage(user,selected.id,parsed.prompt,parsed.currentSections));
+    }
     if (parsed.action === 'billing_portal') {
       const customer = await rpc<string|null>(user.token,'portal_billing_customer',{p_account:selected.id});
       if (!customer || !process.env.STRIPE_SECRET_KEY) return send(res,503,{error:'Billing portal is not configured'});
