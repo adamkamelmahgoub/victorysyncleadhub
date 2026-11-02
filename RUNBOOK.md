@@ -54,6 +54,8 @@ The client delivery worker and checkout webhook run only when Vercel reports `VE
 
 To rotate a secret, add the new value in Vercel, update the provider webhook or API credential, redeploy, test a single event, and then revoke the old value. Update any matching Supabase Vault secret used by Edge Functions or scheduled jobs. Stripe and MightyCall webhooks must be pointed at the production handlers and signed with the matching secrets.
 
+For client checkout provisioning, subscribe the Stripe endpoint `/api/client-stripe-webhook` to `checkout.session.completed` and `checkout.session.async_payment_succeeded`. A completed checkout with an unpaid delayed payment waits; the signed success event provisions the account after payment. Include `company_id` and `package` in the Checkout Session metadata, plus owner name and email there or in customer details.
+
 ## Opt-out
 
 Inbound STOP, UNSUBSCRIBE, CANCEL, END, or QUIT marks the lead `dnc`, cancels follow-up work, and sends one confirmation. Inspect the lead and its automation jobs if an opt-out is disputed. Do not manually re-enroll an opted-out lead without a new, documented consent event.
