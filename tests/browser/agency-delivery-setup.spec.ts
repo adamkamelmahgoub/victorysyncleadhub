@@ -27,6 +27,7 @@ test('agency admin sees delivery setup without clipping or secret values',async(
   await expect(page.getByText('Sandbox mode is on. Automatic external sends are paused.')).toBeVisible();
   await expect(page.getByText('Needs setup').first()).toBeVisible();
   await expect(page.getByText('Configured',{exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Open AI assistant'})).toHaveCount(0);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);
   await page.screenshot({path:testInfo.outputPath('agency-delivery-setup.png'),fullPage:true});
 });

@@ -15,8 +15,8 @@ export function AssistantLauncher() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
   if (role !== "owner" && role !== "admin") return null;
-  // The page editor has an AI panel of its own. Keep its controls clear on small screens.
-  if (/^\/(?:leadgen\/)?landing-pages\/[0-9a-f-]{36}(?:\/|$)/i.test(location)) return null;
+  // Keep the page editor and client portal controls clear on small screens.
+  if (/^\/(?:leadgen\/)?(?:landing-pages\/[0-9a-f-]{36}|client-portal)(?:\/|$)/i.test(location)) return null;
   const match = location.replace(/^\/leadgen/, "").match(/^\/(leads|companies)\/([0-9a-f-]{36})(?:\/|$)/i);
   const pageContext = match ? { type: match[1] === "leads" ? "lead" as const : "company" as const,
     id: match[2] } : undefined;
