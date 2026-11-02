@@ -29,3 +29,33 @@ for(const role of ['admin','member','agency_admin','agency_staff']){
     }
   });
 }
+
+test('agency admin can enroll and verify an authenticator',async({page},testInfo)=>{
+  test.skip(testInfo.project.name!=='desktop');
+  const jwt=(aal:string)=>`${part({alg:'HS256',typ:'JWT'})}.${part({sub:userId,
+    role:'authenticated',crm_role:'admin',aal,exp:4102444800})}.test-signature`;
+  const user={id:userId,aud:'authenticated',role:'authenticated',email:'agency@example.test',
+    app_metadata:{},user_metadata:{},created_at:'2026-01-01T00:00:00Z',factors:[]};
+  await page.addInitScript(({token,user})=>{
+    localStorage.setItem('sb-supabase-auth-token',JSON.stringify({access_token:token,
+      refresh_token:'fake-refresh',token_type:'bearer',expires_in:3600,expires_at:4102444800,user}));
+  },{token:jwt('aal1'),user});
+  await page.route('https://supabase.test/**',route=>{
+    const url=new URL(route.request().url());
+    const body=url.pathname.endsWith('/auth/v1/user')?user:
+      url.pathname.endsWith('/auth/v1/factors')?{id:'factor-1',factor_type:'totp',
+        totp:{qr_code:'<svg xmlns="http://www.w3.org/2000/svg"></svg>',secret:'TESTSECRET'}}:
+      url.pathname.endsWith('/challenge')?{id:'challenge-1'}:
+      url.pathname.endsWith('/verify')||url.pathname.endsWith('/token')?
+        {access_token:jwt('aal2'),refresh_token:'fake-refresh-2',token_type:'bearer',
+          expires_in:3600,user:{...user,factors:[{id:'factor-1',factor_type:'totp',status:'verified'}]}}:{};
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(body)});
+  });
+  await page.route('**/api/**',route=>route.fulfill({status:200,contentType:'application/json',body:'{}'}));
+  await page.goto('/client-portal');
+  await page.getByRole('button',{name:'Continue'}).click();
+  await expect(page.getByRole('img',{name:'Authenticator QR code'})).toBeVisible();
+  await page.getByRole('textbox',{name:'Authenticator code'}).fill('123456');
+  await page.getByRole('button',{name:'Verify code'}).click();
+  await expect(page.getByRole('heading',{name:'Two-step verification required'})).toHaveCount(0);
+});
