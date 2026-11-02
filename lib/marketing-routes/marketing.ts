@@ -215,9 +215,16 @@ async function publicForm(req:IncomingMessage,res:ServerResponse,slug:string,sub
     res.statusCode=303;res.setHeader('location',`/f/${slug}?submitted=1`);res.end();return;}
   json(res,201,{accepted:true,submissionId,message:form.success_message,redirectUrl:form.redirect_url});
 }
-async function publicPage(req:IncomingMessage,res:ServerResponse,slug:string){
-  const pages=await mcpPool.query<PageRow>(`select * from public.landing_pages where organization_id=$1 and slug=$2 and status='published' limit 1`,[org,slug]);
-  const base=pages.rows[0];if(!base)return json(res,404,{error:'Page unavailable'});
+async function publicPage(req:IncomingMessage,res:ServerResponse,slug:string|null){
+  const host=String(req.headers.host||'').toLowerCase().replace(/:\d+$/,'').replace(/\.$/,'');
+  const assigned=host?await mcpPool.query<PageRow>(`select * from public.landing_pages
+    where lower(custom_domain)=$1 and organization_id=$2 limit 1`,[host,org]):null;
+  const domainPage=assigned?.rows[0];
+  if(domainPage&&(domainPage.status!=='published'||(slug!==null&&slug!==domainPage.slug)))
+    return json(res,404,{error:'Page unavailable'});
+  const pages=(domainPage||slug===null)?null:await mcpPool.query<PageRow>(`select * from public.landing_pages
+    where organization_id=$1 and slug=$2 and status='published' limit 1`,[org,slug]);
+  const base=domainPage||pages?.rows[0];if(!base)return json(res,404,{error:'Page unavailable'});
   let found=base;
   if(!base.variant_of){const variants=await mcpPool.query<PageRow>(`select * from public.landing_pages where variant_of=$1 and organization_id=$2 and status='published' order by created_at limit 1`,[base.id,org]);
     const variant=variants.rows[0];if(variant){const cookie=String(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(`lp_variant_${base.id}=`))?.split('=')[1];
@@ -243,6 +250,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
   }
   let match=path.match(/^\/f\/([a-z0-9-]+)$/);if(match&&['GET','POST'].includes(method))return await publicForm(req,res,match[1],method==='POST');
   match=path.match(/^\/p\/([a-z0-9-]+)$/);if(match&&method==='GET')return await publicPage(req,res,match[1]);
+  if(path==='/api/domain-page'&&method==='GET')return await publicPage(req,res,null);
   if(path==='/api/marketing/reports'){
     if(method!=='GET')return json(res,405,{error:'Method not allowed'});
     const reportUser=await actor(req,'forms');

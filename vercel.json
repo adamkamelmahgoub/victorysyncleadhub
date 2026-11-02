@@ -3,6 +3,7 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm --filter @workspace/leadgen build",
   "outputDirectory": "artifacts/leadgen/dist/public",
+  "proxy": { "entrypoint": "proxy.ts", "matcher": ["/"] },
   "crons": [
     { "path": "/api/client-delivery-worker", "schedule": "0 0 * * *" }
   ],
@@ -11,6 +12,7 @@
     { "src": "^/leadgen/api/portal$", "dest": "/api/portal.ts" },
     { "src": "^/api/client-stripe-webhook$", "dest": "/api/client-stripe-webhook.ts" },
     { "src": "^/api/client-delivery-worker$", "dest": "/api/client-delivery-worker.ts" },
+    { "src": "^/api/domain-page$", "dest": "/api/marketing.ts" },
     { "src": "^/api/public/(?:landing|forms)/[^/]+$", "dest": "/api/client-landing.ts" },
     { "src": "^/r/[0-9a-fA-F-]{36}$", "dest": "/api/client-review-click.ts" },
     { "src": "^/api/assistant$", "dest": "/api/assistant.ts" },
