@@ -16,7 +16,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Package snapshots | `account_templates`, `portal_apply_account_template` | partial | `account-templates-ops.test.mjs` | Ten templates and idempotence tested; visual QA pending. |
 | Onboarding checklist | `company_tasks`, template payload | partial | template DB test | Needs unified task model. |
 | Client dashboard | `client-portal.tsx`, `portal_dashboard_metrics` | partial | `client-portal-layout.spec.ts` desktop/mobile screenshots | Synthetic browser layout, overflow and axe checks pass; live date filters still need QA. |
-| Client leads list and board | `client-portal.tsx` | partial | `client-portal-layout.spec.ts` desktop/mobile screenshots | Basic lead page renders; board over 1,000 records unverified. |
+| Client leads list and board | `client-portal.tsx` | partial | `client-portal-layout.spec.ts` desktop/mobile interaction checks | Unassigned leads stay visible on the board; stage, note, job value and timeline flows pass with mocked API. Board over 1,000 records and live data remain unverified. |
 | Client lead timeline | `portal_lead_timeline` | partial | source review | Calls, texts, email and notes need browser QA. |
 | Client calls and recordings | `client_call_details`, `client-portal.tsx` | partial | `client-call-routing.test.ts`, browser screenshots | Failed saves retry and basic call page renders; live MightyCall event path unverified. |
 | Client pages and forms | `marketing_landing_pages`, `forms` | partial | `marketing-forms-pages.test.ts`, browser screenshots | Basic lists render; template draft and public publish need browser QA. |
