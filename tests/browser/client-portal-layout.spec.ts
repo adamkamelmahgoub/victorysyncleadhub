@@ -135,3 +135,28 @@ test('client page draft and publish use separate actions',async({page})=>{
   await page.getByRole('button',{name:'Publish'}).click();
   await expect.poll(()=>actions).toEqual(['save_page','save_page','publish_page']);
 });
+
+test('client page history restores an old version to draft',async({page})=>{
+  let restored:Record<string,unknown>|null=null;
+  await page.route('**/api/portal?*',async route=>{
+    const url=new URL(route.request().url());
+    if(url.searchParams.get('action')!=='page_versions')return route.fallback();
+    expect(url.searchParams.get('pageId')).toBe('50000000-0000-4000-8000-000000000001');
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify([
+      {version:1,published_at:'2026-10-01T00:00:00Z',note:null}])});
+  });
+  await page.route('**/api/portal',async route=>{
+    if(route.request().method()!=='POST'||route.request().postDataJSON()?.action!=='restore_page')
+      return route.fallback();
+    restored=route.request().postDataJSON() as Record<string,unknown>;
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+      sections:[{id:'old-hero',type:'hero',heading:'Earlier headline'}],
+      theme:{background:'#ffffff',foreground:'#172033',accent:'#285ce6',font:'sans'}})});
+  });
+  await page.goto('/client-portal/pages');
+  await page.getByRole('button',{name:'Edit'}).click();
+  await page.getByText('Version history').click();
+  await page.getByRole('button',{name:'Restore to draft'}).click();
+  await expect(page.getByText('Earlier headline').first()).toBeVisible();
+  expect(restored).toMatchObject({action:'restore_page',pageId:'50000000-0000-4000-8000-000000000001',version:1});
+});

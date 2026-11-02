@@ -24,6 +24,7 @@ const querySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('lead_timeline'), leadId: uuid }),
   z.object({ action: z.literal('ad_spend') }),
   z.object({ action: z.literal('page_stats') }),
+  z.object({ action: z.literal('page_versions'), pageId:uuid }),
   z.object({ action: z.literal('report_file'), reportId:uuid }),
   z.object({ action: z.literal('reports') }),
   z.object({ action: z.literal('billing_summary') }),
@@ -94,6 +95,7 @@ const postSchema = z.discriminatedUnion('action', [
   z.object({action:z.literal('set_ai_model'),model:z.string().regex(/^[a-zA-Z0-9._:-]+\/[a-zA-Z0-9._:-]+$/).max(150)}).strict(),
   z.object({action:z.literal('update_account'),settings:accountSettingsSchema}).strict(),
   z.object({action:z.literal('publish_page'),pageId:uuid}).strict(),
+  z.object({action:z.literal('restore_page'),pageId:uuid,version:z.number().int().min(1)}).strict(),
   z.object({action:z.literal('apply_template'),accountId:uuid,template:z.enum(['starter','scale','domination','overflow','business_hours','coverage_247','appt_part_time','appt_full_time','revive','custom'])}).strict(),
   z.object({action:z.literal('retry_automation'),runId:uuid}).strict(),
   z.object({action:z.literal('set_account_mrr'),accountId:uuid,mrrCents:z.number().int().min(0).max(100_000_000)}).strict(),
@@ -283,6 +285,8 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
         {p_account:selected.id}));
       if (parsed.action === 'page_stats') return send(res,200,await rpc(user.token,'portal_page_stats',
         {p_account:selected.id}));
+      if (parsed.action === 'page_versions') return send(res,200,await rpc(user.token,'portal_page_versions',
+        {p_account:selected.id,p_page:parsed.pageId}));
       if (parsed.action === 'report_file') {
         const path=await rpc<string|null>(user.token,'portal_report_file',{p_account:selected.id,p_report:parsed.reportId});
         if(!path)return send(res,404,{error:'Report file unavailable'});
@@ -455,6 +459,11 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
     }
     if (parsed.action === 'publish_page') {
       const data=await rpc(user.token,'portal_publish_page',{p_account:selected.id,p_page:parsed.pageId});
+      return send(res,200,data);
+    }
+    if (parsed.action === 'restore_page') {
+      const data=await rpc(user.token,'portal_restore_page',
+        {p_account:selected.id,p_page:parsed.pageId,p_version:parsed.version});
       return send(res,200,data);
     }
     if (parsed.action === 'ai_page') {

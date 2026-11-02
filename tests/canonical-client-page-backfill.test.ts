@@ -22,7 +22,7 @@ test('client page backfill links legacy pages without changing existing canonica
       create function public.portal_page_allowed(text) returns boolean language sql stable as $$ select true $$;
       create table public.sub_accounts(id uuid primary key,organization_id uuid);
       create table public.portal_activity_log(actor_id uuid,actor_email text,organization_id text,
-        client_account_id text,event_type text,action text,target text);
+        client_account_id text,event_type text,action text,target text,metadata jsonb);
       create table public.forms(id uuid primary key,client_account_id uuid);
       create table public.landing_page_events(landing_page_id uuid,event_type text);
       create table public.marketing_landing_page_events(page_id uuid,event_type text,legacy_event_id bigint);
@@ -161,6 +161,30 @@ test('client page backfill links legacy pages without changing existing canonica
     const publishedVersions = await db.query(`select version from public.landing_page_versions
       where page_id='40000000-0000-4000-8000-000000000001' order by version`);
     assert.deepEqual(publishedVersions.rows.map(row=>row.version),[1,2]);
+    const historySql = readFileSync(new URL('../supabase/migrations/20261102_07_client_page_history.sql',import.meta.url),'utf8');
+    await db.exec(historySql);
+    await db.exec(historySql);
+    const history=await db.query<{versions:Array<{version:number}>}>(
+      `select public.portal_page_versions($1,$2) versions`,[account,'40000000-0000-4000-8000-000000000001']);
+    assert.deepEqual(history.rows[0].versions.map(item=>item.version),[2,1]);
+    await db.query(`select public.portal_restore_page($1,$2,$3)`,
+      [account,'40000000-0000-4000-8000-000000000001',1]);
+    const restored=await db.query<{status:string;sections:Array<{heading:string}>;published_sections:Array<{heading:string}>;
+      draft_sections:Array<{heading:string}>}>(`select status,sections,published_sections,draft_sections
+      from public.landing_pages where id='40000000-0000-4000-8000-000000000001'`);
+    assert.equal(restored.rows[0].status,'published');
+    assert.equal(restored.rows[0].published_sections[0].heading,'New heading');
+    assert.equal(restored.rows[0].draft_sections[0].heading,'Real plumbing');
+    const audit=await db.query(`select metadata from public.portal_activity_log where action='version_restored'`);
+    assert.deepEqual(audit.rows[0].metadata,{version:1});
+    await db.exec(`create or replace function public.portal_page_edit_allowed(uuid) returns boolean
+      language sql stable as $$ select false $$`);
+    await assert.rejects(db.query(`select public.portal_restore_page($1,$2,$3)`,
+      [account,'40000000-0000-4000-8000-000000000001',1]),/Access denied/);
+    await db.exec(`create or replace function public.portal_page_allowed(text) returns boolean
+      language sql stable as $$ select false $$`);
+    await assert.rejects(db.query(`select public.portal_page_versions($1,$2)`,
+      [account,'40000000-0000-4000-8000-000000000001']),/Access denied/);
   } finally {
     await db.close();
   }
