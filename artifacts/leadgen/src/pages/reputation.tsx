@@ -61,11 +61,11 @@ const PLATFORM_CONFIG: Record<string, {
   color: string; bg: string; border: string; logo: string; logoColor: string;
   description: string; urlPattern: string;
 }> = {
-  google: { color: "text-red-600", bg: "bg-red-50", border: "border-red-200", logo: "G", logoColor: "bg-red-500", description: "Google Business Profile reviews", urlPattern: "https://g.page/r/[place-id]/review" },
+  google: { color: "text-red-700", bg: "bg-red-50", border: "border-red-200", logo: "G", logoColor: "bg-red-500", description: "Google Business Profile reviews", urlPattern: "https://g.page/r/[place-id]/review" },
   facebook: { color: "text-blue-600", bg: "bg-blue-50", border: "border-blue-200", logo: "f", logoColor: "bg-blue-600", description: "Facebook page recommendations", urlPattern: "https://www.facebook.com/[page-name]/reviews" },
-  yelp: { color: "text-red-500", bg: "bg-red-50", border: "border-red-200", logo: "Y", logoColor: "bg-red-600", description: "Yelp business reviews", urlPattern: "https://www.yelp.com/biz/[business-name]" },
+  yelp: { color: "text-red-700", bg: "bg-red-50", border: "border-red-200", logo: "Y", logoColor: "bg-red-600", description: "Yelp business reviews", urlPattern: "https://www.yelp.com/biz/[business-name]" },
   g2: { color: "text-orange-600", bg: "bg-orange-50", border: "border-orange-200", logo: "G2", logoColor: "bg-orange-500", description: "G2 software reviews", urlPattern: "https://www.g2.com/products/[product]/reviews" },
-  trustpilot: { color: "text-green-600", bg: "bg-green-50", border: "border-green-200", logo: "T", logoColor: "bg-green-600", description: "Trustpilot business reviews", urlPattern: "https://www.trustpilot.com/review/[domain]" },
+  trustpilot: { color: "text-green-700", bg: "bg-green-50", border: "border-green-200", logo: "T", logoColor: "bg-green-600", description: "Trustpilot business reviews", urlPattern: "https://www.trustpilot.com/review/[domain]" },
   capterra: { color: "text-blue-700", bg: "bg-blue-50", border: "border-blue-200", logo: "C", logoColor: "bg-blue-700", description: "Capterra software reviews", urlPattern: "https://www.capterra.com/p/[product-id]/[product-name]" },
 };
 
@@ -82,9 +82,9 @@ function StarRow({ rating, size = "sm" }: { rating: number; size?: "sm" | "lg" }
   );
 }
 
-const SENTIMENT_COLORS = { positive: "text-green-600 bg-green-50", neutral: "text-amber-600 bg-amber-50", negative: "text-red-600 bg-red-50" };
+const SENTIMENT_COLORS = { positive: "text-green-700 bg-green-50", neutral: "text-amber-600 bg-amber-50", negative: "text-red-600 bg-red-50" };
 
-function ReviewCard({ review, onReply, onDelete }: { review: Review; onReply: (id: string, text: string) => void; onDelete: (id: string) => void }) {
+function ReviewCard({ review, readOnly, onReply, onDelete }: { review: Review; readOnly:boolean; onReply: (id: string, text: string) => void; onDelete: (id: string) => void }) {
   const [showReply, setShowReply] = useState(false);
   const [replyText, setReplyText] = useState(review.reply ?? "");
   const cfg = PLATFORM_CONFIG[review.platform.toLowerCase()] ?? PLATFORM_CONFIG.google!;
@@ -93,7 +93,7 @@ function ReviewCard({ review, onReply, onDelete }: { review: Review; onReply: (i
   return (
     <div className="bg-white rounded-xl border border-border shadow-sm p-5">
       <div className="flex items-start gap-3 mb-3">
-        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-sm font-bold text-primary flex-shrink-0">{initials}</div>
+        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-sm font-bold text-blue-700 flex-shrink-0">{initials}</div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-foreground text-sm">{review.reviewer}</span>
@@ -104,14 +104,14 @@ function ReviewCard({ review, onReply, onDelete }: { review: Review; onReply: (i
           </div>
           <div className="flex items-center gap-2 mt-0.5">
             <StarRow rating={review.rating} />
-            <span className="text-xs text-muted-foreground">{new Date(review.createdAt).toLocaleDateString()}</span>
+            <span className="text-xs text-slate-600">{new Date(review.createdAt).toLocaleDateString()}</span>
           </div>
         </div>
         <div className="flex gap-1 flex-shrink-0">
           {review.reviewUrl && (
-            <a href={review.reviewUrl} target="_blank" className="p-1.5 rounded hover:bg-muted text-muted-foreground"><ExternalLink className="w-3.5 h-3.5" /></a>
+            <a href={review.reviewUrl} target="_blank" rel="noopener noreferrer" aria-label="Open original review" className="p-1.5 rounded hover:bg-muted text-slate-600"><ExternalLink className="w-3.5 h-3.5" /></a>
           )}
-          <button onClick={() => onDelete(review.id)} className="p-1.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+          {!readOnly&&<button aria-label="Delete review" onClick={() => onDelete(review.id)} className="p-1.5 rounded hover:bg-red-50 text-slate-600 hover:text-red-700"><Trash2 className="w-3.5 h-3.5" /></button>}
         </div>
       </div>
 
@@ -119,10 +119,10 @@ function ReviewCard({ review, onReply, onDelete }: { review: Review; onReply: (i
 
       {review.reply ? (
         <div className="bg-muted/40 border border-border rounded-lg p-3">
-          <div className="text-xs font-semibold text-muted-foreground mb-1 flex items-center gap-1"><CheckCircle className="w-3 h-3 text-green-500" /> Reply note saved in CRM</div>
+          <div className="text-xs font-semibold text-slate-600 mb-1 flex items-center gap-1"><CheckCircle className="w-3 h-3 text-green-500" /> Reply note saved in CRM</div>
           <p className="text-xs text-foreground">{review.reply}</p>
         </div>
-      ) : (
+      ) : !readOnly&&(
         <div>
           {!showReply ? (
             <button onClick={() => setShowReply(true)} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium">
@@ -139,7 +139,7 @@ function ReviewCard({ review, onReply, onDelete }: { review: Review; onReply: (i
               />
               <div className="flex gap-2">
                 <button onClick={() => { onReply(review.id, replyText); setShowReply(false); }} disabled={!replyText.trim()} className="px-3 py-1.5 text-xs bg-primary text-white rounded-lg font-medium hover:bg-primary/90 disabled:opacity-40">Save reply note</button>
-                <button onClick={() => setShowReply(false)} className="px-3 py-1.5 text-xs border border-border rounded-lg text-muted-foreground hover:bg-muted">Cancel</button>
+                <button onClick={() => setShowReply(false)} className="px-3 py-1.5 text-xs border border-border rounded-lg text-slate-600 hover:bg-muted">Cancel</button>
               </div>
             </div>
           )}
@@ -251,10 +251,10 @@ export default function Reputation() {
         <div className="flex items-center justify-between flex-wrap gap-4 min-w-0">
           <div>
             <PageTitle>Reputation Management</PageTitle>
-            <PageDescription>Track verified reviews and prepare replies for your review platforms.</PageDescription>
+            <PageDescription className="text-slate-700">Track verified reviews and prepare replies for your review platforms.</PageDescription>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => { setTab("reviews"); setShowAddReview(true); }} className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-lg text-muted-foreground hover:bg-muted">
+            <button disabled={scopeKey==='agency'} onClick={() => { setTab("reviews"); setShowAddReview(true); }} className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-lg text-slate-600 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50">
               <Plus className="w-4 h-4" /> Add Review
             </button>
             <button onClick={() => setTab("request")} className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90">
@@ -265,7 +265,7 @@ export default function Reputation() {
 
         <div className="flex gap-1 overflow-x-auto border-b border-border">
           {TABS.map((t) => (
-            <button key={t.id} onClick={() => setTab(t.id)} className={`shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === t.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+            <button key={t.id} onClick={() => setTab(t.id)} className={`shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === t.id ? "border-primary text-primary" : "border-transparent text-slate-600 hover:text-foreground"}`}>
               {t.label}
             </button>
           ))}
@@ -276,31 +276,31 @@ export default function Reputation() {
           <div className="space-y-5">
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
               <div className="bg-white rounded-xl border border-border shadow-sm p-5 col-span-1">
-                <div className="text-xs text-muted-foreground mb-2">Overall Rating</div>
+                <div className="text-xs text-slate-600 mb-2">Overall Rating</div>
                 <div className="text-4xl font-bold text-foreground mb-1">{avgRating.toFixed(1)}</div>
                 <StarRow rating={Math.round(avgRating)} size="lg" />
-                <div className="text-xs text-muted-foreground mt-2">{stats?.total ?? 0} total reviews</div>
+                <div className="text-xs text-slate-600 mt-2">{stats?.total ?? 0} total reviews</div>
               </div>
               <div className="bg-white rounded-xl border border-border shadow-sm p-5">
-                <div className="text-xs text-muted-foreground mb-1">Unreplied</div>
-                <div className="text-3xl font-bold text-red-500">{stats?.unreplied ?? 0}</div>
+                <div className="text-xs text-slate-600 mb-1">Unreplied</div>
+                <div className="text-3xl font-bold text-red-700">{stats?.unreplied ?? 0}</div>
                 <button onClick={() => { setTab("reviews"); setReplyFilter("unanswered"); }} className="text-xs text-primary hover:underline mt-1">View unanswered</button>
               </div>
               <div className="bg-white rounded-xl border border-border shadow-sm p-5">
-                <div className="text-xs text-muted-foreground mb-1">Sources Tracked</div>
+                <div className="text-xs text-slate-600 mb-1">Sources Tracked</div>
                 <div className="text-3xl font-bold text-blue-600">{sources.filter((s) => s.isActive).length}</div>
                 <button onClick={() => setTab("sources")} className="text-xs text-primary hover:underline mt-1">Manage sources</button>
               </div>
               <div className="bg-white rounded-xl border border-border shadow-sm p-5">
-                <div className="text-xs text-muted-foreground mb-1">Requests Sent</div>
-                <div className="text-3xl font-bold text-green-600">{requests.filter((request) => request.status === 'sent' || request.status === 'clicked').length}</div>
-                <div className="text-xs text-muted-foreground mt-1">{requests.filter((r) => r.clickedAt).length} clicked</div>
+                <div className="text-xs text-slate-600 mb-1">Requests Sent</div>
+                <div className="text-3xl font-bold text-green-700">{requests.filter((request) => request.status === 'sent' || request.status === 'clicked').length}</div>
+                <div className="text-xs text-slate-600 mt-1">{requests.filter((r) => r.clickedAt).length} clicked</div>
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
               <div className="bg-white rounded-xl border border-border shadow-sm p-5">
-                <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-muted-foreground" /> Rating Distribution</h3>
+                <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-slate-600" /> Rating Distribution</h3>
                 <div className="space-y-3">
                   {[5, 4, 3, 2, 1].map((r) => {
                     const count = ratingStats.find((b) => b.rating === r)?.count ?? 0;
@@ -314,7 +314,7 @@ export default function Reputation() {
                         <div className="flex-1 bg-muted rounded-full h-2.5">
                           <div className="bg-amber-400 h-2.5 rounded-full transition-all" style={{ width: `${pct}%` }} />
                         </div>
-                        <span className="text-xs text-muted-foreground w-8 text-right">{count}</span>
+                        <span className="text-xs text-slate-600 w-8 text-right">{count}</span>
                       </div>
                     );
                   })}
@@ -322,7 +322,7 @@ export default function Reputation() {
               </div>
 
               <div className="bg-white rounded-xl border border-border shadow-sm p-5">
-                <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><Globe className="w-4 h-4 text-muted-foreground" /> By Platform</h3>
+                <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><Globe className="w-4 h-4 text-slate-600" /> By Platform</h3>
                 {platformStats.length ? (
                   <div className="space-y-3">
                     {platformStats.map((p) => {
@@ -331,7 +331,7 @@ export default function Reputation() {
                         <div key={p.platform} className="flex items-center gap-3">
                           <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-white font-bold text-xs flex-shrink-0 ${cfg.logoColor}`}>{cfg.logo}</div>
                           <div className="flex-1">
-                            <div className="flex justify-between text-xs mb-0.5"><span className="font-medium capitalize">{p.platform}</span><span className="text-muted-foreground">{p.count} reviews</span></div>
+                            <div className="flex justify-between text-xs mb-0.5"><span className="font-medium capitalize">{p.platform}</span><span className="text-slate-600">{p.count} reviews</span></div>
                             <StarRow rating={Math.round(parseFloat(p.avg))} />
                           </div>
                           <span className="text-sm font-bold text-foreground">{p.avg}</span>
@@ -340,8 +340,8 @@ export default function Reputation() {
                     })}
                   </div>
                 ) : (
-                  <div className="text-center py-8 text-sm text-muted-foreground">
-                    <Globe className="w-10 h-10 mx-auto mb-2 text-muted-foreground/20" />No reviews yet. Add a source to get started.
+                  <div className="text-center py-8 text-sm text-slate-600">
+                    <Globe className="w-10 h-10 mx-auto mb-2 text-slate-600/20" />No reviews yet. Add a source to get started.
                   </div>
                 )}
               </div>
@@ -353,18 +353,18 @@ export default function Reputation() {
         {tab === "sources" && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">Save public review links for each platform. Reviews are added with their original URL.</p>
-              <button onClick={() => setShowAddSource(true)} className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90">
+              <p className="text-sm text-slate-600">Save public review links for each platform. Reviews are added with their original URL.</p>
+              <button disabled={scopeKey==='agency'} onClick={() => setShowAddSource(true)} className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
                 <Plus className="w-4 h-4" /> Add Source
               </button>
             </div>
 
             {sources.length === 0 ? (
               <div className="bg-white rounded-xl border border-border shadow-sm p-12 text-center">
-                <Globe className="w-14 h-14 text-muted-foreground/20 mx-auto mb-4" />
+                <Globe className="w-14 h-14 text-slate-600/20 mx-auto mb-4" />
                 <p className="text-base font-semibold text-foreground">No review sources yet</p>
-                <p className="text-sm text-muted-foreground mt-1 mb-4">Add your Google Business, Facebook, Yelp, and other platforms</p>
-                <button onClick={() => setShowAddSource(true)} className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90">Add Your First Source</button>
+                <p className="text-sm text-slate-600 mt-1 mb-4">Add your Google Business, Facebook, Yelp, and other platforms</p>
+                <button disabled={scopeKey==='agency'} onClick={() => setShowAddSource(true)} className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">Add Your First Source</button>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -380,24 +380,24 @@ export default function Reputation() {
                             <div className="font-semibold text-foreground text-sm">{source.name}</div>
                             <div className={`w-2 h-2 rounded-full flex-shrink-0 ${source.isActive ? "bg-green-500" : "bg-gray-300"}`} />
                           </div>
-                          <div className="text-xs text-muted-foreground capitalize">{source.platform}</div>
+                          <div className="text-xs text-slate-600 capitalize">{source.platform}</div>
                         </div>
-                        <button onClick={() => deleteSource.mutate(source.id)} className="p-1.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500">
+                        <button aria-label={`Delete ${source.name} source`} disabled={scopeKey==='agency'} onClick={() => deleteSource.mutate(source.id)} className="p-1.5 rounded hover:bg-red-50 text-slate-600 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                         <div className="bg-muted/40 rounded-lg p-3">
-                          <div className="text-xs text-muted-foreground">Linked reviews</div>
+                          <div className="text-xs text-slate-600">Linked reviews</div>
                           <div className="text-xl font-bold text-foreground">{source.reviewCount}</div>
                         </div>
                         <div className="bg-muted/40 rounded-lg p-3">
-                          <div className="text-xs text-muted-foreground">Linked rating</div>
+                          <div className="text-xs text-slate-600">Linked rating</div>
                           <div className="text-xl font-bold text-amber-500">{avg > 0 ? avg.toFixed(1) : "N/A"}</div>
                         </div>
                       </div>
                       {source.reviewUrl && (
-                        <a href={source.reviewUrl} target="_blank" className="flex items-center gap-1.5 text-xs text-primary hover:underline">
+                        <a href={source.reviewUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-primary hover:underline">
                           <ExternalLink className="w-3 h-3" /> View on {source.platform}
                         </a>
                       )}
@@ -409,16 +409,16 @@ export default function Reputation() {
 
             {/* Available platforms not yet added */}
             <div>
-              <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Available Platforms</div>
+              <div className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-3">Available Platforms</div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {AVAILABLE_PLATFORMS.filter((p) => !sources.find((s) => s.platform === p.key)).map((p) => (
-                  <button key={p.key} onClick={() => { setAddSourcePlatform(p.key); setShowAddSource(true); }} className="flex items-center gap-3 bg-white rounded-xl border border-border shadow-sm p-4 hover:border-primary/40 transition-colors text-left group">
+                  <button key={p.key} disabled={scopeKey==='agency'} onClick={() => { setAddSourcePlatform(p.key); setShowAddSource(true); }} className="flex items-center gap-3 bg-white rounded-xl border border-border shadow-sm p-4 hover:border-primary/40 transition-colors text-left group disabled:cursor-not-allowed disabled:opacity-50">
                     <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-xs flex-shrink-0 ${p.logoColor}`}>{p.logo}</div>
                     <div>
                       <div className="text-sm font-medium text-foreground capitalize group-hover:text-primary">{p.key}</div>
-                      <div className="text-xs text-muted-foreground">{p.description}</div>
+                      <div className="text-xs text-slate-600">{p.description}</div>
                     </div>
-                    <Plus className="w-4 h-4 text-muted-foreground group-hover:text-primary ml-auto" />
+                    <Plus className="w-4 h-4 text-slate-600 group-hover:text-primary ml-auto" />
                   </button>
                 ))}
               </div>
@@ -431,39 +431,39 @@ export default function Reputation() {
           <div className="space-y-4">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search reviews..." className="workspace-control pl-9 pr-3 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30 w-52" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600" />
+                <input aria-label="Search reviews" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search reviews..." className="workspace-control pl-9 pr-3 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/30 w-52" />
               </div>
-              <select value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value as PlatformFilter)} className="workspace-control px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none">
+              <select aria-label="Filter by platform" value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value as PlatformFilter)} className="workspace-control px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none">
                 <option value="all">All Platforms</option>
                 {AVAILABLE_PLATFORMS.map((p) => <option key={p.key} value={p.key} className="capitalize">{p.key}</option>)}
               </select>
-              <select value={ratingFilter} onChange={(e) => setRatingFilter(e.target.value as RatingFilter)} className="workspace-control px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none">
+              <select aria-label="Filter by rating" value={ratingFilter} onChange={(e) => setRatingFilter(e.target.value as RatingFilter)} className="workspace-control px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none">
                 <option value="all">All Ratings</option>
                 {[5, 4, 3, 2, 1].map((r) => <option key={r} value={String(r)}>{r} Star{r !== 1 ? "s" : ""}</option>)}
               </select>
               <div className="flex gap-1 bg-muted rounded-lg p-0.5">
                 {(["all", "unanswered"] as const).map((f) => (
-                  <button key={f} onClick={() => setReplyFilter(f)} className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${replyFilter === f ? "bg-white text-foreground shadow-sm" : "text-muted-foreground"}`}>
+                  <button key={f} onClick={() => setReplyFilter(f)} className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${replyFilter === f ? "bg-white text-foreground shadow-sm" : "text-slate-600"}`}>
                     {f === "all" ? "All" : "Unanswered"}
                   </button>
                 ))}
               </div>
-              <button onClick={() => setShowAddReview(true)} className="ml-auto flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-border rounded-lg text-muted-foreground hover:bg-muted">
+              <button disabled={scopeKey==='agency'} onClick={() => setShowAddReview(true)} className="ml-auto flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-border rounded-lg text-slate-600 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50">
                 <Plus className="w-4 h-4" /> Add Review
               </button>
             </div>
 
             {filtered.length === 0 ? (
               <div className="bg-white rounded-xl border border-border shadow-sm p-12 text-center">
-                <Star className="w-12 h-12 text-muted-foreground/20 mx-auto mb-3" />
+                <Star className="w-12 h-12 text-slate-600/20 mx-auto mb-3" />
                 <p className="text-sm font-medium text-foreground">No reviews found</p>
-                <p className="text-xs text-muted-foreground mt-1">Try adjusting your filters or add reviews from your sources</p>
+                <p className="text-xs text-slate-600 mt-1">Try adjusting your filters or add reviews from your sources</p>
               </div>
             ) : (
               <div className="space-y-3">
                 {filtered.map((r) => (
-                  <ReviewCard key={r.id} review={r} onReply={(id, text) => replyToReview.mutate({ id, reply: text })} onDelete={(id) => deleteReview.mutate(id)} />
+                  <ReviewCard key={r.id} review={r} readOnly={scopeKey==='agency'} onReply={(id, text) => replyToReview.mutate({ id, reply: text })} onDelete={(id) => deleteReview.mutate(id)} />
                 ))}
               </div>
             )}
@@ -475,15 +475,15 @@ export default function Reputation() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div className="bg-white rounded-xl border border-border shadow-sm p-6 space-y-5">
               <h3 className="font-semibold text-foreground">Request a review for a client</h3>
-              <p className="text-sm leading-relaxed text-muted-foreground">Choose the client account, then select an eligible customer who submitted a form or called the business. Requests are scheduled from the client portal and show their actual delivery status.</p>
+              <p className="text-sm leading-relaxed text-slate-600">Choose the client account, then select an eligible customer who submitted a form or called the business. Requests are scheduled from the client portal and show their actual delivery status.</p>
               <Link href="/client-portal/reviews" className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"><Send className="h-4 w-4"/>Open client reviews</Link>
             </div>
 
             <div className="bg-white rounded-xl border border-border shadow-sm p-5">
-              <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-muted-foreground" /> Recent Requests</h3>
+              <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-slate-600" /> Recent Requests</h3>
               {requests.length === 0 ? (
-                <div className="text-center py-8 text-sm text-muted-foreground">
-                  <Send className="w-10 h-10 mx-auto mb-2 text-muted-foreground/20" />No requests sent yet
+                <div className="text-center py-8 text-sm text-slate-600">
+                  <Send className="w-10 h-10 mx-auto mb-2 text-slate-600/20" />No requests sent yet
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -494,7 +494,7 @@ export default function Reputation() {
                         <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0 ${cfg.logoColor}`}>{cfg.logo}</div>
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-medium text-foreground">{r.contactName}</div>
-                          <div className="text-xs text-muted-foreground">{r.channel} · {r.platform} · {new Date(r.sentAt).toLocaleDateString()}</div>
+                          <div className="text-xs text-slate-600">{r.channel} · {r.platform} · {new Date(r.sentAt).toLocaleDateString()}</div>
                         </div>
                         <div className={`text-xs px-2 py-0.5 rounded-full font-medium border ${r.clickedAt ? "bg-green-50 text-green-700 border-green-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
                           {r.clickedAt ? "Clicked" : r.status === "pending" ? "Scheduled" : r.status === "sent" ? "Sent" : r.status}
@@ -512,17 +512,17 @@ export default function Reputation() {
       {/* Add Source Modal */}
       {showAddSource && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowAddSource(false)}>
-          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-label="Add review source" className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
               <h3 className="font-semibold text-foreground">Add Review Source</h3>
-              <button onClick={() => setShowAddSource(false)} className="text-muted-foreground hover:text-foreground">✕</button>
+              <button onClick={() => setShowAddSource(false)} className="text-slate-700 hover:text-foreground">Close</button>
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1.5">Platform</label>
+                <label className="text-xs font-medium text-slate-600 block mb-1.5">Platform</label>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                   {AVAILABLE_PLATFORMS.map((p) => (
-                    <button key={p.key} onClick={() => setAddSourcePlatform(p.key)} className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-xs font-medium transition-colors ${addSourcePlatform === p.key ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
+                    <button key={p.key} onClick={() => setAddSourcePlatform(p.key)} className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-xs font-medium transition-colors ${addSourcePlatform === p.key ? "border-primary bg-primary/5 text-primary" : "border-border text-slate-600 hover:border-primary/40"}`}>
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold ${p.logoColor}`}>{p.logo}</div>
                       <span className="capitalize">{p.key}</span>
                     </button>
@@ -530,21 +530,21 @@ export default function Reputation() {
                 </div>
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1.5">Display Name *</label>
+                <label className="text-xs font-medium text-slate-600 block mb-1.5">Display Name *</label>
                 <input value={addSourceFields.name} onChange={(e) => setAddSourceFields((f) => ({ ...f, name: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder={`My ${addSourcePlatform.charAt(0).toUpperCase() + addSourcePlatform.slice(1)} Reviews`} />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1.5">Business / Profile ID</label>
+                <label className="text-xs font-medium text-slate-600 block mb-1.5">Business / Profile ID</label>
                 <input value={addSourceFields.businessId} onChange={(e) => setAddSourceFields((f) => ({ ...f, businessId: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="e.g. ChIJ... for Google" />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1.5">Review Link URL *</label>
+                <label className="text-xs font-medium text-slate-600 block mb-1.5">Review Link URL *</label>
                 <input value={addSourceFields.reviewUrl} onChange={(e) => setAddSourceFields((f) => ({ ...f, reviewUrl: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder={PLATFORM_CONFIG[addSourcePlatform]?.urlPattern ?? "https://"} />
               </div>
               {addSource.error && <p role="alert" className="text-sm text-red-600">{String(addSource.error)}</p>}
             </div>
             <div className="px-6 pb-6 flex gap-2 justify-end">
-              <button onClick={() => setShowAddSource(false)} className="px-4 py-2 text-sm font-medium border border-border rounded-lg text-muted-foreground">Cancel</button>
+              <button onClick={() => setShowAddSource(false)} className="px-4 py-2 text-sm font-medium border border-border rounded-lg text-slate-600">Cancel</button>
               <button onClick={() => addSource.mutate({ platform: addSourcePlatform, name: addSourceFields.name || `${addSourcePlatform} Reviews`, businessId: addSourceFields.businessId || undefined, reviewUrl: addSourceFields.reviewUrl })} disabled={addSource.isPending || !addSourceFields.reviewUrl.startsWith('https://')} className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-40">
                 {addSource.isPending ? "Adding..." : "Add Source"}
               </button>
@@ -556,21 +556,21 @@ export default function Reputation() {
       {/* Add Review Modal */}
       {showAddReview && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowAddReview(false)}>
-          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-label="Add review" className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
               <h3 className="font-semibold text-foreground">Add Review</h3>
-              <button onClick={() => setShowAddReview(false)} className="text-muted-foreground hover:text-foreground">✕</button>
+              <button onClick={() => setShowAddReview(false)} className="text-slate-700 hover:text-foreground">Close</button>
             </div>
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground block mb-1.5">Platform</label>
+                  <label className="text-xs font-medium text-slate-600 block mb-1.5">Platform</label>
                   <select value={newReview.platform} onChange={(e) => setNewReview((r) => ({ ...r, platform: e.target.value, sourceId: '' }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg bg-white outline-none">
                     {AVAILABLE_PLATFORMS.map((p) => <option key={p.key} value={p.key} className="capitalize">{p.key}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground block mb-1.5">Rating</label>
+                  <label className="text-xs font-medium text-slate-600 block mb-1.5">Rating</label>
                   <div className="flex gap-1 mt-1">
                     {[1, 2, 3, 4, 5].map((r) => (
                       <button key={r} onClick={() => setNewReview((n) => ({ ...n, rating: r }))} className="p-0.5">
@@ -580,21 +580,21 @@ export default function Reputation() {
                   </div>
                 </div>
               </div>
-              <div><label className="mb-1.5 block text-xs font-medium text-muted-foreground">Saved source</label><select value={newReview.sourceId} onChange={(e) => setNewReview((review) => ({...review,sourceId:e.target.value}))} className="workspace-control w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"><option value="">No saved source</option>{sources.filter((source) => source.platform===newReview.platform).map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}</select></div>
+              <div><label className="mb-1.5 block text-xs font-medium text-slate-600">Saved source</label><select value={newReview.sourceId} onChange={(e) => setNewReview((review) => ({...review,sourceId:e.target.value}))} className="workspace-control w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"><option value="">No saved source</option>{sources.filter((source) => source.platform===newReview.platform).map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}</select></div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1.5">Reviewer Name *</label>
+                <label className="text-xs font-medium text-slate-600 block mb-1.5">Reviewer Name *</label>
                 <input value={newReview.reviewer} onChange={(e) => setNewReview((r) => ({ ...r, reviewer: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30" placeholder="John Smith" />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1.5">Review Text</label>
+                <label className="text-xs font-medium text-slate-600 block mb-1.5">Review Text</label>
                 <textarea value={newReview.text} onChange={(e) => setNewReview((r) => ({ ...r, text: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/30 resize-none" rows={3} placeholder="Great service!" />
               </div>
-              <div><label className="text-xs font-medium text-muted-foreground block mb-1.5">Public review URL *</label><input type="url" value={newReview.reviewUrl} onChange={(e) => setNewReview((r) => ({ ...r, reviewUrl: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none" placeholder="https://..." /></div>
-              <label className="flex items-start gap-2 text-xs text-muted-foreground"><input type="checkbox" checked={newReview.confirmedReal} onChange={(e) => setNewReview((r) => ({ ...r, confirmedReal: e.target.checked }))} className="mt-0.5"/><span>I confirm this is a real customer review and the name, rating, and text match the public source.</span></label>
+              <div><label className="text-xs font-medium text-slate-600 block mb-1.5">Public review URL *</label><input type="url" value={newReview.reviewUrl} onChange={(e) => setNewReview((r) => ({ ...r, reviewUrl: e.target.value }))} className="workspace-control w-full px-3 py-2 text-sm border border-border rounded-lg outline-none" placeholder="https://..." /></div>
+              <label className="flex items-start gap-2 text-xs text-slate-600"><input type="checkbox" checked={newReview.confirmedReal} onChange={(e) => setNewReview((r) => ({ ...r, confirmedReal: e.target.checked }))} className="mt-0.5"/><span>I confirm this is a real customer review and the name, rating, and text match the public source.</span></label>
               {addReview.error && <p role="alert" className="text-sm text-red-600">{String(addReview.error)}</p>}
             </div>
             <div className="px-6 pb-6 flex gap-2 justify-end">
-              <button onClick={() => setShowAddReview(false)} className="px-4 py-2 text-sm font-medium border border-border rounded-lg text-muted-foreground">Cancel</button>
+              <button onClick={() => setShowAddReview(false)} className="px-4 py-2 text-sm font-medium border border-border rounded-lg text-slate-600">Cancel</button>
               <button onClick={() => addReview.mutate(newReview)} disabled={!newReview.reviewer.trim() || !newReview.reviewUrl.startsWith('https://') || !newReview.confirmedReal || addReview.isPending} className="px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-40">
                 {addReview.isPending ? "Adding..." : "Add Review"}
               </button>

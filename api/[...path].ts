@@ -1155,6 +1155,9 @@ async function listResource(config: ResourceConfig, req: VercelRequest, res: Ver
 
 async function createResource(config: ResourceConfig, req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as Record<string, unknown>;
+  if(['reviews','review_sources'].includes(config.table)&&!selectedAccountCookie(req)?.accountId){
+    sendJson(res,400,{error:'Select a client account before managing reputation.'});return;
+  }
   if(config.table==='review_requests'){
     sendJson(res,409,{error:'Use the client portal to schedule a review request for an opted-in customer.'});return;
   }
@@ -1376,6 +1379,9 @@ async function handleAffiliateReferrals(affiliateId: string, method: string, req
 async function handleGenericResource(path: string, method: string, req: VercelRequest, res: VercelResponse) {
   const match = genericResourcePath(path);
   if (!match) return false;
+  if(['reviews','review-sources'].includes(match.key)&&method!=='GET'&&!selectedAccountCookie(req)?.accountId){
+    sendJson(res,400,{error:'Select a client account before managing reputation.'});return true;
+  }
   if(tenantResourceTables.has(resourceConfigs[match.key]?.table??'')&&method!=='GET'&&selectedAccountCookie(req)?.viewAsClient){
     sendJson(res,403,{error:'Client view is read only'});return true;
   }

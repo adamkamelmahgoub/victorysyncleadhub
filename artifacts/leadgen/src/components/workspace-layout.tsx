@@ -259,7 +259,7 @@ export function Layout({ children }: { children: ReactNode }) {
                     className="group mt-4 border-t border-slate-800 pt-3"
                     open={links.some((item) => active(item.href)) || undefined}
                   >
-                    <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                    <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
                       {group.label}
                       <ChevronRight className="h-3 w-3 transition-transform group-open:rotate-90" />
                     </summary>
