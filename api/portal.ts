@@ -422,24 +422,21 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
       return send(res,200,data);
     }
     if (parsed.action === 'invite_staff') {
-      if (!externalSendsEnabled()) return send(res,503,{error:'Invite delivery is disabled outside production or in sandbox mode'});
-      if (!process.env.RESEND_API_KEY || !process.env.INVITE_FROM_EMAIL)
-        return send(res,503,{error:'Invite email is not configured'});
       const code=await rpc<string>(user.token,'portal_invite_client_staff',{p_account:selected.id,
         p_email:parsed.email,p_name:parsed.name});
-      const host=header(req,'host');
-      if(!host||!/^[a-z0-9.-]+(?::\d{1,5})?$/i.test(host))throw Error('Invalid host');
-      const origin=`${header(req,'x-forwarded-proto')==='http'?'http':'https'}://${host}`;
-      const link=new URL('/login',origin);link.searchParams.set('invite',code);
-      link.searchParams.set('email',parsed.email);link.searchParams.set('name',parsed.name);
-      const sent=await fetch('https://api.resend.com/emails',{method:'POST',headers:{
-        authorization:`Bearer ${process.env.RESEND_API_KEY}`,'content-type':'application/json'},
-        body:JSON.stringify({from:process.env.INVITE_FROM_EMAIL,to:[parsed.email],
-          subject:'Your VictorySync client portal invite',
-          text:`${parsed.name}, you have been invited to the client portal. Create your password here: ${link.toString()}\n\nThis invitation expires in seven days.`}),
-        signal:AbortSignal.timeout(15000)});
-      if(!sent.ok)return send(res,502,{error:'Invite created, but email failed',inviteCode:code});
-      return send(res,201,{invited:true});
+      const inviteUrl=clientInviteUrl(code,parsed.email,parsed.name);
+      if(externalSendsEnabled()&&process.env.RESEND_API_KEY&&process.env.INVITE_FROM_EMAIL){
+        try{
+          const sent=await fetch('https://api.resend.com/emails',{method:'POST',headers:{
+            authorization:`Bearer ${process.env.RESEND_API_KEY}`,'content-type':'application/json'},
+            body:JSON.stringify({from:process.env.INVITE_FROM_EMAIL,to:[parsed.email],
+              subject:'Your VictorySync client portal invite',
+              text:`${parsed.name}, you have been invited to the client portal. Create your password here: ${inviteUrl}\n\nThis invitation expires in seven days.`}),
+            signal:AbortSignal.timeout(15000)});
+          if(sent.ok)return send(res,201,{invited:true,inviteSent:true,inviteUrl:null});
+        }catch(error){console.error('Client staff invite email failed',error instanceof Error?error.name:'unknown')}
+      }
+      return send(res,201,{invited:true,inviteSent:false,inviteUrl});
     }
     if (parsed.action === 'change_lead') {
       const data = await rpc(user.token,'portal_change_lead',{p_account:selected.id,p_lead:parsed.leadId,
