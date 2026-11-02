@@ -26,6 +26,7 @@ const querySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('launchpad') }),
   z.object({ action: z.literal('metrics'), from: z.string().datetime(), to: z.string().datetime() }),
   z.object({ action: z.literal('lead_timeline'), leadId: uuid }),
+  z.object({ action: z.literal('lead_page'), beforeAt: z.string().datetime({offset:true}), beforeId: uuid }).strict(),
   z.object({ action: z.literal('ad_spend') }),
   z.object({ action: z.literal('page_stats') }),
   z.object({ action: z.literal('page_versions'), pageId:uuid }),
@@ -285,6 +286,8 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
         {p_account:selected.id,p_start:parsed.from,p_end:parsed.to}));
       if (parsed.action === 'lead_timeline') return send(res,200,await rpc(user.token,'portal_lead_timeline',
         {p_account:selected.id,p_lead:parsed.leadId}));
+      if (parsed.action === 'lead_page') return send(res,200,await rpc(user.token,'portal_lead_page',
+        {p_account:selected.id,p_before_at:parsed.beforeAt,p_before_id:parsed.beforeId,p_limit:200}));
       if (parsed.action === 'ad_spend') return send(res,200,await rpc(user.token,'portal_ad_spend',
         {p_account:selected.id}));
       if (parsed.action === 'page_stats') return send(res,200,await rpc(user.token,'portal_page_stats',
@@ -318,12 +321,23 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
         {p_account:selected.id,p_start:parsed.from,p_end:parsed.to,p_outcome:parsed.outcome||null}));
       if (parsed.action === 'staff') return send(res,200,await rpc(user.token,'portal_staff',{p_account:selected.id}));
       if (parsed.action === 'export' && selected.viewAsClient) return send(res,403,{error:'Client view is read only'});
-      const data = parsed.section==='pages'
+      const data = parsed.section==='leads'
+        ? await rpc<unknown>(user.token,'portal_lead_page',{p_account:selected.id,p_limit:200})
+        : parsed.section==='pages'
         ? await rpc<unknown>(user.token,'portal_pages',{p_account:selected.id})
         : await rpc<unknown>(user.token,'portal_snapshot',{p_account:selected.id,p_page:parsed.section});
       if (parsed.action === 'export') {
-        const rows = Array.isArray(data) ? data : (data && typeof data === 'object' ?
+        let rows = Array.isArray(data) ? data : (data && typeof data === 'object' ?
           Object.values(data).find(Array.isArray) as Array<Record<string,unknown>> || [] : []);
+        if(parsed.section==='leads'){
+          let cursor=(data as {nextCursor?:{createdAt:string;id:string}|null}).nextCursor;
+          while(cursor){
+            const page=await rpc<{rows:Array<Record<string,unknown>>;nextCursor:{createdAt:string;id:string}|null}>(
+              user.token,'portal_lead_page',{p_account:selected.id,p_before_at:cursor.createdAt,
+                p_before_id:cursor.id,p_limit:200});
+            rows=[...rows,...page.rows];cursor=page.nextCursor;
+          }
+        }
         await rpc(user.token,'portal_log',{p_account:selected.id,p_action:'exported',p_target:parsed.section});
         res.statusCode=200;res.setHeader('content-type','text/csv; charset=utf-8');
         res.setHeader('content-disposition',`attachment; filename="${parsed.section}.csv"`);

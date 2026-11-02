@@ -112,6 +112,31 @@ test('client owner can move a lead to Won, save a note, and record job value',as
   expect(writes.filter(x=>x.action==='change_lead').map(x=>x.leadId)).toEqual([lead.id,lead.id]);
 });
 
+test('client lead list and board load older account leads',async({page})=>{
+  const older={...lead,id:'30000000-0000-4000-8000-000000000002',first_name:'Jordan',
+    last_name:'Older',created_at:'2026-10-14T12:00:00Z'};
+  const cursor={createdAt:lead.created_at,id:lead.id};
+  let requestedCursor='';
+  await page.route('**/api/portal*',async route=>{
+    const url=new URL(route.request().url());
+    if(url.searchParams.get('action')==='snapshot'&&url.searchParams.get('section')==='leads')
+      return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+        accountId,readOnly:false,data:{rows:[lead],stages:[],nextCursor:cursor}})});
+    if(url.searchParams.get('action')==='lead_page'){
+      requestedCursor=url.searchParams.get('beforeId')||'';
+      return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({rows:[older],stages:[],nextCursor:null})});
+    }
+    return route.fallback();
+  });
+  await page.goto('/client-portal/leads');
+  await page.getByRole('button',{name:'Load older leads'}).click();
+  expect(requestedCursor).toBe(lead.id);
+  await expect(page.getByText('Jordan Older')).toBeVisible();
+  await page.getByRole('button',{name:'Pipeline board'}).click();
+  await expect(page.getByText('Jordan Older')).toBeVisible();
+  await expect(page.getByText('2 leads shown')).toBeVisible();
+});
+
 for(const [section,visibleText] of [
   ['leads','Alex Customer'],['calls','Booked a repair'],['pages','Demo service page'],
   ['forms','Contact form'],['reviews','Verified customer'],['reports','Monthly report'],

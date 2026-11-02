@@ -151,8 +151,17 @@ function Dashboard({admin}:{admin:boolean}) {
     {admin&&<Card className="space-y-3 p-4"><h2 className="font-semibold">Monthly ad spend</h2><div className="flex flex-wrap gap-2"><select aria-label="Ad platform" className="rounded border px-2" value={platform} onChange={e=>setPlatform(e.target.value)}>{['google_ads','meta_ads','local_services','other'].map(x=><option key={x} value={x}>{nice(x)}</option>)}</select><input aria-label="Spend month" type="month" className="rounded border px-2" value={month} onChange={e=>setMonth(e.target.value)}/><Input aria-label="Spend in dollars" type="number" min="0" step="0.01" className="w-36" placeholder="USD" value={amount} onChange={e=>setAmount(e.target.value)}/><Button disabled={!amount||saveSpend.isPending} onClick={()=>saveSpend.mutate()}>Save spend</Button></div>{saveSpend.error&&<p role="alert" className="text-red-600">{String(saveSpend.error)}</p>}<p className="text-xs text-muted-foreground">{spend?.slice(0,4).map(x=>`${nice(x.platform)} ${x.month}: $${(x.amount_cents/100).toFixed(2)}`).join(' · ')}</p></Card>}
   </div>;
 }
-function LeadTable({data,readOnly}:{data:{rows:Lead[];stages:{id:string;name:string}[]};readOnly:boolean}) {
+type LeadPage = {rows:Lead[];stages:{id:string;name:string}[];nextCursor?:{createdAt:string;id:string}|null};
+function LeadTable({data,readOnly}:{data:LeadPage;readOnly:boolean}) {
   const queryClient = useQueryClient();
+  const [olderRows,setOlderRows]=useState<Lead[]>([]);
+  const [nextCursor,setNextCursor]=useState(data.nextCursor??null);
+  useEffect(()=>{setOlderRows([]);setNextCursor(data.nextCursor??null)},[data]);
+  const loadOlder=useMutation({mutationFn:async(cursor:{createdAt:string;id:string})=>
+    apiFetch(`/api/portal?action=lead_page&beforeAt=${encodeURIComponent(cursor.createdAt)}&beforeId=${encodeURIComponent(cursor.id)}`) as Promise<LeadPage>,
+    onSuccess:page=>{setOlderRows(current=>{const seen=new Set([...data.rows,...current].map(row=>row.id));
+      return [...current,...page.rows.filter(row=>!seen.has(row.id))]});setNextCursor(page.nextCursor??null)}});
+  const allRows=[...data.rows,...olderRows.filter(row=>!data.rows.some(first=>first.id===row.id))];
   const [notes,setNotes] = useState<Record<string,string>>({});
   const [view,setView]=useState<'list'|'board'>('list');
   const [selected,setSelected]=useState<string|null>(null);
@@ -164,7 +173,7 @@ function LeadTable({data,readOnly}:{data:{rows:Lead[];stages:{id:string;name:str
     onSuccess:()=>{setJobValue('');void queryClient.invalidateQueries({queryKey:['portal-lead-timeline']})}});
   const {data:timeline}=useQuery<{lead:Lead;events:Array<{event_type:string;body:string|null;metadata:Record<string,unknown>;created_at:string}>}>({
     queryKey:['portal-lead-timeline',selected],queryFn:()=>apiFetch(`/api/portal?action=lead_timeline&leadId=${selected}`),enabled:!!selected,retry:false});
-  if (!data.rows.length) return <Card className="p-8 text-center text-muted-foreground">No client leads yet.</Card>;
+  if (!allRows.length) return <Card className="p-8 text-center text-muted-foreground">No client leads yet.</Card>;
   const leadCard=(lead:Lead)=><Card key={lead.id} className="min-w-0 space-y-3 p-4">
     <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-semibold">{lead.first_name} {lead.last_name}</h3>
       <p className="text-sm text-muted-foreground">{[lead.company,lead.phone,lead.email].filter(Boolean).join(' · ')}</p></div>
@@ -177,7 +186,9 @@ function LeadTable({data,readOnly}:{data:{rows:Lead[];stages:{id:string;name:str
       <Button disabled={readOnly || change.isPending || notes[lead.id] === undefined} onClick={()=>change.mutate({leadId:lead.id,notes:notes[lead.id]})}>Save note</Button></div>
   </Card>;
   return <div className="space-y-4"><div className="flex gap-2"><Button size="sm" variant={view==='list'?'default':'outline'} onClick={()=>setView('list')}>List</Button><Button size="sm" variant={view==='board'?'default':'outline'} onClick={()=>setView('board')}>Pipeline board</Button></div>
-    {view==='list'?<div className="space-y-3">{data.rows.map(leadCard)}</div>:<div className="flex gap-3 overflow-x-auto pb-3">{[{id:'',name:'No stage'},...data.stages].map(stage=><div key={stage.id||'unassigned'} className="w-72 shrink-0 space-y-3"><h3 className="rounded bg-slate-100 p-2 text-sm font-semibold">{stage.name}</h3>{data.rows.filter(lead=>(lead.pipeline_stage_id||'')===stage.id).map(leadCard)}</div>)}</div>}
+    {view==='list'?<div className="space-y-3">{allRows.map(leadCard)}</div>:<div className="flex gap-3 overflow-x-auto pb-3">{[{id:'',name:'No stage'},...data.stages].map(stage=><div key={stage.id||'unassigned'} className="w-72 shrink-0 space-y-3"><h3 className="rounded bg-slate-100 p-2 text-sm font-semibold">{stage.name}</h3>{allRows.filter(lead=>(lead.pipeline_stage_id||'')===stage.id).map(leadCard)}</div>)}</div>}
+    <div className="flex flex-wrap items-center gap-3 text-sm text-slate-700"><span>{allRows.length} leads shown</span>{nextCursor&&<Button size="sm" variant="outline" disabled={loadOlder.isPending} onClick={()=>loadOlder.mutate(nextCursor)}>{loadOlder.isPending?'Loading...':'Load older leads'}</Button>}</div>
+    {loadOlder.error&&<p role="alert" className="text-red-600">Could not load older leads: {String(loadOlder.error)}</p>}
     {selected&&<Card className="space-y-3 p-4"><div className="flex justify-between"><h3 className="font-semibold">Lead timeline</h3><Button size="sm" variant="outline" onClick={()=>setSelected(null)}>Close</Button></div>
       <div className="flex flex-wrap gap-2"><Input aria-label="Job value" type="number" min="0" className="w-36" placeholder="Job value" value={jobValue} onChange={e=>setJobValue(e.target.value)}/><Button disabled={readOnly||!jobValue||valueChange.isPending} onClick={()=>valueChange.mutate(selected)}>Save job value</Button></div>
       {timeline?.events.map((event,index)=><div key={index} className="border-t py-2 text-sm"><p className="font-medium">{nice(event.event_type)} <span className="font-normal text-muted-foreground">{new Date(event.created_at).toLocaleString()}</span></p><p>{event.body}</p>{typeof event.metadata.recording_url==='string'&&<audio controls src={event.metadata.recording_url} className="mt-2 w-full"/>}</div>)}</Card>}
