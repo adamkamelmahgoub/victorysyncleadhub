@@ -27,3 +27,11 @@ The PostgreSQL Windows installer download returned HTTP 403. `scripts/setup-loca
 ## 2026-10-31: MightyCall product-specific API endpoints
 
 MightyCall documents separate Classic and Call Center API hosts and SMS paths. The delivery worker previously hard-coded Classic. Keep Classic as the default for existing installations and use `MIGHTYCALL_PRODUCT=call_center` to select the Call Center host and SMS endpoint. The API User key is distinct from the webhook signing secret. Official references: [Classic authentication](https://support.mightycall.com/authentication-via-api-mc), [Call Center authentication](https://support.mightycall.com/authentication-via-api), and [Call Center SMS API](https://ccapi.mightycall.com/v4/doc).
+
+## 2026-11-02: Reconcile live schema before replaying migrations
+
+Read-only production catalog checks show the original client tenancy functions and guards are present on all 28 named tables, but the Supabase migration ledger has no matching dated versions. Newer launchpad, page publish/history, and missed-call claim objects are absent. Do not mark old files applied or rerun the whole directory by filename alone. Compare each migration's resulting objects and data effects, back up and dry run data changes on a disposable copy, then apply only verified pending changes in order. Production customer rows are not QA fixtures.
+
+## 2026-11-02: Keep client delivery in sandbox until providers are configured
+
+Vercel production has no Stripe, MightyCall, Resend, Slack, portal base URL, or public pages base URL variables at this audit. `CLIENT_DELIVERY_SANDBOX=1` was set in the production project for future deployments. Keep it enabled while wiring secrets, webhook endpoints and controlled test events; clear it only after provider verification.

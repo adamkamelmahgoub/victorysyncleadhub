@@ -24,7 +24,7 @@ Date: 2026-10-31. Branch: `codex/client-portal-main-deploy`.
 
 - PGlite does not provide Supabase Auth, RLS, Storage, Realtime, Vault, pg_cron, or Edge Functions. It cannot replace a disposable Supabase branch for cross-tenant and worker tests.
 - Browser journey, screenshots, accessibility audit, Lighthouse score, and visual comparison are pending a runnable isolated full stack.
-- The five new SQL migrations have not been applied to production. The date restoration migration needs a database backup and dry run on a copy first.
+- Live schema metadata shows the core tenancy columns and guards are present on all 28 named client tables, but the dated migration files are not recorded in `supabase_migrations.schema_migrations`. Several newer portal functions and `client_missed_call_text_windows` are absent. Reconcile migration history and dry run remaining migrations on a copy before applying them. The lead date restoration still needs a backup and copy dry run.
 - No real MightyCall, Stripe, Slack, email, or Unipile send was attempted. Connected account cleanup and migrations have not been deployed.
 
 ## Gate before production
@@ -34,4 +34,11 @@ Date: 2026-10-31. Branch: `codex/client-portal-main-deploy`.
 3. Back up production, dry run the lead date restoration against a copy, inspect changed-row counts, then apply migrations in order.
 4. Deploy and verify health checks, recent social inbox polling, history backfill, and connected account status without sending real messages.
 
-Current status: phase 1 changes are locally tested and reviewable, not production ready.
+Current status: the stacked changes are locally tested and reviewable. Main and production do not yet contain the full stack.
+
+## 2026-11-02 live metadata audit
+
+- Read-only catalog checks found `client_account_id`, enabled RLS and a `client_tenancy_guard` policy on every one of the 28 named client tables. This verifies schema presence, not end-user access behavior.
+- `portal_billing_customer`, `portal_create_client_manual`, `portal_apply_account_template`, `portal_dashboard_metrics` and `portal_agency_overview` are present. `portal_launchpad`, `portal_page_edit_allowed`, `portal_publish_page`, `portal_page_versions`, `portal_restore_page` and `client_claim_missed_call_text` are absent. The recent dated migration versions are not in the Supabase migration ledger.
+- `client_package_templates` initially had RLS off and direct `SELECT`, `INSERT` and `UPDATE` privileges for anonymous and authenticated roles. A targeted live fix revoked direct privileges and enabled RLS. A follow-up catalog query verified anonymous and authenticated `SELECT` and authenticated `INSERT` are false, and RLS is true. The matching idempotent repository migration and local repeatability test are in `20261102_08_client_package_template_access.sql` and `client-package-template-access.test.ts`. No customer data was read or changed during this audit.
+- Vercel production environment inventory contains `PORTAL_COOKIE_SECRET`, `CLIENT_DELIVERY_WORKER_SECRET`, OpenRouter and Supabase variables. It does not contain the required Stripe, MightyCall, Resend, Slack, `PORTAL_BASE_URL`, or `PUBLIC_PAGES_BASE_URL` variables. `CLIENT_DELIVERY_SANDBOX=1` was added for subsequent production deployments. Only variable names were inspected; secret values were not printed.

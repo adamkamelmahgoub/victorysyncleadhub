@@ -12,7 +12,7 @@ This checklist is a release gate, not a record of completed checks. Record evide
 | Performance | Run Lighthouse mobile on the public default landing page and main app routes; meet the specified scores. | Pending |
 | Provider sandbox | Mock or sandbox Stripe, MightyCall, Resend, Slack, Unipile and OpenRouter; verify webhook signatures, retry, STOP and idempotence. | Pending |
 | Browser secrets | Run `pnpm run build` followed by `pnpm run test:bundle-secrets`. | Passing locally |
-| Vercel variables | Set production-only Supabase, Stripe, MightyCall API and User keys, webhook secrets, Resend sender, Slack, portal cookie and OpenRouter settings. Verify values without printing them. | Pending |
+| Vercel variables | Set production-only Supabase, Stripe, MightyCall API and User keys, webhook secrets, Resend sender, Slack, portal cookie and OpenRouter settings. Verify values without printing them. | Pending. Delivery sandbox added; Stripe, MightyCall, Resend, Slack and portal/public base URLs absent in the 2026-11-02 inventory. |
 | MightyCall | Confirm Classic or Call Center product. Set `MIGHTYCALL_PRODUCT` accordingly, configure API User key separately from webhook secret, and test one controlled call and SMS. | Pending |
 | Domains | Verify `app.victorysync.com`, `portal.victorysync.com`, public page domains, DNS and TLS. | Pending |
 | Cron and workers | Confirm Vault secrets, pg_cron schedules, worker authentication, execution logs and retry behavior. | Pending |
