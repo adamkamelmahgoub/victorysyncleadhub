@@ -337,7 +337,7 @@ type DashboardMembership = {
 function normalizeDashboardRole(role: unknown) {
   const value = typeof role === "string" ? role.trim().toLowerCase() : "";
   if (value === "org_owner" || value === "owner") return "owner";
-  if (value === "org_admin" || value === "admin") return "admin";
+  if (value === "org_admin" || value === "admin" || value === "agency_admin") return "admin";
   if (value === "agent") return "agent";
   if (value === "client") return "client";
   if (value === "viewer") return "viewer";
@@ -3545,6 +3545,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if ((role === "agent" || Boolean(clientAccountIdForUser(currentUser))) && /^\/api\/(?:team|sub-accounts|api-keys)/.test(path)) {
       sendJson(res, 403, { message: "Client and agent accounts cannot manage workspace access" });
+      return;
+    }
+    if (/^\/api\/team(?:\/|$)/.test(path) && !canManageClientAccounts(currentUser)) {
+      sendJson(res, 403, { message: "Only agency administrators can manage the team directory" });
       return;
     }
     const pagePermissions = currentUser.user_metadata?.page_permissions;
