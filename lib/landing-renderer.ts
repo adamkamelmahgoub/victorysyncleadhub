@@ -1,6 +1,6 @@
 import type {SectionType} from './landing-section-registry.js';
 
-export type RenderSection={id:string;type:SectionType;hidden?:boolean;eyebrow?:string;heading?:string;body?:string;buttonText?:string;buttonUrl?:string;imageUrl?:string;imageAlt?:string;quote?:string;author?:string;items?:string[];blocks?:Array<{id:string;type:string;heading?:string;body?:string;imageUrl?:string;attested?:boolean}>};
+export type RenderSection={id:string;type:SectionType;hidden?:boolean;eyebrow?:string;heading?:string;body?:string;buttonText?:string;buttonUrl?:string;imageUrl?:string;imageAlt?:string;quote?:string;author?:string;items?:string[];blocks?:Array<{id:string;type:string;hidden?:boolean;heading?:string;body?:string;imageUrl?:string;attested?:boolean}>};
 export type RenderTheme={primary?:string;background?:string;text?:string;foreground?:string;accent?:string;font?:string;buttonRadius?:number;spacing?:number;logoUrl?:string};
 export type RenderPage={id?:string;name:string;seo_title?:string|null;seo_description?:string|null;social_image_url?:string|null;sections:RenderSection[];theme:RenderTheme;form_id?:string|null;tracking?:Record<string,unknown>};
 const esc=(value:unknown)=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]||c));
@@ -8,7 +8,7 @@ const color=(value:unknown,fallback:string)=>/^#[0-9a-f]{6}$/i.test(String(value
 const href=(value:unknown)=>{const raw=String(value||'').trim();return /^(https:\/\/|tel:|mailto:|\/(?!\/)|#[a-z\d_-]+)/i.test(raw)?esc(raw):'#'};
 const image=(src:unknown,alt:unknown)=>src&&href(src)!=='#'?`<img src="${href(src)}" alt="${esc(alt)}" loading="lazy" decoding="async">`:'';
 const button=(text:unknown,url:unknown)=>text?`<a class="button" href="${href(url)}">${esc(text)}</a>`:'';
-const blocks=(s:RenderSection)=>s.blocks||[];
+const blocks=(s:RenderSection)=>(s.blocks||[]).filter(block=>!block.hidden);
 function sectionHtml(s:RenderSection,formSlug:string|null,pageId:string|null,editor:boolean){
   if(s.hidden)return '';
   const id=esc(s.id),head=esc(s.heading),body=esc(s.body),block=blocks(s),attrs=editor?` data-section="${id}" tabindex="0"`:'';

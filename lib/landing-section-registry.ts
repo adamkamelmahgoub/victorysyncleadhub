@@ -36,7 +36,7 @@ export const registry:Record<SectionType,SectionDefinition>={
 };
 
 const safeUrl=z.string().max(1000).refine(value=>!value || /^(https:\/\/|tel:|mailto:|\/(?!\/)|#[a-z\d_-]+)/i.test(value),'Use an HTTPS, phone, email, internal, or anchor link');
-export const blockSchema=z.object({id:z.string().max(80),type:z.string().max(40),heading:z.string().max(500).optional(),body:z.string().max(3000).optional(),imageUrl:z.string().max(1000).optional(),attested:z.boolean().optional()}).passthrough();
+export const blockSchema=z.object({id:z.string().max(80),type:z.string().max(40),hidden:z.boolean().optional(),heading:z.string().max(500).optional(),body:z.string().max(3000).optional(),imageUrl:z.string().max(1000).optional(),attested:z.boolean().optional()}).passthrough();
 export const sectionSchema=z.object({id:z.string().max(80),type:z.enum(sectionTypes),hidden:z.boolean().optional(),eyebrow:z.string().max(500).optional(),heading:z.string().max(500).optional(),body:z.string().max(5000).optional(),buttonText:z.string().max(500).optional(),buttonUrl:safeUrl.optional(),imageUrl:safeUrl.optional(),imageAlt:z.string().max(500).optional(),quote:z.string().max(3000).optional(),author:z.string().max(300).optional(),items:z.array(z.string().max(500)).max(30).optional(),blocks:z.array(blockSchema).max(20).optional()}).passthrough().superRefine((section,ctx)=>{
   if((section.blocks?.length||0)>registry[section.type].maxBlocks)ctx.addIssue({code:'custom',message:'Too many blocks'});
   if(section.type==='reviews'&&section.blocks?.some(block=>!block.attested))ctx.addIssue({code:'custom',message:'Manual reviews require attestation'});
