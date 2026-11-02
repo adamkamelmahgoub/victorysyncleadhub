@@ -17,6 +17,7 @@ Date: 2026-10-31. Branch: `codex/client-portal-main-deploy`.
 - `pnpm run test:browser`: 38 desktop and mobile Chromium checks passed against synthetic sessions. Dashboard, leads, calls, pages, forms, reviews, reports, billing and Reputation had no horizontal overflow or serious WCAG 2/2.1 axe findings. The landing editor passed add, edit, hide, duplicate, reorder, remove, undo, redo, publish, restore, failed-save isolation and viewport checks. Reputation passed source refresh, real-review attestation, load retry and agency-view controls. Screenshots are saved as CI artifacts. This does not exercise live Supabase or provider APIs.
 - AI page validation now checks title, SEO copy, buttons, proof section types, years, prices, credentials and image URLs against client media. Focused policy tests pass; live model samples remain pending.
 - The legacy Client accounts create action now calls canonical client provisioning and template application. A mocked API test confirms the invite URL and template call; browser acceptance is pending.
+- Stripe billing portal return URLs use the configured HTTPS portal origin. A route test confirms a forged Host header cannot redirect the customer. The checkout webhook verifies raw bytes, including a split UTF-8 character; mocked signed checkout provisioning and invite delivery pass. Live Stripe sandbox verification remains pending.
 
 ## Not yet verified
 

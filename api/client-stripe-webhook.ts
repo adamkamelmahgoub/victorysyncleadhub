@@ -12,14 +12,28 @@ const checkout=z.object({id:z.string(),object:z.literal('checkout.session'),paym
 const eventSchema=z.object({id:z.string(),type:z.literal('checkout.session.completed'),data:z.object({object:checkout})}).passthrough();
 const envelopeSchema=z.object({id:z.string(),type:z.string()}).passthrough();
 function reply(res:ServerResponse,status:number,value:unknown){res.statusCode=status;res.setHeader('content-type','application/json');res.end(JSON.stringify(value))}
-async function raw(req:IncomingMessage){let value='';for await(const chunk of req){value+=chunk;if(value.length>100_000)throw Error('Request too large')}return value}
-function verify(payload:string,signature:string,secret:string){
-  const fields=Object.fromEntries(signature.split(',').map(part=>part.split('=',2)));
-  const timestamp=Number(fields.t),mac=fields.v1;
-  if(!Number.isFinite(timestamp)||Math.abs(Date.now()/1000-timestamp)>300||!mac)return false;
-  const expected=crypto.createHmac('sha256',secret).update(`${timestamp}.${payload}`).digest('hex');
-  const actual=Buffer.from(mac,'hex'),expectedBuffer=Buffer.from(expected,'hex');
-  return actual.length===expectedBuffer.length&&crypto.timingSafeEqual(actual,expectedBuffer);
+async function raw(req:IncomingMessage){
+  const chunks:Buffer[]=[];let length=0;
+  for await(const chunk of req){
+    const bytes=Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk);
+    length+=bytes.length;
+    if(length>100_000)throw Error('Request too large');
+    chunks.push(bytes);
+  }
+  return Buffer.concat(chunks);
+}
+export function verifyStripeSignature(payload:Buffer,signature:string,secret:string,now=Date.now()){
+  const fields=signature.split(',').map(part=>part.trim().split('=',2));
+  const timestamp=Number(fields.find(([key])=>key==='t')?.[1]);
+  const macs=fields.filter(([key])=>key==='v1').map(([,value])=>value);
+  if(!Number.isSafeInteger(timestamp)||Math.abs(now/1000-timestamp)>300||!macs.length)return false;
+  const expected=crypto.createHmac('sha256',secret)
+    .update(Buffer.concat([Buffer.from(`${timestamp}.`),payload])).digest();
+  return macs.some(mac=>{
+    if(!/^[0-9a-f]{64}$/i.test(mac||''))return false;
+    const actual=Buffer.from(mac,'hex');
+    return crypto.timingSafeEqual(actual,expected);
+  });
 }
 async function rest<T>(path:string,body:unknown,method='POST'):Promise<T>{
   const base=process.env.SUPABASE_URL,key=process.env.SUPABASE_SERVICE_ROLE_KEY||process.env.SUPABASE_SERVICE_KEY;
@@ -38,8 +52,8 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
   try{
     const payload=await raw(req);
     const signature=String(req.headers['stripe-signature']||'');
-    if(!verify(payload,signature,secret))return reply(res,400,{error:'Invalid signature'});
-    const event=envelopeSchema.parse(JSON.parse(payload));
+    if(!verifyStripeSignature(payload,signature,secret))return reply(res,400,{error:'Invalid signature'});
+    const event=envelopeSchema.parse(JSON.parse(payload.toString('utf8')));
     if(event.type!=='checkout.session.completed')return reply(res,200,{received:true});
     const parsed=eventSchema.parse(event);
     const session=parsed.data.object;
