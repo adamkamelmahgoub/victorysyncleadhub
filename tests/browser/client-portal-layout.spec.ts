@@ -137,6 +137,29 @@ test('client lead list and board load older account leads',async({page})=>{
   await expect(page.getByText('2 leads shown')).toBeVisible();
 });
 
+test('client call log loads older calls in the selected range',async({page})=>{
+  const first=Array.from({length:200},(_,index)=>({id:`80000000-0000-4000-8000-${String(index+1).padStart(12,'0')}`,
+    occurred_at:'2026-10-15T12:00:00Z',caller_number:'+15125550101',status:'answered',
+    duration_seconds:120,outcome:'booked',summary:null,recording_url:null,agent_name:'Agent',booked:true}));
+  const older={...first[0],id:'80000000-0000-4000-8000-000000000201',caller_number:'+15125550999',
+    occurred_at:'2026-10-14T12:00:00Z'};
+  let beforeId='';
+  await page.route('**/api/portal*',async route=>{
+    const url=new URL(route.request().url());
+    if(url.searchParams.get('action')==='calls')return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(first)});
+    if(url.searchParams.get('action')==='call_page'){
+      beforeId=url.searchParams.get('beforeId')||'';
+      return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify([older])});
+    }
+    return route.fallback();
+  });
+  await page.goto('/client-portal/calls');
+  await page.getByRole('button',{name:'Load older calls'}).click();
+  expect(beforeId).toBe(first[199].id);
+  await expect(page.getByText('+15125550999')).toBeVisible();
+  await expect(page.getByRole('button',{name:'Load older calls'})).toHaveCount(0);
+});
+
 for(const [section,visibleText] of [
   ['leads','Alex Customer'],['calls','Booked a repair'],['pages','Demo service page'],
   ['forms','Contact form'],['reviews','Verified customer'],['reports','Monthly report'],
