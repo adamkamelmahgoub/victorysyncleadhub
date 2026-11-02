@@ -167,6 +167,26 @@ test('clearing a call date shows a useful validation message',async({page})=>{
   await expect(page.getByRole('heading',{name:'Demo Plumbing portal'})).toBeVisible();
 });
 
+test('review picker searches older Won leads beyond the first lead page',async({page})=>{
+  const older={...lead,id:'30000000-0000-4000-8000-000000000099',first_name:'Jordan',
+    last_name:'Older',phone:'+15125550999'};
+  let search='';
+  await page.route('**/api/portal*',async route=>{
+    const url=new URL(route.request().url());
+    if(url.searchParams.get('action')==='won_leads'){
+      search=url.searchParams.get('query')||'';
+      return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(search==='Jordan'?[older]:[])});
+    }
+    return route.fallback();
+  });
+  await page.goto('/client-portal/reviews');
+  await page.getByRole('textbox',{name:'Search Won leads'}).fill('Jordan');
+  await page.getByRole('combobox',{name:'Won lead'}).selectOption(older.id);
+  expect(search).toBe('Jordan');
+  await expect(page.getByRole('textbox',{name:'Customer name'})).toHaveValue('Jordan Older');
+  await expect(page.getByRole('textbox',{name:'Customer phone'})).toHaveValue('+15125550999');
+});
+
 for(const [section,visibleText] of [
   ['leads','Alex Customer'],['calls','Booked a repair'],['pages','Demo service page'],
   ['forms','Contact form'],['reviews','Verified customer'],['reports','Monthly report'],
