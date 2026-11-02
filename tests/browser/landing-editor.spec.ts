@@ -66,6 +66,23 @@ test('page settings connects and verifies a client domain',async({page},testInfo
   await page.screenshot({path:testInfo.outputPath('landing-domain.png'),fullPage:true});
 });
 
+test('a variant shows base page A/B results and cannot change the split',async({page})=>{
+  const baseId='50000000-0000-4000-8000-000000000002';
+  await page.route(`**/api/landing-pages/${pageId}`,route=>route.fulfill({status:200,
+    contentType:'application/json',body:JSON.stringify({...initialPage,variant_of:baseId})}));
+  await page.route(`**/api/landing-pages/${baseId}/variants`,route=>route.fulfill({status:200,
+    contentType:'application/json',body:JSON.stringify({variants:[
+      {id:baseId,name:'Base page',views:100,submissions:5,conversionRate:5},
+      {id:pageId,name:'Variant page',views:50,submissions:4,conversionRate:8}]})}));
+  await page.goto(`/landing-pages/${pageId}`);
+  await page.getByRole('button',{name:'Page settings'}).click();
+  await expect(page.getByText('Variant traffic (%)')).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Create A/B variant'})).toHaveCount(0);
+  await page.getByRole('button',{name:'A/B results'}).click();
+  await expect(page.getByText('Base page')).toBeVisible();
+  await expect(page.getByText('Variant page')).toBeVisible();
+});
+
 test('draft iframe renders its hero without horizontal clipping',async({page})=>{
   await page.goto(`/landing-pages/${pageId}`);
   const preview=page.frameLocator('iframe[title="Draft landing page preview"]');
