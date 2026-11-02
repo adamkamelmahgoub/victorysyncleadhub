@@ -8,6 +8,7 @@ import {readPortalSelection,signPortalSelection,type PortalSelection} from '../l
 import {externalSendsEnabled} from '../lib/external-send-mode.js';
 import {portalBillingReturnUrl} from '../lib/portal-billing-url.js';
 import {requiresAgencyMfa} from '../lib/portal-roles.js';
+import {providerReadiness} from '../lib/provider-readiness.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const ORG = 'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
@@ -16,6 +17,7 @@ const section = z.enum(['dashboard','leads','calls','pages','forms','reviews','r
 const querySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('accounts') }),
   z.object({ action: z.literal('agency_overview') }),
+  z.object({ action: z.literal('provider_readiness') }),
   z.object({ action: z.literal('failed_automations') }),
   z.object({ action: z.literal('closed_companies') }),
   z.object({ action: z.literal('features') }),
@@ -270,6 +272,8 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
         return send(res,200,{accounts,selected:verify(req,user.id)});
       }
       if (parsed.action === 'agency_overview') return send(res,200,await rpc(user.token,'portal_agency_overview'));
+      if (parsed.action === 'provider_readiness') return user.role === 'agency_admin'
+        ? send(res,200,providerReadiness(process.env)) : send(res,403,{error:'Agency admin access required'});
       if (parsed.action === 'failed_automations') return send(res,200,await rpc(user.token,'portal_failed_automations'));
       if (parsed.action === 'closed_companies') return send(res,200,await rpc(user.token,'portal_closed_companies'));
       if (parsed.action === 'features') return send(res,200,await rpc(user.token,'portal_features'));
