@@ -26,6 +26,7 @@ const querySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('launchpad') }),
   z.object({ action: z.literal('metrics'), from: z.string().datetime(), to: z.string().datetime() }),
   z.object({ action: z.literal('lead_timeline'), leadId: uuid }),
+  z.object({ action: z.literal('won_leads'), query:z.string().max(100) }).strict(),
   z.object({ action: z.literal('lead_page'), beforeAt: z.string().datetime({offset:true}), beforeId: uuid }).strict(),
   z.object({ action: z.literal('ad_spend') }),
   z.object({ action: z.literal('page_stats') }),
@@ -289,6 +290,8 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
         {p_account:selected.id,p_start:parsed.from,p_end:parsed.to}));
       if (parsed.action === 'lead_timeline') return send(res,200,await rpc(user.token,'portal_lead_timeline',
         {p_account:selected.id,p_lead:parsed.leadId}));
+      if (parsed.action === 'won_leads') return send(res,200,await rpc(user.token,'portal_won_leads',
+        {p_account:selected.id,p_query:parsed.query}));
       if (parsed.action === 'lead_page') return send(res,200,await rpc(user.token,'portal_lead_page',
         {p_account:selected.id,p_before_at:parsed.beforeAt,p_before_id:parsed.beforeId,p_limit:200}));
       if (parsed.action === 'ad_spend') return send(res,200,await rpc(user.token,'portal_ad_spend',
