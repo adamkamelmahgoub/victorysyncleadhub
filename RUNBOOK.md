@@ -28,6 +28,8 @@ Open the account's **Pages** tab. The template page starts as a draft. Replace p
 
 **Save draft** updates the editor without changing the live page. **Publish** copies the draft to the live page and records a numbered version. Open **Version history** inside the page editor and choose **Restore to draft** to recover an older version's sections and theme. The live page remains on its current version until you publish again. Client users need the `client_page_editing` feature to restore or publish; agency admins and assigned marketing staff can edit their accounts.
 
+The client editor also autosaves an edited draft after two seconds. Wait for **Saved** before leaving it. Hide, duplicate, reorder, or delete sections from the section list; Undo and Redo work until the editor closes. AI output appears as a suggestion. Review it and select **Apply to draft** before publishing.
+
 ## AI page assistant
 
 Enable `landing_page_builder` and `landing_page_ai` in the feature manager. Open a page in the editor and enter a prompt. Review all generated copy and sections before saving. Only use testimonials, ratings, awards, licenses, and guarantees supplied by the client. The assistant uses the existing OpenRouter configuration.

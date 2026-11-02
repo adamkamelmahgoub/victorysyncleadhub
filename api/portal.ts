@@ -43,6 +43,7 @@ const sectionSchema = z.object({
   buttonText: z.string().max(200).optional(), buttonUrl: z.string().max(2000).optional(),
   imageUrl: z.string().max(2000).optional(), formId: z.union([z.string().uuid(),z.literal('')]).optional(),
   items: z.array(z.string().max(300)).max(12).optional(),
+  hidden: z.boolean().optional(),
 }).strict();
 const themeSchema = z.object({
   background: z.string().regex(/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i),

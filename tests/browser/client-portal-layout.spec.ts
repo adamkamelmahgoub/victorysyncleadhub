@@ -131,7 +131,7 @@ test('client page draft and publish use separate actions',async({page})=>{
   await page.getByRole('button',{name:'Save draft'}).click();
   await expect.poll(()=>actions).toEqual(['save_page']);
   await page.getByRole('button',{name:'Edit'}).click();
-  await page.getByRole('button',{name:'Hero'}).click();
+  await page.getByRole('button',{name:'Hero'}).first().click();
   await page.getByRole('button',{name:'Publish'}).click();
   await expect.poll(()=>actions).toEqual(['save_page','save_page','publish_page']);
 });
@@ -159,4 +159,79 @@ test('client page history restores an old version to draft',async({page})=>{
   await page.getByRole('button',{name:'Restore to draft'}).click();
   await expect(page.getByText('Earlier headline').first()).toBeVisible();
   expect(restored).toMatchObject({action:'restore_page',pageId:'50000000-0000-4000-8000-000000000001',version:1});
+});
+
+test('client page sections can be hidden, duplicated, deleted, undone and redone',async({page})=>{
+  let saved:Record<string,unknown>|null=null;
+  await page.route('**/api/portal',async route=>{
+    if(route.request().method()!=='POST'||route.request().postDataJSON()?.action!=='save_page')
+      return route.fallback();
+    saved=route.request().postDataJSON() as Record<string,unknown>;
+    return route.fulfill({status:200,contentType:'application/json',
+      body:JSON.stringify({id:'50000000-0000-4000-8000-000000000001'})});
+  });
+  await page.goto('/client-portal/pages');
+  await page.getByRole('button',{name:'Edit'}).click();
+  await page.getByRole('button',{name:'Hero'}).click();
+  await page.getByRole('button',{name:'Duplicate section'}).click();
+  await expect(page.getByRole('button',{name:'Duplicate section'})).toHaveCount(2);
+  await page.getByRole('button',{name:'Hide section'}).first().click();
+  await expect(page.getByRole('button',{name:'Show section'})).toHaveCount(1);
+  await page.getByRole('button',{name:'Undo'}).click();
+  await expect(page.getByRole('button',{name:'Show section'})).toHaveCount(0);
+  await page.getByRole('button',{name:'Redo'}).click();
+  await expect(page.getByRole('button',{name:'Show section'})).toHaveCount(1);
+  await page.getByRole('button',{name:'Delete section'}).last().click();
+  await expect(page.getByRole('button',{name:'Delete section'})).toHaveCount(1);
+  await page.getByRole('button',{name:'Hero'}).first().click();
+  await page.keyboard.press('Delete');
+  await expect(page.getByRole('button',{name:'Delete section'})).toHaveCount(0);
+  await page.getByRole('button',{name:'Undo'}).click();
+  await expect(page.getByRole('button',{name:'Delete section'})).toHaveCount(1);
+  await page.getByRole('button',{name:'Save draft'}).click();
+  await expect.poll(()=>saved).not.toBeNull();
+  expect(saved?.sections).toMatchObject([{hidden:true}]);
+});
+
+test('AI page suggestion is reviewed and applied as one undo step',async({page})=>{
+  await page.route('**/api/portal',async route=>{
+    if(route.request().method()!=='POST'||route.request().postDataJSON()?.action!=='ai_page')
+      return route.fallback();
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+      title:'Approved page',seoDescription:'Approved service',
+      theme:{background:'#ffffff',foreground:'#172033',accent:'#285ce6',font:'sans'},
+      sections:[{id:'ai-hero',type:'hero',heading:'Approved service'}]})});
+  });
+  await page.goto('/client-portal/pages');
+  await page.getByRole('button',{name:'Edit'}).click();
+  await page.getByRole('button',{name:'Hero'}).click();
+  await page.getByLabel('Page request').fill('Make this a shorter service page');
+  await page.getByRole('button',{name:'Suggest edits'}).click();
+  await expect(page.getByText('Review AI suggestion')).toBeVisible();
+  await expect(page.getByLabel('Page title')).toHaveValue('Demo service page');
+  await page.getByRole('button',{name:'Apply to draft'}).click();
+  await expect(page.getByLabel('Page title')).toHaveValue('Approved page');
+  await page.getByRole('button',{name:'Undo'}).click();
+  await expect(page.getByLabel('Page title')).toHaveValue('Demo service page');
+});
+
+test('client page edits autosave after two seconds and publish the latest draft',async({page})=>{
+  const actions:string[]=[];
+  await page.route('**/api/portal',async route=>{
+    if(route.request().method()!=='POST')return route.fallback();
+    const body=route.request().postDataJSON() as Record<string,unknown>;
+    if(body.action!=='save_page'&&body.action!=='publish_page')return route.fallback();
+    actions.push(String(body.action));
+    if(body.action==='save_page')expect(body.sections).toMatchObject([{type:'hero'}]);
+    return route.fulfill({status:200,contentType:'application/json',
+      body:JSON.stringify({id:'50000000-0000-4000-8000-000000000001'})});
+  });
+  await page.goto('/client-portal/pages');
+  await page.getByRole('button',{name:'Edit'}).click();
+  await page.getByRole('button',{name:'Hero'}).click();
+  await expect(page.getByRole('status')).toContainText('Unsaved changes');
+  await expect.poll(()=>actions,{timeout:7000}).toEqual(['save_page']);
+  await expect(page.getByRole('status')).toContainText('Saved');
+  await page.getByRole('button',{name:'Publish'}).click();
+  await expect.poll(()=>actions).toEqual(['save_page','save_page','publish_page']);
 });
