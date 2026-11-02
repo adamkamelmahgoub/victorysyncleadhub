@@ -40,14 +40,16 @@ export async function matchSocialLead(input:MatchInput):Promise<MatchResult>{
   const platform=input.platform==='linkedin'?'linkedin_person':'instagram';
   const exact=await mcpPool.query<{lead_id:string;owner_rep_id:string|null}>(`select p.entity_id lead_id,l.owner_rep_id
     from public.social_profiles p join public.leads l on l.id=p.entity_id and ${socialLeadOrgJoin}
-    where p.organization_id=$1 and p.platform=$2 and p.entity_type='lead' and p.platform_user_id=$3 limit 3`,
+    where p.organization_id=$1 and p.platform=$2 and p.entity_type='lead'
+      and p.review_status<>'rejected' and p.platform_user_id=$3 limit 3`,
     [input.organizationId,platform,input.providerUserId]);
   if(exact.rows.length===1)return {leadId:exact.rows[0].lead_id,status:'matched',confidence:1,method:'provider_id'};
   let normalized='';try{if(input.publicIdentifier)normalized=normalizeSocial(platform as SocialPlatform,input.publicIdentifier).normalizedHandle;}catch{}
   if(normalized){
     const byUsername=await mcpPool.query<{lead_id:string}>(`select p.entity_id lead_id from public.social_profiles p
       join public.leads l on l.id=p.entity_id and ${socialLeadOrgJoin}
-      where p.organization_id=$1 and p.platform=$2 and p.entity_type='lead' and p.normalized_handle=$3 limit 2`,
+      where p.organization_id=$1 and p.platform=$2 and p.entity_type='lead'
+        and p.review_status<>'rejected' and p.normalized_handle=$3 limit 2`,
       [input.organizationId,platform,normalized]);
     if(byUsername.rows.length===1)return {leadId:byUsername.rows[0].lead_id,status:'matched',confidence:.95,method:'handle'};
   }
@@ -56,6 +58,7 @@ export async function matchSocialLead(input:MatchInput):Promise<MatchResult>{
     const byUrl=await mcpPool.query<{lead_id:string}>(`select p.entity_id lead_id from public.social_profiles p
       join public.leads l on l.id=p.entity_id and ${socialLeadOrgJoin}
       where p.organization_id=$1 and p.platform=$2 and p.entity_type='lead'
+        and p.review_status<>'rejected'
         and lower(rtrim(split_part(p.profile_url,'?',1),'/'))=$3 limit 2`,
       [input.organizationId,platform,profileUrl]);
     if(byUrl.rows.length===1)return {leadId:byUrl.rows[0].lead_id,status:'matched',confidence:.95,method:'profile_url'};
@@ -64,6 +67,7 @@ export async function matchSocialLead(input:MatchInput):Promise<MatchResult>{
   const candidateRows=await mcpPool.query<Candidate>(`select p.entity_id lead_id,l.owner_rep_id,p.normalized_handle,p.profile_url,l.first_name,l.last_name,l.company
     from public.social_profiles p join public.leads l on l.id=p.entity_id and ${socialLeadOrgJoin}
     where p.organization_id=$1 and p.platform=$2 and p.entity_type='lead'
+      and p.review_status<>'rejected'
       and (p.normalized_handle=$3 or ($4<>'' and lower(rtrim(split_part(p.profile_url,'?',1),'/'))=$4)) limit 10`,
     [input.organizationId,platform,normalized||'__none__',input.profileUrl?.trim().replace(/[?#].*$/,'').replace(/\/$/,'').toLowerCase()||'']);
   const direct=chooseSocialMatch(candidateRows.rows,input);
@@ -76,7 +80,8 @@ export async function matchSocialLead(input:MatchInput):Promise<MatchResult>{
   }
   if(!input.displayName)return direct;
   const recent=await mcpPool.query<Candidate>(`select l.id lead_id,l.owner_rep_id,p.normalized_handle,p.profile_url,l.first_name,l.last_name,l.company
-    from public.leads l left join public.social_profiles p on p.entity_type='lead' and p.entity_id=l.id and p.platform=$3
+    from public.leads l left join public.social_profiles p on p.entity_type='lead' and p.entity_id=l.id
+      and p.platform=$3 and p.review_status<>'rejected'
     where (l.organization_id=$1 or (l.organization_id is null and $1::uuid='${SOCIAL_WORKSPACE_ORG_ID}'::uuid))
       and l.owner_rep_id=$2 and exists(select 1 from public.dm_enrollments e
       join public.dm_tasks t on t.enrollment_id=e.id where e.entity_type='lead' and e.entity_id=l.id

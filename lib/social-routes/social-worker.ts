@@ -60,7 +60,7 @@ async function processUnipileEvent(raw:Record<string,unknown>){
       let normalized='';try{if(handle)normalized=normalizeSocial(account.platform==='linkedin'?'linkedin_person':'instagram',handle).normalizedHandle;}catch{}
       if(normalized){const rows=await mcpPool.query<{entity_type:string;entity_id:string}>(`select p.entity_type,p.entity_id
         from public.social_profiles p where p.organization_id=$1 and p.platform=$2 and p.entity_type in ('contact','company')
-        and p.normalized_handle=$3 limit 2`,[account.organization_id,account.platform==='linkedin'?'linkedin_person':'instagram',normalized]);
+        and p.review_status<>'rejected' and p.normalized_handle=$3 limit 2`,[account.organization_id,account.platform==='linkedin'?'linkedin_person':'instagram',normalized]);
         if(rows.rows.length===1)crmMatch=rows.rows[0];}
     }
     const matched=match.status==='matched'||Boolean(crmMatch);
@@ -72,7 +72,7 @@ async function processUnipileEvent(raw:Record<string,unknown>){
         matched_at:matched?new Date().toISOString():null,lead_id:match.status==='matched'?match.leadId:null,
         contact_id:crmMatch?.entity_type==='contact'?crmMatch.entity_id:null,company_id:crmMatch?.entity_type==='company'?crmMatch.entity_id:null,
         suggested_lead_id:match.status==='suggested'&&match.method!=='other_rep'?match.leadId:null})});
-    if(match.status==='matched'&&match.leadId)await socialRest(`social_profiles?organization_id=eq.${account.organization_id}&entity_type=eq.lead&entity_id=eq.${match.leadId}&platform=eq.${account.platform==='linkedin'?'linkedin_person':'instagram'}&platform_user_id=is.null`,{
+    if(match.status==='matched'&&match.leadId)await socialRest(`social_profiles?organization_id=eq.${account.organization_id}&entity_type=eq.lead&entity_id=eq.${match.leadId}&platform=eq.${account.platform==='linkedin'?'linkedin_person':'instagram'}&review_status=neq.rejected&platform_user_id=is.null`,{
       method:'PATCH',body:JSON.stringify({platform_user_id:participantId,provider_resolved_at:new Date().toISOString()})});
   }
   const thread=threads[0];if(!thread)throw new Error('Unipile conversation could not be created');
@@ -294,7 +294,7 @@ async function processEvent(job: Job) {
       return;
     }
   }
-  const profiles = await socialRest<Profile[]>(`social_profiles?organization_id=eq.${account.organization_id}&platform=eq.${encodeURIComponent(event.channel)}&platform_user_id=eq.${encodeURIComponent(participantId)}&select=entity_type,entity_id&limit=2`);
+  const profiles = await socialRest<Profile[]>(`social_profiles?organization_id=eq.${account.organization_id}&platform=eq.${encodeURIComponent(event.channel)}&platform_user_id=eq.${encodeURIComponent(participantId)}&review_status=neq.rejected&select=entity_type,entity_id&limit=2`);
   let matched = profiles.length === 1 ? profiles[0] : undefined;
   if (!matched && event.channel === 'whatsapp') {
     const phone = participantId.replace(/\D/g, '');
