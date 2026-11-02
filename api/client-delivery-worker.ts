@@ -89,7 +89,7 @@ function coveredNow(account:Account){
 }
 async function load(job:Job) {
   const account=await row<Account>('sub_accounts',`id=eq.${job.client_account_id}`);
-  if(!account||!await enabled(account.id))return null;
+  if(!account||job.kind!=='stop_confirmation'&&!await enabled(account.id))return null;
   return account;
 }
 async function routeCalls() {
@@ -241,9 +241,14 @@ async function handle(job:Job) {
     if(!recipient||!from)return 'cancelled';
     const existing=await rest<Array<{id:string}>>(`mightycall_sms_messages?client_account_id=eq.${account.id}&metadata->>automation_job_id=eq.${job.id}&select=id&limit=1`);
     if(existing.length)return 'sent';
+    const claimed=await rest<boolean>('rpc/client_claim_stop_confirmation','POST',
+      {p_account:account.id,p_phone:recipient,p_job:job.id});
+    if(!claimed)throw Error('STOP confirmation claim already exists; check MightyCall before retrying');
     const message='You are opted out and will not receive further automated texts.';
     await mighty('messages/send','POST',{from,to:[recipient],message});
     await rest('mightycall_sms_messages','POST',{org_id:'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1',client_account_id:account.id,from_number:from,to_number:recipient,direction:'outbound',message_text:message,status:'sent',metadata:{automation_job_id:job.id,automation_kind:job.kind}});
+    await rest('rpc/client_mark_stop_confirmation_sent','POST',
+      {p_account:account.id,p_phone:recipient,p_job:job.id});
     return 'sent';
   }
   if(job.kind==='owner_alert'){

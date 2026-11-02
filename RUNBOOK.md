@@ -71,6 +71,7 @@ For client checkout provisioning, subscribe the Stripe endpoint `/api/client-str
 ## Opt-out
 
 Inbound STOP, UNSUBSCRIBE, CANCEL, END, or QUIT marks the lead `dnc`, cancels follow-up work, and sends one confirmation. Inspect the lead and its automation jobs if an opt-out is disputed. Do not manually re-enroll an opted-out lead without a new, documented consent event.
+The confirmation remains eligible when account delivery automation is switched off. Its account-and-phone claim is reserved before contacting MightyCall. If the provider times out after accepting the text, automatic retries do not send another confirmation. Inspect the failed job, claim row, and MightyCall message history before resolving an uncertain send.
 
 ## Verification
 
