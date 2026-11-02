@@ -328,13 +328,18 @@ function StaffAssignments() {
 
 function ClientStaffInvite() {
   const [name,setName]=useState('');const [email,setEmail]=useState('');
-  const invite=useMutation({mutationFn:()=>apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'invite_staff',name,email})}),
+  const invite=useMutation<{invited:boolean;inviteSent:boolean;inviteUrl:string|null}>({mutationFn:()=>apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'invite_staff',name,email})}),
     onSuccess:()=>{setName('');setEmail('')}});
   return <Card className="space-y-3 p-5"><h2 className="font-semibold">Invite client staff</h2>
     <div className="flex flex-wrap gap-2"><Input className="min-w-40 flex-1" aria-label="Staff name" placeholder="Name" value={name} onChange={event=>setName(event.target.value)}/>
       <Input className="min-w-48 flex-1" aria-label="Staff email" type="email" placeholder="Email" value={email} onChange={event=>setEmail(event.target.value)}/>
-      <Button disabled={!name||!email||invite.isPending} onClick={()=>invite.mutate()}>Send invite</Button></div>
-    {invite.isSuccess&&<p className="text-sm text-green-700">Invitation sent.</p>}
+      <Button disabled={!name||!email||invite.isPending} onClick={()=>invite.mutate()}>Create invite</Button></div>
+    {invite.data?.inviteSent&&<p className="text-sm text-green-700">Invitation sent.</p>}
+    {invite.data?.inviteUrl&&<div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+      <p className="font-medium">Invitation created. Share this private link with the staff member. It expires in 7 days.</p>
+      <div className="flex flex-wrap gap-2"><Input aria-label="Staff invitation link" readOnly value={invite.data.inviteUrl} className="min-w-0 flex-1"/>
+        <Button variant="outline" onClick={()=>void navigator.clipboard.writeText(invite.data?.inviteUrl||'')}>Copy link</Button></div>
+    </div>}
     {invite.error&&<p role="alert" className="text-sm text-red-600">{String(invite.error)}</p>}</Card>;
 }
 
