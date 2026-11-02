@@ -7,6 +7,7 @@ import {renderPage,type RenderPage} from '../landing-renderer.js';
 import {z} from 'zod';
 import {readPortalSelection} from '../portal-cookie.js';
 import {newFormSlug} from '../form-slug.js';
+import {getPageDomainStatus,pageDomainSchema,registerPageDomain,verifyPageDomain} from '../page-domains.js';
 
 export const config={api:{bodyParser:false},maxDuration:30};
 const org=SOCIAL_WORKSPACE_ORG_ID;
@@ -296,6 +297,28 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
     const found=await mcpPool.query(`select 1 from public.${isForms?'forms':'landing_pages'} where id=$1 and organization_id=$2 and client_account_id=$3`,[id,org,selected.id]);
     if(!found.rowCount)return json(res,404,{error:isForms?'Form not found':'Page not found'});
   }
+  if(!isForms&&id&&parts[1]==='domain'&&['GET','POST'].includes(method)){
+    const page=(await mcpPool.query<Pick<PageRow,'custom_domain'|'client_account_id'>>(
+      `select custom_domain,client_account_id from public.landing_pages where id=$1 and organization_id=$2`,[id,org])).rows[0];
+    if(!page)return json(res,404,{error:'Page not found'});
+    if(parts[2]==='verify'&&method==='POST'){
+      if(!page.custom_domain)return json(res,400,{error:'Connect a domain first'});
+      return json(res,200,{domain:page.custom_domain,status:await verifyPageDomain(page.custom_domain)});
+    }
+    if(parts[2])return json(res,404,{error:'Not found'});
+    if(method==='GET')return json(res,200,{domain:page.custom_domain,
+      status:page.custom_domain?await getPageDomainStatus(page.custom_domain):null});
+    const {domain}=pageDomainSchema.parse(await body(req));
+    const conflict=await mcpPool.query(`select 1 from public.landing_pages where lower(custom_domain)=$1 and id<>$2 limit 1`,[domain,id]);
+    if(conflict.rowCount)return json(res,409,{error:'Domain is assigned to another page'});
+    const status=await registerPageDomain(domain);
+    await mcpPool.query(`update public.landing_pages set custom_domain=$3,updated_at=now()
+      where id=$1 and organization_id=$2`,[id,org,domain]);
+    try{await mcpPool.query(`insert into public.portal_activity_log(actor_id,organization_id,client_account_id,event_type,action,page_path,target,request_method,request_status,metadata)
+      values($1,$2,$3,'setting_change','page_domain_connected',$4,$5,'POST',200,$6)`,
+      [user.id,org,page.client_account_id,path,id,JSON.stringify({domain})]);}catch(error){console.warn('Page domain audit failed',error instanceof Error?error.message:'unknown');}
+    return json(res,200,{domain,status});
+  }
   if(isForms){
     if(method==='GET'&&!id){const forms=await mcpPool.query<FormRow>(`select f.*,(select count(*)::integer from public.form_submissions s where s.form_id=f.id) submission_count
       from public.forms f where f.organization_id=$1 and ($2::uuid is null or f.client_account_id=$2) order by f.created_at desc limit 500`,[org,selected.id]);return json(res,200,forms.rows.map(row=>formShape(row,req)));}
@@ -402,7 +425,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
       where id=$1 and organization_id=$2 returning id`,[id,org]);return updated.rowCount?json(res,200,{archived:true}):json(res,404,{error:'Page not found'});}
   }
   json(res,405,{error:'Method not allowed'});
-}catch(error){const message=error instanceof Error?error.message:'Request failed';const status=error instanceof z.ZodError?400:message.includes('access')?403:message.includes('Sign in')||message.includes('Session')?401:
+}catch(error){const message=error instanceof Error?error.message:'Request failed';const status=error instanceof z.ZodError?400:message.includes('Domain connection is not configured')?503:message.includes('Domain belongs to another project')||message.includes('Domain verification is still pending')?409:message.includes('access')?403:message.includes('Sign in')||message.includes('Session')?401:
   message.includes('Too many submissions')?429:message.includes('duplicate key')?409:message.includes('required')||message.includes('Invalid')||message.includes('unsupported')||message.includes('Add at least')||message.includes('needs options')||message.includes('must be')?400:500;
   if(status===500)console.error('Marketing route failed',req.method,req.url,error instanceof Error?error.name:'unknown');
   if(req.url?.startsWith('/f/')&&String(req.headers['content-type']||'').includes('application/x-www-form-urlencoded')){

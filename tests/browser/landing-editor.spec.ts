@@ -33,10 +33,37 @@ test.beforeEach(async({page})=>{
     if(path==='/api/forms')return route.fulfill({status:200,contentType:'application/json',body:'[]'});
     if(path===`/api/landing-pages/${pageId}/versions`)return route.fulfill({status:200,contentType:'application/json',body:'{"versions":[]}'});
     if(path===`/api/landing-pages/${pageId}/variants`)return route.fulfill({status:200,contentType:'application/json',body:'{"variants":[]}'});
+    if(path===`/api/landing-pages/${pageId}/domain`)return route.fulfill({status:200,contentType:'application/json',body:'{"domain":null,"status":null}'});
     if(path===`/api/landing-pages/${pageId}`&&route.request().method()==='GET')return route.fulfill({status:200,
       contentType:'application/json',body:JSON.stringify(initialPage)});
     return route.fulfill({status:200,contentType:'application/json',body:'[]'});
   });
+});
+
+test('page settings connects and verifies a client domain',async({page},testInfo)=>{
+  let domain:string|null=null,verified=false;
+  await page.route(`**/api/landing-pages/${pageId}/domain**`,route=>{
+    const path=new URL(route.request().url()).pathname;
+    if(path.endsWith('/verify')){verified=true;return route.fulfill({status:200,contentType:'application/json',
+      body:JSON.stringify({domain,status:{verified:true,verification:[]}})});}
+    if(route.request().method()==='POST'){
+      domain=(route.request().postDataJSON() as {domain:string}).domain;
+      return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({domain,
+        status:{verified:false,verification:[{type:'TXT',domain:'_vercel.example.com',value:'test-challenge'}]}})});
+    }
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({domain,
+      status:domain?{verified,verification:verified?[]:[{type:'TXT',domain:'_vercel.example.com',value:'test-challenge'}]}:null})});
+  });
+  await page.goto(`/landing-pages/${pageId}`);
+  await page.getByRole('button',{name:'Page settings'}).click();
+  await page.getByRole('textbox',{name:'Client domain'}).fill('offers.example.com');
+  await page.getByRole('button',{name:'Connect domain'}).click();
+  await expect(page.getByText('Waiting for domain verification')).toBeVisible();
+  await expect(page.getByText(/test-challenge/)).toBeVisible();
+  await page.getByRole('button',{name:'Check verification'}).click();
+  await expect(page.getByText('Ownership verified; check DNS and HTTPS')).toBeVisible();
+  expect(domain).toBe('offers.example.com');
+  await page.screenshot({path:testInfo.outputPath('landing-domain.png'),fullPage:true});
 });
 
 test('editor changes sections as one draft and publishes the saved state',async({page},testInfo)=>{
