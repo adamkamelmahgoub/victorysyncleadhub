@@ -250,7 +250,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
   }
   let match=path.match(/^\/f\/([a-z0-9-]+)$/);if(match&&['GET','POST'].includes(method))return await publicForm(req,res,match[1],method==='POST');
   match=path.match(/^\/p\/([a-z0-9-]+)$/);if(match&&method==='GET')return await publicPage(req,res,match[1]);
-  if(path==='/api/domain-page'&&method==='GET')return await publicPage(req,res,null);
+  if((path==='/'||path==='/api/domain-page')&&method==='GET')return await publicPage(req,res,null);
   if(path==='/api/marketing/reports'){
     if(method!=='GET')return json(res,405,{error:'Method not allowed'});
     const reportUser=await actor(req,'forms');

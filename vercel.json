@@ -3,7 +3,6 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm --filter @workspace/leadgen build",
   "outputDirectory": "artifacts/leadgen/dist/public",
-  "proxy": { "entrypoint": "proxy.ts", "matcher": ["/"] },
   "crons": [
     { "path": "/api/client-delivery-worker", "schedule": "0 0 * * *" }
   ],
@@ -31,6 +30,11 @@
     {
       "src": "/leadgen/api/(.*)",
       "dest": "/api/[...path].ts"
+    },
+    {
+      "src": "^/$",
+      "missing": [{ "type": "host", "value": "^(?:app\\.victorysync\\.com|portal\\.victorysync\\.com|victorysync\\.com|www\\.victorysync\\.com|.*\\.vercel\\.app|.*\\.localhost|localhost|127\\.0\\.0\\.1)(?::[0-9]+)?$" }],
+      "dest": "/api/marketing.ts"
     },
     {
       "handle": "filesystem"

@@ -2,22 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {mcpPool} from '../lib/mcp-auth.js';
-import proxy,{isClientPageHost} from '../proxy.js';
 
-test('domain proxy keeps workspace hosts and routes client-owned hosts',()=>{
+test('root host route preserves workspace hosts and serves client domains',()=>{
+  const routes=JSON.parse(readFileSync(new URL('../vercel.json',import.meta.url),'utf8')) as {
+    routes:Array<{src?:string;dest?:string;missing?:Array<{type:string;value:string}>}>};
+  const root=routes.routes.find(route=>route.src==='^/$');
+  assert.equal(root?.dest,'/api/marketing.ts');
+  const excluded=new RegExp(root?.missing?.[0]?.value||'');
   for(const host of ['app.victorysync.com','portal.victorysync.com','www.victorysync.com',
     'preview.vercel.app','localhost:4173','127.0.0.1:4173'])
-    assert.equal(isClientPageHost(host),false,host);
-  assert.equal(isClientPageHost('client.example.com'),true);
-  const routes=JSON.parse(readFileSync(new URL('../vercel.json',import.meta.url),'utf8')) as {
-    proxy?:{entrypoint:string;matcher:string[]};routes:Array<{src?:string;dest?:string}>};
-  assert.equal(routes.proxy?.entrypoint,'proxy.ts');
-  assert.ok(routes.proxy?.matcher.includes('/'));
+    assert.match(host,excluded,host);
+  assert.doesNotMatch('client.example.com',excluded);
   assert.ok(routes.routes.some(route=>route.src==='^/api/domain-page$'&&route.dest==='/api/marketing.ts'));
-  const client=proxy(new Request('https://client.example.com/',{headers:{host:'client.example.com'}}));
-  assert.equal(client.headers.get('x-middleware-rewrite'),'https://client.example.com/api/domain-page');
-  const workspace=proxy(new Request('https://app.victorysync.com/',{headers:{host:'app.victorysync.com'}}));
-  assert.equal(workspace.headers.get('x-middleware-rewrite'),null);
 });
 
 test('custom page host serves only its published page and never another slug',async()=>{
@@ -47,7 +43,7 @@ test('custom page host serves only its published page and never another slug',as
       await handler({method:'GET',url:path,headers:{host}} as never,response as never);
       return {status:response.statusCode,content,headers};
     }
-    const home=await invoke('/api/domain-page','client.example.com');
+    const home=await invoke('/','client.example.com');
     assert.equal(home.status,200);
     assert.match(home.content,/Published client page/);
     assert.doesNotMatch(home.content,/Private client page/);
