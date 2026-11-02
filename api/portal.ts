@@ -6,6 +6,7 @@ import {registry,sectionTypes} from '../lib/landing-section-registry.js';
 import {clientInviteUrl} from '../lib/client-invite.js';
 import {readPortalSelection,signPortalSelection,type PortalSelection} from '../lib/portal-cookie.js';
 import {externalSendsEnabled} from '../lib/external-send-mode.js';
+import {portalBillingReturnUrl} from '../lib/portal-billing-url.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const ORG = 'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
@@ -474,13 +475,12 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
     }
     if (parsed.action === 'billing_portal') {
       const customer = await rpc<string|null>(user.token,'portal_billing_customer',{p_account:selected.id});
-      if (!customer || !process.env.STRIPE_SECRET_KEY) return send(res,503,{error:'Billing portal is not configured'});
-      const host = header(req,'host');
-      if (!host || !/^[a-z0-9.-]+(?::\d{1,5})?$/i.test(host)) return send(res,400,{error:'Invalid host'});
-      const origin = `${header(req,'x-forwarded-proto') === 'http' ? 'http' : 'https'}://${host}`;
+      const returnUrl=portalBillingReturnUrl(process.env.PORTAL_BASE_URL);
+      if (!customer || !process.env.STRIPE_SECRET_KEY || !returnUrl)
+        return send(res,503,{error:'Billing portal is not configured'});
       const stripe = await fetch('https://api.stripe.com/v1/billing_portal/sessions', {
         method:'POST',headers:{authorization:`Bearer ${process.env.STRIPE_SECRET_KEY}`,'content-type':'application/x-www-form-urlencoded'},
-        body:new URLSearchParams({customer,return_url:`${origin}/client-portal/billing`}),signal:AbortSignal.timeout(15000),
+        body:new URLSearchParams({customer,return_url:returnUrl}),signal:AbortSignal.timeout(15000),
       });
       const data = await stripe.json() as {url?:string;error?:{message?:string}};
       if (!stripe.ok || !data.url) throw new Error(data.error?.message || 'Stripe portal failed');
