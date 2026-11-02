@@ -27,8 +27,8 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Client notifications | delivery worker | partial | `mightycall-endpoints.test.ts`, `external-send-mode.test.ts` | Product paths and preview send gate verified; external email and SMS not tested. |
 | Provider setup status | agency overview, `provider_readiness` | partial | `provider-readiness.test.ts` | Admin-only configuration status and sandbox state tested; live provider acceptance remains unverified. |
 | Form lead dedupe and UTM | form submit route | partial | `marketing-forms-pages.test.ts` | Account-scoped phone and email lookup now serializes concurrent submissions; full workflow trigger test needed. |
-| Speed-to-lead sequence | delivery worker | partial | source review | Under-60-second sandbox test needed. |
-| Missed-call text-back | delivery worker | partial | `client-missed-call-delivery.test.ts`, `client-missed-call-claims.test.ts` | Mocked first call, account-scoped atomic 24-hour claim, normalized lead linking and opt-out pass; live timing and provider delivery need QA. |
+| Speed-to-lead sequence | delivery worker | partial | `client-immediate-delivery.test.ts` | Due-now jobs dispatch after commit and the minute poll retries; live under-60-second provider test remains. |
+| Missed-call text-back | delivery worker | partial | `client-missed-call-delivery.test.ts`, `client-missed-call-claims.test.ts`, `client-immediate-delivery.test.ts` | Due-now dispatch plus atomic 24-hour claim, lead linking and opt-out pass locally; live timing and provider delivery need QA. |
 | Review request after Won | delivery worker | partial | `client-review-click.test.ts`, `client-review-delivery.test.ts` | Mocked SMS, email, reminder and consent recheck pass; database delay and provider sandbox QA remain. |
 | STOP and DND | delivery worker | partial | `client-missed-call-delivery.test.ts`, `client-review-delivery.test.ts` | Missed-call and review sends halt on opt-out in mocked worker tests; all workflow types still need QA. |
 | Call usage meter | `client_call_details`, agency overview | partial | source review | Package hour and 80% alert tests needed. |

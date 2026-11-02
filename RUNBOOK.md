@@ -60,6 +60,8 @@ MightyCall API delivery also requires `MIGHTYCALL_SECRET_KEY` (or `MIGHTYCALL_US
 
 The client delivery worker and checkout webhook run only when Vercel reports `VERCEL_ENV=production`. Setting `CLIENT_DELIVERY_SANDBOX=1` disables them even in production. Client invite emails and client-creation Slack alerts also respect this gate. Preview and local runs do not send through these paths. Verify provider credentials and a single controlled event before clearing sandbox mode in production.
 
+For prompt form and missed-call follow-up, enable the `pg_net` and `pg_cron` extensions in Supabase. In **Database → Vault**, add a secret named `victorysync_client_delivery_worker` with the same value as Vercel's `CLIENT_DELIVERY_WORKER_SECRET`. The due-now job trigger queues one worker call per transaction after commit; the minute cron remains the recovery poll. Check the worker response and queue age with a controlled synthetic lead before relying on the 60-second target. Do not paste the secret into a migration or SQL file.
+
 Agency admins can open **Client portal → Agency view → Delivery setup** to check which provider settings are present and whether sandbox mode is on. Select **Refresh** after a production redeploy. This panel reports configuration presence only; a green status does not prove a provider accepted a message or payment. Agency staff and client users cannot call its status endpoint.
 
 To rotate a secret, add the new value in Vercel, update the provider webhook or API credential, redeploy, test a single event, and then revoke the old value. Update any matching Supabase Vault secret used by Edge Functions or scheduled jobs. Stripe and MightyCall webhooks must be pointed at the production handlers and signed with the matching secrets.
