@@ -66,7 +66,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Settings secondary navigation | settings pages | partial | source review | GHL pattern and mobile QA pending. |
 | Global search and quick add | app shell | partial | source review | Keyboard and account scoping need test. |
 | Light and dark themes | app shell | partial | source review | Screenshots and contrast QA needed. |
-| Seeded demo environment | scripts | missing | source review | No isolated full demo seed with >1,000 leads. |
+| Seeded demo environment | `scripts/setup-local-qa-db.mjs` | partial | two repeat runs with count and cross-account assertions | Disposable PGlite fixture has three synthetic accounts, 2,105 leads, linked forms, calls, reviews, reports, invoices, spend, workflows and appointments. It is not yet a running full-stack browser environment. |
 | Vitest, Playwright, Lighthouse, axe CI | test tooling | partial | `.github/workflows/quality.yml`, `client-portal-layout.spec.ts` | Playwright and axe run on eight synthetic portal pages in CI; live browser, RLS and Lighthouse gates remain. |
 | Production launch checks | Vercel and Supabase | partial | prior deployment check | Provider secrets and webhook test events pending. |
 

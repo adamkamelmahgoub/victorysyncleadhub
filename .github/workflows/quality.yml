@@ -20,6 +20,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run test
       - run: pnpm run test:rls
+      - run: pnpm run test:qa-seed
       - run: pnpm run typecheck:api
       - run: pnpm run build
       - run: pnpm run test:bundle-secrets
