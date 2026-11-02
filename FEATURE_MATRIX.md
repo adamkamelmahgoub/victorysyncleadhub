@@ -10,7 +10,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Agency staff assignments | `sub_account_assignments` | partial | `client-tenancy-db.test.mjs` | Assigned-account restrictions need per-route test. |
 | Roles and page permissions | `permissions.ts`, portal middleware | partial | `client-portal-permissions.test.ts` | Page and API parity needs verification. |
 | Client invite and acceptance | `api/portal.ts`, `client-invite.ts` | partial | `client-invite.test.ts` | Provider email and browser acceptance unverified. |
-| Agency two-step verification | portal auth | partial | `client-portal-mfa.test.ts` | Legacy role exception needs security review. |
+| Agency two-step verification | portal auth and `20261102_09_agency_mfa_rls.sql` | partial | `client-portal-mfa.test.ts`, native Postgres tenancy test | API and RLS now require AAL2 for legacy and new agency roles; live enrollment and production-copy migration QA pending. |
 | Read-only impersonation and audit | `api/portal.ts`, `portal_activity_log` | partial | source review | Browser flow and every write path need verification. |
 | Agency account overview | `client-portal.tsx`, `portal_agency_overview` | partial | `account-templates-ops.test.mjs` | UI screenshot and health formula validation pending. |
 | Package snapshots | `account_templates`, `portal_apply_account_template` | partial | `account-templates-ops.test.mjs` | Ten templates and idempotence tested; visual QA pending. |

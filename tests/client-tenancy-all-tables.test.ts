@@ -52,6 +52,8 @@ test('the tenancy migrations restrict every client table for clients and assigne
       create table auth.users(id uuid primary key);
       create function auth.uid() returns uuid language sql stable as $$
         select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
+      create function auth.jwt() returns jsonb language sql stable as $$
+        select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb $$;
       create function public.wf_role() returns text language sql stable as $$ select 'none'::text $$;
       create table public.organizations(id uuid primary key);
       create table public.companies(id uuid primary key);
@@ -84,6 +86,12 @@ test('the tenancy migrations restrict every client table for clients and assigne
           using(true) with check(true);
         grant select,insert,update,delete on public.${table} to authenticated;`);
     }
+    await db.exec(`create table public.landing_page_versions(id uuid primary key,page_id uuid not null);
+      alter table public.landing_page_versions enable row level security;
+      grant select,insert,update,delete on public.landing_page_versions to authenticated;
+      create table public.ai_requests(id uuid primary key,user_id uuid not null,client_account_id uuid);
+      alter table public.ai_requests enable row level security;
+      grant select on public.ai_requests to authenticated;`);
     await db.exec(`grant usage on schema public,auth to authenticated;
       grant execute on all functions in schema public,auth to authenticated;
       grant select on public.sub_accounts,public.team_members,public.user_feature_access to authenticated;
@@ -91,8 +99,10 @@ test('the tenancy migrations restrict every client table for clients and assigne
       create policy existing_accounts on public.sub_accounts for select to authenticated using(true);`);
     const foundation=readFileSync(new URL('../supabase/migrations/20261026_01_client_tenancy_foundation.sql',import.meta.url),'utf8');
     const accountGuard=readFileSync(new URL('../supabase/migrations/20261102_02_sub_account_rls.sql',import.meta.url),'utf8');
+    const mfaGuard=readFileSync(new URL('../supabase/migrations/20261102_09_agency_mfa_rls.sql',import.meta.url),'utf8');
     await db.exec(foundation);await db.exec(foundation);
     await db.exec(accountGuard);await db.exec(accountGuard);
+    await db.exec(mfaGuard);await db.exec(mfaGuard);
     await db.exec(`insert into public.sub_account_assignments(sub_account_id,user_id,role_in_account)
       values('${accountA}','${staff}','marketing');`);
     for(const [index,table] of scopedTables.entries()){
@@ -108,6 +118,11 @@ test('the tenancy migrations restrict every client table for clients and assigne
         }
       }
     }
+    await db.exec(`insert into public.landing_page_versions(id,page_id) values
+      ('60000000-0000-4000-8000-000000000001',
+       '40000000-0000-4000-8000-${String(scopedTables.indexOf('landing_pages')*10+1).padStart(12,'0')}');
+      insert into public.ai_requests(id,user_id,client_account_id) values
+      ('60000000-0000-4000-8000-000000000002','${staff}','${accountA}');`);
     const cases=[
       {user:clientA,expected:[accountA]},
       {user:clientB,expected:[accountB]},
@@ -117,7 +132,9 @@ test('the tenancy migrations restrict every client table for clients and assigne
       {user:admin,expected:[accountA,accountB,null]},
     ];
     for(const {user,expected} of cases){
-      await db.exec(`set request.jwt.claim.sub = '${user}'; set role authenticated;`);
+      const aal=user===staff||user===unassignedStaff||user===admin?'aal2':'aal1';
+      await db.exec(`set request.jwt.claim.sub = '${user}';
+        set request.jwt.claims = '{"aal":"${aal}"}'; set role authenticated;`);
       const accounts=await db.query<{id:string}>('select id from public.sub_accounts order by id');
       assert.deepEqual(accounts.rows.map(row=>row.id),expected.filter(Boolean),`sub_accounts for ${user}`);
       for(const table of scopedTables){
@@ -138,6 +155,34 @@ test('the tenancy migrations restrict every client table for clients and assigne
             /row-level security/,`${table} cross-account insert`);
         }
       }
+      if(user===staff){
+        assert.equal((await db.query('select id from public.landing_page_versions')).rows.length,1);
+        assert.equal((await db.query('select id from public.ai_requests')).rows.length,1);
+        await db.query(`insert into public.landing_page_versions(id,page_id) values($1,$2)`,[
+          '60000000-0000-4000-8000-000000000003',
+          `40000000-0000-4000-8000-${String(scopedTables.indexOf('landing_pages')*10+1).padStart(12,'0')}`]);
+      }
+      await db.exec('reset role');
+    }
+    for(const user of [staff,admin]){
+      await db.exec(`set request.jwt.claim.sub = '${user}';
+        set request.jwt.claims = '{"aal":"aal1"}'; set role authenticated;`);
+      const accounts=await db.query('select id from public.sub_accounts');
+      assert.equal(accounts.rows.length,0,`agency ${user} must enroll MFA before seeing accounts`);
+      for(const table of scopedTables){
+        const rows=await db.query(`select id from public.${table}`);
+        assert.equal(rows.rows.length,0,`${table} must be hidden from agency ${user} at AAL1`);
+      }
+      assert.equal((await db.query('select id from public.landing_page_versions')).rows.length,0);
+      assert.equal((await db.query('select id from public.ai_requests')).rows.length,0);
+      await assert.rejects(db.query(`insert into public.landing_page_versions(id,page_id) values($1,$2)`,[
+        '60000000-0000-4000-8000-000000000004',
+        `40000000-0000-4000-8000-${String(scopedTables.indexOf('landing_pages')*10+1).padStart(12,'0')}`]),
+      /row-level security/);
+      await db.exec(`set request.jwt.claims = '{}'`);
+      const noClaim=await db.query<{allowed:boolean}>(`select public.is_agency() as allowed`);
+      assert.equal(noClaim.rows[0].allowed,false,'a missing AAL claim must deny agency access');
+      assert.equal((await db.query('select id from public.sub_accounts')).rows.length,0);
       await db.exec('reset role');
     }
     await db.exec('set role anon');
