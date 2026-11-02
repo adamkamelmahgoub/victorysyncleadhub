@@ -230,8 +230,13 @@ function ReviewDelaySettings() {
   return <Card className="space-y-2 p-4"><h2 className="font-semibold">Review request timing</h2><div className="flex gap-2"><Input aria-label="Hours after job completion" type="number" min="0" max="168" className="w-36" value={hours} onChange={e=>setHours(e.target.value)}/><Button disabled={save.isPending||Number(hours)<0||Number(hours)>168} onClick={()=>save.mutate()}>Save delay</Button></div><p className="text-xs text-muted-foreground">Hours after a job is marked Won. Default is 2.</p>{save.error&&<p role="alert" className="text-red-600">{String(save.error)}</p>}</Card>;
 }
 function PageBuilder({initial,readOnly,onSaved}:{initial?:Page;readOnly:boolean;onSaved:()=>void}) {
+  const queryClient=useQueryClient();
   const {data:availableForms}=useQuery<Snapshot>({queryKey:['portal','forms'],
     queryFn:()=>apiFetch('/api/portal?action=snapshot&section=forms')});
+  const {data:versions}=useQuery<Array<{version:number;published_at:string;note:string|null}>>({
+    queryKey:['portal-page-versions',initial?.id],
+    queryFn:()=>apiFetch(`/api/portal?action=page_versions&pageId=${initial?.id}`),
+    enabled:!!initial?.id,retry:false});
   const [draft,setDraft] = useState({id:initial?.id ?? null,title:initial?.name ?? 'New landing page',
     slug:initial?.slug ?? `new-page-${Math.random().toString(36).slice(2,7)}`,
     seoDescription:initial?.seo_description ?? '',sections:initial?.sections ?? [] as Section[],theme:{...themeDefault,...initial?.theme}});
@@ -242,7 +247,14 @@ function PageBuilder({initial,readOnly,onSaved}:{initial?:Page;readOnly:boolean;
     const saved=await apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'save_page',...draft,status:'draft'})}) as {id:string};
     if(publish)await apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'publish_page',pageId:saved.id})});
   },
-    onSuccess:()=>{setError('');onSaved()},onError:e=>setError(String(e))});
+    onSuccess:()=>{setError('');void queryClient.invalidateQueries({queryKey:['portal-page-versions',initial?.id]});onSaved()},
+    onError:e=>setError(String(e))});
+  const restore=useMutation({mutationFn:(version:number)=>apiFetch('/api/portal',{method:'POST',
+    body:JSON.stringify({action:'restore_page',pageId:initial?.id,version})}) as Promise<{sections:Section[];theme:Theme}>,
+    onSuccess:value=>{setDraft(old=>({...old,sections:value.sections,theme:{...themeDefault,...value.theme}}));
+      setSelected(value.sections[0]?.id??null);setError('');
+      void queryClient.invalidateQueries({queryKey:['portal','pages']});},
+    onError:e=>setError(String(e))});
   const generate = useMutation({mutationFn:() => apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'ai_page',prompt,currentSections:draft.sections})}) as Promise<{sections:Section[];theme:Theme;title:string;seoDescription:string}>,
     onSuccess:value=>{setDraft(current=>({...current,...value}));setSelected(value.sections[0]?.id ?? null);setError('')},onError:e=>setError(String(e))});
   const current = draft.sections.find(item=>item.id===selected);
@@ -252,6 +264,11 @@ function PageBuilder({initial,readOnly,onSaved}:{initial?:Page;readOnly:boolean;
     <Button disabled={readOnly||save.isPending} onClick={()=>save.mutate(false)}><Save className="mr-1 h-4 w-4"/>Save draft</Button>
     <Button variant="outline" disabled={readOnly||save.isPending||!draft.sections.length} onClick={()=>save.mutate(true)}>Publish</Button></div>
     {error&&<p role="alert" className="text-sm text-red-600">{error}</p>}
+    {initial?.id&&<details className="rounded-lg border bg-white p-3"><summary className="cursor-pointer text-sm font-medium">Version history</summary>
+      <div className="mt-3 space-y-2">{versions?.length?versions.map(item=><div key={item.version} className="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-sm">
+        <div><b>Version {item.version}</b><p className="text-xs text-muted-foreground">{new Date(item.published_at).toLocaleString()}</p></div>
+        <Button size="sm" variant="outline" disabled={readOnly||restore.isPending} onClick={()=>restore.mutate(item.version)}>Restore to draft</Button>
+      </div>):<p className="text-sm text-muted-foreground">Publish to create a version.</p>}</div></details>}
     <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)_300px]">
       <Card className="space-y-3 p-4"><h3 className="font-semibold">Sections</h3>{draft.sections.map((item,index)=><div key={item.id} className={`flex items-center gap-1 rounded border p-1 ${selected===item.id?'border-blue-500':''}`}>
         <button className="flex-1 text-left px-2 text-sm" onClick={()=>setSelected(item.id)}>{nice(item.type)}</button>
