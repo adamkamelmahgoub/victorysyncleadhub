@@ -73,6 +73,6 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 ## Audit findings
 
 - The repository is a Vite/React client with Vercel functions and an API server, not a Next.js App Router project. See `DECISIONS.md`.
-- The live schema has 270 public tables and 505 policies. `client_package_templates` is the only public table with RLS disabled. It requires an explicit access review before client exposure.
+- A 2026-11-02 live metadata audit found all 28 named client tables have `client_account_id`, RLS and `client_tenancy_guard`. `client_package_templates` initially allowed direct anonymous and authenticated reads and writes with RLS off. Direct grants were revoked and RLS enabled in production, then verified. Newer portal functions and the missed-call claim table remain absent.
 - `marketing_landing_pages` is the current writable page model. `landing_pages` is retained as a legacy archive.
 - The local machine has no `supabase`, `docker`, `pg_dump`, or `psql` command on PATH. No production data was used for testing in this audit. A disposable database or Supabase branch is needed before data migrations and browser end-to-end tests.
