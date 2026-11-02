@@ -25,6 +25,8 @@ type AgencyAccount = {id:string;name:string;package:string|null;launch_date:stri
   answering_hours_limit:number;texts_sent:number;ai_tokens:number};
 type FailedRun = {id:string;account_name:string;step:string;error:string|null;started_at:string;kind:string|null;attempts:number|null};
 type Feature = {feature_key:string;user_id:string|null;enabled:boolean};
+type ProviderReadiness = {sandbox:boolean;stripe:boolean;mightycall:boolean;invites:boolean;reports:boolean;
+  slack:boolean;portalUrl:boolean;publicPagesUrl:boolean;worker:boolean};
 type Snapshot = {accountId:string;readOnly:boolean;data:unknown};
 type Lead = {id:string;first_name:string;last_name:string;company:string;phone:string;email:string;pipeline_stage_id:string|null;notes:string|null;created_at:string};
 const pages = ['launchpad','dashboard','leads','calls','pages','forms','reviews','reports','billing','settings'] as const;
@@ -66,6 +68,23 @@ function DataTable({rows}:{rows:Record<string,unknown>[]}) {
     <tbody>{rows.map((row,index)=><tr key={String(row.id ?? index)} className="border-t">{columns.map(key=><td key={key} className="max-w-64 truncate px-4 py-3" title={show(row[key])}>{show(row[key])}</td>)}</tr>)}</tbody>
   </table></div>;
 }
+function ProviderReadinessPanel() {
+  const {data,error,isPending,refetch}=useQuery<ProviderReadiness>({queryKey:['portal-provider-readiness'],
+    queryFn:()=>apiFetch('/api/portal?action=provider_readiness'),retry:false});
+  const entries: Array<[keyof Omit<ProviderReadiness,'sandbox'>,string]> = [
+    ['stripe','Stripe billing'],['mightycall','MightyCall calls and texts'],
+    ['invites','Client invite email'],['reports','Report email'],['slack','Slack alerts'],
+    ['portalUrl','Portal URL'],['publicPagesUrl','Public pages URL'],['worker','Delivery worker']];
+  return <Card className="space-y-4 p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div>
+    <h2 className="font-semibold">Delivery setup</h2><p className="mt-1 text-sm text-muted-foreground">Production configuration status. Secret values are never shown.</p>
+  </div><Button size="sm" variant="outline" onClick={()=>void refetch()}>Refresh</Button></div>
+    {isPending?<p className="text-sm text-muted-foreground">Checking configuration…</p>:error?<p role="alert" className="text-sm text-red-600">Could not check delivery setup: {String(error)}</p>:data&&<>
+      <p className={`rounded-lg px-3 py-2 text-sm ${data.sandbox?'bg-amber-50 text-amber-900':'bg-green-50 text-green-800'}`}>
+        {data.sandbox?'Sandbox mode is on. Automatic external sends are paused.':'Sandbox mode is off. Automatic external sends can run.'}</p>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{entries.map(([key,label])=><div key={key} className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm"><span>{label}</span><span className={data[key]?'text-green-700':'text-amber-700'}>{data[key]?'Configured':'Needs setup'}</span></div>)}</div>
+    </>}
+  </Card>;
+}
 function AgencyOperations({admin,onOpen,onViewAs}:{admin:boolean;onOpen:(id:string)=>void;onViewAs:(id:string)=>void}) {
   const queryClient=useQueryClient();
   const [mrr,setMrr]=useState<Record<string,string>>({});
@@ -80,6 +99,7 @@ function AgencyOperations({admin,onOpen,onViewAs}:{admin:boolean;onOpen:(id:stri
     }});
   if(error) return <Card role="alert" className="p-5 text-sm text-red-600">{String(error)}</Card>;
   return <div className="space-y-5">
+    {admin&&<ProviderReadinessPanel/>}
     <Card className="overflow-hidden"><div className="border-b p-5"><h2 className="font-semibold">Accounts overview</h2><p className="mt-1 text-sm text-muted-foreground">Health, revenue, usage, and account ownership.</p></div>
       <div className="overflow-x-auto"><table className="w-full min-w-[1120px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr>{['Account','Package and launch','Health','MRR','Leads / goal','Answering','Texts / AI','Account manager','Actions'].map(x=><th key={x} className="px-4 py-3 font-medium">{x}</th>)}</tr></thead>
       <tbody>{(accounts||[]).map(a=><tr key={a.id} className="border-t align-top"><td className="px-4 py-4"><p className="font-medium">{a.name}</p><p className="mt-1 text-xs text-muted-foreground">{a.overdue_tasks} overdue tasks · {a.failed_payments} failed payments</p><p className="text-xs text-muted-foreground">Last login: {a.last_active_at?new Date(a.last_active_at).toLocaleDateString():'Never'}</p></td>
@@ -509,7 +529,6 @@ export default function ClientPortal() {
   if (!accounts) return null;
   const limited = role==='client_staff';
   return <div className="space-y-6"><div className="flex flex-wrap items-center gap-3 rounded-xl border p-4" style={{background:branding?.brand?.background||'#ffffff',borderColor:branding?.brand?.primary||undefined,color:branding?.brand?.text||undefined}}>{branding?.logoUrl?<img src={branding.logoUrl} alt={`${branding.name} logo`} className="h-12 w-12 rounded object-contain"/>:<div className="flex h-12 w-12 items-center justify-center rounded bg-blue-600 font-bold text-white">VS</div>}<div><h1 className="text-xl font-semibold sm:text-2xl">{branding?.name||'Victory Sync'} portal</h1><p className="text-xs opacity-70 sm:text-sm">Leads, calls, pages, reviews, reports, and billing.</p></div></div>
-    {admin&&!tab&&<FeatureManager/>}
     {accounts.selected?.viewAsClient&&<div className="flex items-center justify-between rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm"><span>Viewing as client. Changes are disabled.</span><Button size="sm" variant="outline" onClick={()=>void apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'switch',accountId:selectedId,viewAsClient:false})}).then(()=>queryClient.invalidateQueries({queryKey:['portal-accounts']})).then(()=>queryClient.invalidateQueries({queryKey:['portal']}))}>End client view</Button></div>}
     {!tab && admin && <Card className="space-y-4 p-5"><div><h2 className="font-semibold">Add a client</h2><p className="mt-1 text-sm text-muted-foreground">Start with a new business or select a company already marked Client.</p></div>
       <div className="grid gap-3 sm:grid-cols-2"><label className="space-y-1 text-sm"><span>Existing client company</span><select aria-label="Existing client company" className="h-10 w-full rounded border px-3 text-sm" value={companyId} onChange={event=>{const id=event.target.value;setCompanyId(id);const company=closedCompanies?.find(item=>item.id===id);setOwnerEmail(company?.email||'');setOwnerName(company?.contact_name||'')}}><option value="">Create a new business</option>{closedCompanies?.map(company=><option key={company.id} value={company.id}>{company.name}</option>)}</select></label><label className="space-y-1 text-sm"><span>Package</span><select aria-label="Package" className="h-10 w-full rounded border px-3 text-sm" value={packageName} onChange={event=>setPackageName(event.target.value)}>{['starter','scale','domination','overflow','business_hours','coverage_247','appt_part_time','appt_full_time','revive','custom'].map(value=><option key={value} value={value}>{nice(value)}</option>)}</select></label></div>
@@ -522,6 +541,7 @@ export default function ClientPortal() {
       {createClient.data?.existing&&<p className="text-sm text-muted-foreground">This company already has a client account.</p>}
     </Card>}
     {!tab && agency && <AgencyOperations admin={admin} onOpen={id=>void apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'switch',accountId:id,viewAsClient:false})}).then(()=>queryClient.invalidateQueries({queryKey:['portal-accounts']})).then(()=>navigate('/client-portal/dashboard'))} onViewAs={id=>void viewAs(id)}/>}
+    {admin&&!tab&&<FeatureManager/>}
     {(!tab && !agency) && <p>Select an account to continue.</p>}
     {tab&&<><nav aria-label="Portal pages" className="flex gap-2 overflow-x-auto pb-2">{pages.filter(page=>canAccessPath(`/client-portal/${page}`,pagePermissions,role)).map(page=><Link key={page} href={`/client-portal/${page}`} className={`shrink-0 rounded-lg px-3 py-2 text-sm ${tab===page?'bg-blue-600 text-white':'border bg-white'}`}>{nice(page)}</Link>)}</nav>
       {tab==='launchpad'?<Launchpad accountId={selectedId}/>:pageLoading?<p>Loading {tab}…</p>:pageError?<Card role="alert" className="p-6">{String(pageError)}</Card>:snapshot&&<>
