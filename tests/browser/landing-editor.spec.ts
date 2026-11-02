@@ -83,13 +83,31 @@ test('a variant shows base page A/B results and cannot change the split',async({
   await expect(page.getByText('Variant page')).toBeVisible();
 });
 
-test('draft iframe renders its hero without horizontal clipping',async({page})=>{
+test('draft iframe renders its hero without horizontal clipping',async({page},testInfo)=>{
   await page.goto(`/landing-pages/${pageId}`);
+  if(testInfo.project.name==='mobile')await page.getByRole('tab',{name:'Page preview'}).click();
   const preview=page.frameLocator('iframe[title="Draft landing page preview"]');
   await expect(preview.getByRole('heading',{name:'Original heading'})).toBeVisible();
   const dimensions=await preview.locator('html').evaluate(element=>({
     scrollWidth:element.scrollWidth,clientWidth:element.clientWidth}));
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth+1);
+});
+
+test('mobile editor switches between editable controls and page preview',async({page},testInfo)=>{
+  test.skip(testInfo.project.name!=='mobile');
+  await page.goto(`/landing-pages/${pageId}`);
+  await expect(page.getByRole('button',{name:'Open AI assistant'})).toHaveCount(0);
+  await expect(page.getByRole('tab',{name:'Edit sections'})).toHaveAttribute('aria-selected','true');
+  await expect(page.getByRole('button',{name:'Add section'})).toBeVisible();
+  await page.screenshot({path:testInfo.outputPath('mobile-editor-controls.png')});
+  await page.getByRole('tab',{name:'Page preview'}).click();
+  await expect(page.frameLocator('iframe[title="Draft landing page preview"]')
+    .getByRole('heading',{name:'Original heading'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Add section'})).toBeHidden();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);
+  await page.screenshot({path:testInfo.outputPath('mobile-page-preview.png'),fullPage:true});
+  await page.getByRole('tab',{name:'Edit sections'}).click();
+  await expect(page.getByRole('button',{name:'Add section'})).toBeVisible();
 });
 
 test('blocks can be reordered, hidden, duplicated, and removed',async({page})=>{
