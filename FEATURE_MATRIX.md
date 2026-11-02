@@ -35,7 +35,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Workflow list and editor | `automation.tsx` | partial | `native-workflows.test.ts` | Visual builder branches, goals and logs need audit. |
 | Workflow execution logs and retry | `automation_runs`, portal | partial | `account-templates-ops.test.mjs` | Mock provider execution needed. |
 | Scheduled weekly and monthly reports | report worker | partial | `client-report-period.test.ts`, `client-metrics-shared.test.ts` | Prior full calendar periods and aggregate parity tested; delivery still needs sandbox QA. |
-| Landing page editor sections | `landing-page-editor.tsx` | partial | `landing-theme-editor.test.ts` | Browser add, hide, duplicate, undo and redo QA needed. |
+| Landing page editor sections | `landing-page-editor.tsx` | partial | `landing-theme-editor.test.ts`, `landing-editor.spec.ts` | Browser add, edit, undo, redo and publish pass desktop/mobile; hide, duplicate, reorder and restore still need browser QA. |
 | Page publish and versions | marketing pages API | partial | `marketing-pages.test.mjs` | Draft isolation and restore browser test needed. |
 | Public page renderer | `api/client-landing.ts` | partial | `marketing-pages.test.mjs` | Lighthouse and custom domain QA needed. |
 | Page analytics and A/B | marketing pages API | partial | source review | GTM, GA4, pixel and split tests needed. |
