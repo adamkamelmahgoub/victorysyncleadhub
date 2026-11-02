@@ -66,6 +66,52 @@ test('client dashboard fits the viewport and has no serious accessibility violat
   await page.screenshot({path:testInfo.outputPath('client-dashboard.png'),fullPage:true});
 });
 
+test('client owner can move a lead to Won, save a note, and record job value',async({page})=>{
+  const writes:Array<Record<string,unknown>>=[];
+  let stage:string|null=null;
+  let note:string|null=null;
+  const wonStage='40000000-0000-4000-8000-000000000005';
+  await page.route('**/api/portal*',async route=>{
+    const request=route.request();const url=new URL(request.url());
+    const action=url.searchParams.get('action');
+    if(request.method()==='POST'){
+      const data=request.postDataJSON() as Record<string,unknown>;
+      writes.push(data);
+      if(data.action==='change_lead'){
+        if('stageId'in data)stage=data.stageId as string|null;
+        if('notes'in data)note=data.notes as string|null;
+      }
+      return route.fulfill({status:200,contentType:'application/json',body:'{}'});
+    }
+    if(action==='snapshot'&&url.searchParams.get('section')==='leads'){
+      const data={accountId,readOnly:false,data:{rows:[{...lead,pipeline_stage_id:stage,notes:note}],
+        stages:[{id:'40000000-0000-4000-8000-000000000001',name:'New'},
+          {id:wonStage,name:'Won'}]}};
+      return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});
+    }
+    if(action==='lead_timeline')return route.fulfill({status:200,contentType:'application/json',
+      body:JSON.stringify({lead:{...lead,pipeline_stage_id:stage,notes:note},events:[{
+        event_type:'call',body:'Customer booked a repair',created_at:'2026-10-15T12:00:00Z',
+        metadata:{recording_url:'https://example.test/recording.mp3'}}]})});
+    return route.fallback();
+  });
+  await page.goto('/client-portal/leads');
+  await page.getByRole('button',{name:'Pipeline board'}).click();
+  await expect(page.getByText('Alex Customer')).toBeVisible();
+  await page.getByRole('combobox',{name:'Stage for Alex Customer'}).selectOption(wonStage);
+  await expect.poll(()=>stage).toBe(wonStage);
+  await page.getByRole('textbox',{name:'Notes for Alex Customer'}).fill('Approved the quote');
+  await page.getByRole('button',{name:'Save note'}).click();
+  await expect.poll(()=>note).toBe('Approved the quote');
+  await page.getByRole('button',{name:'Timeline'}).click();
+  await expect(page.getByText('Customer booked a repair')).toBeVisible();
+  await expect(page.locator('audio[controls]')).toHaveCount(1);
+  await page.getByRole('spinbutton',{name:'Job value'}).fill('1250');
+  await page.getByRole('button',{name:'Save job value'}).click();
+  await expect.poll(()=>writes.some(x=>x.action==='set_job_value'&&x.value===1250)).toBe(true);
+  expect(writes.filter(x=>x.action==='change_lead').map(x=>x.leadId)).toEqual([lead.id,lead.id]);
+});
+
 for(const [section,visibleText] of [
   ['leads','Alex Customer'],['calls','Booked a repair'],['pages','Demo service page'],
   ['forms','Contact form'],['reviews','Verified customer'],['reports','Monthly report'],
