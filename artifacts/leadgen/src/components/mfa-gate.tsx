@@ -32,10 +32,14 @@ export function MfaGate({children,required}:{children:ReactNode;required:boolean
     try {
       const listed=await supabase.auth.mfa.listFactors();
       if(listed.error)throw listed.error;
+      if(!listed.data||!Array.isArray(listed.data.totp))
+        throw new Error('Authenticator setup is unavailable. Sign in again or contact your administrator.');
       const existing=listed.data.totp[0];
       if(existing){setFactor({id:existing.id});return}
       const enrolled=await supabase.auth.mfa.enroll({factorType:'totp',friendlyName:'VictorySync authenticator'});
       if(enrolled.error)throw enrolled.error;
+      if(!enrolled.data?.id||!enrolled.data.totp)
+        throw new Error('Authenticator setup is unavailable. Sign in again or contact your administrator.');
       setFactor({id:enrolled.data.id,totp:enrolled.data.totp});
     }catch(caught){setError(mfaErrorMessage(caught))}
     finally{setBusy(false)}

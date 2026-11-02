@@ -20,6 +20,12 @@ Agency admins can apply a template from **Accounts overview**. The operation mat
 
 Create the client owner during account creation. For additional users, open the client account, go to **Settings**, and use the invite form. Client users are restricted to their account by database RLS and page permissions. Agency staff need an explicit account assignment. Agency admins can use **View as client** to inspect a read-only client view; starting and ending that view is logged.
 
+## Agency two-step verification
+
+Agency admins and staff must complete authenticator verification before the portal API or database exposes agency accounts. After signing in, choose **Continue**, scan the QR code in an authenticator app, enter its current code, and choose **Verify code**. On later sign-ins, enter the code from the enrolled app. A legacy `admin`, `owner`, or `member` claim does not bypass this requirement.
+
+If **Continue** reports an enrollment or verification error, check the project's Supabase Auth MFA settings for TOTP enrollment and verification, then retry after signing in again. Supabase documents the [TOTP enrollment flow](https://supabase.com/docs/guides/auth/auth-mfa/totp) and [MFA controls](https://supabase.com/docs/guides/auth/auth-mfa). Do not disable the agency API or database gate to work around a setup failure.
+
 ## Connect a domain and publish a page
 
 Set server-only `VERCEL_API_TOKEN` and `VERCEL_PROJECT_ID` in Vercel. For a team-owned project, also set `VERCEL_TEAM_ID` (or use Vercel's `VERCEL_ORG_ID`). Set `PUBLIC_PAGES_BASE_URL` to the public pages origin. The client keeps control of their domain and DNS; do not collect registrar credentials.

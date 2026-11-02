@@ -70,6 +70,7 @@ import { useToast } from "@/hooks/use-toast";
 import { canAccessPath } from "@/lib/permissions";
 import {ActivityTracker} from '@/components/activity-tracker';
 import { MfaGate } from '@/components/mfa-gate';
+import { requiresAgencyMfa } from '../../../lib/portal-roles';
 import { clearApiCache } from "@/lib/api-cache";
 
 const queryClient = new QueryClient({
@@ -305,7 +306,7 @@ function AuthenticatedApp() {
     return <Login />;
   }
 
-  const agencyMfaRequired = ["agency_admin", "agency_staff"].includes(role);
+  const agencyMfaRequired = requiresAgencyMfa(role);
 
   if (window.location.hostname === "portal.victorysync.com" && ["/", "/dashboard", "/victorysync"].includes(location)) {
     return <Redirect to="/client-portal" />;

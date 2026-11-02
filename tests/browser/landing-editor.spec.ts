@@ -5,7 +5,7 @@ const userId='20000000-0000-4000-8000-000000000001';
 const pageId='50000000-0000-4000-8000-000000000001';
 const tokenPart=(value:unknown)=>Buffer.from(JSON.stringify(value)).toString('base64url');
 const jwt=`${tokenPart({alg:'HS256',typ:'JWT'})}.${tokenPart({sub:userId,role:'authenticated',
-  crm_role:'admin',crm_client_account_id:accountId,exp:4102444800})}.test-signature`;
+  crm_role:'admin',crm_client_account_id:accountId,aal:'aal2',exp:4102444800})}.test-signature`;
 const initialPage={id:pageId,name:'Demo service page',slug:'demo-service',status:'draft',
   sections:[{id:'hero-1',type:'hero',heading:'Original heading',body:'Service details'}],
   theme:{primary:'#245eea',background:'#ffffff',text:'#17243d'},seo_title:null,seo_description:null,
