@@ -11,6 +11,7 @@
     "db:seed": "pnpm --filter @workspace/scripts run db:seed",
     "db:verify": "pnpm --filter @workspace/scripts run db:verify",
     "test": "tsx --test tests/*.test.ts",
+    "test:rls": "tsx --test tests/client-tenancy-all-tables.test.ts tests/team-invite-tenancy.test.ts tests/portal-page-edit-scope.test.ts",
     "test:browser": "playwright test",
     "test:bundle-secrets": "node scripts/check-browser-secrets.mjs",
     "test:crm": "tsx --test tests/company-crm.test.ts tests/company-migration.test.ts",
