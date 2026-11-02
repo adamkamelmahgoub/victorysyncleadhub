@@ -38,6 +38,9 @@ const querySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('usage') }),
   z.object({ action: z.literal('calls'), from:z.string().datetime(),to:z.string().datetime(),
     outcome:z.enum(['booked','message_taken','spam','existing_customer','other']).optional() }),
+  z.object({ action: z.literal('call_page'), from:z.string().datetime(),to:z.string().datetime(),
+    outcome:z.enum(['booked','message_taken','spam','existing_customer','other']).optional(),
+    beforeAt:z.string().datetime({offset:true}),beforeId:uuid }).strict(),
   z.object({ action: z.literal('snapshot'), section }),
   z.object({ action: z.literal('export'), section: z.enum(['leads','calls','reviews','reports']) }),
 ]);
@@ -317,8 +320,10 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
         {p_account:selected.id}));
       if (parsed.action === 'usage') return send(res,200,await rpc(user.token,'portal_usage',
         {p_account:selected.id}));
-      if (parsed.action === 'calls') return send(res,200,await rpc(user.token,'portal_calls',
-        {p_account:selected.id,p_start:parsed.from,p_end:parsed.to,p_outcome:parsed.outcome||null}));
+      if (parsed.action === 'calls' || parsed.action === 'call_page') return send(res,200,
+        await rpc(user.token,'portal_call_page',{p_account:selected.id,p_start:parsed.from,p_end:parsed.to,
+          p_outcome:parsed.outcome||null,p_before_at:parsed.action==='call_page'?parsed.beforeAt:null,
+          p_before_id:parsed.action==='call_page'?parsed.beforeId:null,p_limit:200}));
       if (parsed.action === 'staff') return send(res,200,await rpc(user.token,'portal_staff',{p_account:selected.id}));
       if (parsed.action === 'export' && selected.viewAsClient) return send(res,403,{error:'Client view is read only'});
       const data = parsed.section==='leads'
