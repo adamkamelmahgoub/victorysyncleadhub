@@ -7,6 +7,7 @@ import {clientInviteUrl} from '../lib/client-invite.js';
 import {readPortalSelection,signPortalSelection,type PortalSelection} from '../lib/portal-cookie.js';
 import {externalSendsEnabled} from '../lib/external-send-mode.js';
 import {portalBillingReturnUrl} from '../lib/portal-billing-url.js';
+import {requiresAgencyMfa} from '../lib/portal-roles.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const ORG = 'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
@@ -114,9 +115,7 @@ const postSchema = z.discriminatedUnion('action', [
 ]);
 type PortalCookie = PortalSelection;
 type PortalUser = { id: string; email?: string; role: string; token: string };
-export function requiresPortalMfa(role: string): boolean {
-  return role === 'agency_admin' || role === 'agency_staff';
-}
+export const requiresPortalMfa=requiresAgencyMfa;
 
 function send(res: ServerResponse, status: number, value: unknown) {
   res.statusCode = status;
