@@ -49,6 +49,7 @@ Thumbs.db
 supabase/.temp/
 test-results/
 playwright-report/
+.lighthouseci/
 
 # Local secrets
 .env
