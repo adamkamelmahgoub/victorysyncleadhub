@@ -30,3 +30,16 @@ test('manual review blocks require a real-review attestation',()=>{
   assert.equal(sectionsSchema.safeParse([section]).success,false);
   assert.equal(sectionsSchema.safeParse([{...section,blocks:[{...section.blocks[0],attested:true}]}]).success,true);
 });
+
+test('hidden blocks stay in the draft but do not appear on the published page',()=>{
+  const sections=[{id:'services',type:'services' as const,heading:'Our services',blocks:[
+    {id:'first',type:'service',heading:'Drain cleaning'},
+    {id:'second',type:'service',heading:'Unpublished offer',hidden:true},
+    {id:'third',type:'service',heading:'Water heaters'}]}];
+  assert.equal(sectionsSchema.safeParse(sections).success,true);
+  const html=renderPage({name:'Services',sections,theme:{primary:'#245eea'}});
+  assert.match(html,/Drain cleaning/);
+  assert.match(html,/Water heaters/);
+  assert.doesNotMatch(html,/Unpublished offer/);
+  assert.ok(html.indexOf('Drain cleaning')<html.indexOf('Water heaters'));
+});
