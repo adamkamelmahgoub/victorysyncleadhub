@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {PGlite} from '@electric-sql/pglite';
-import {leadDedupeLockKeys,pageDailyStatsSql,safeHref,validatedFields,validatedSections,validateSubmission} from '../lib/marketing-routes/marketing.js';
+import {formLandingLookupSql,leadDedupeLockKeys,pageDailyStatsSql,safeHref,validatedFields,validatedSections,validateSubmission} from '../lib/marketing-routes/marketing.js';
 
 test('lead dedupe locks use account, normalized phone and email in a stable order',()=>{
   const account='10000000-0000-4000-8000-000000000001';
@@ -60,5 +60,24 @@ test('lead dedupe transaction lock executes in PostgreSQL',async()=>{
     await db.query('select pg_advisory_xact_lock(hashtextextended($1,0))',
       [leadDedupeLockKeys(null,'5125550101','')[0]]);
     await db.exec('rollback');
+  }finally{await db.close();}
+});
+
+test('a form submission cannot attribute another account page or an unpublished page',async()=>{
+  const db=new PGlite();
+  const org='00000000-0000-4000-8000-000000000001',accountA='00000000-0000-4000-8000-000000000002';
+  const accountB='00000000-0000-4000-8000-000000000003',form='00000000-0000-4000-8000-000000000004';
+  const base='00000000-0000-4000-8000-000000000005',variant='00000000-0000-4000-8000-000000000006';
+  try{
+    await db.exec('create table landing_pages(id uuid,organization_id uuid,client_account_id uuid,form_id uuid,status text,variant_of uuid)');
+    await db.query(`insert into landing_pages values($1,$2,$3,$4,'published',null),($5,$2,$3,$4,'published',$1),
+      ('00000000-0000-4000-8000-000000000007',$2,$6,$4,'published',null),
+      ('00000000-0000-4000-8000-000000000008',$2,$3,$4,'draft',null)`,
+      [base,org,accountA,form,variant,accountB]);
+    const own=await db.query(formLandingLookupSql,[variant,org,form,accountA]);
+    assert.equal(own.rows[0].variant_of,base);
+    assert.equal((await db.query(formLandingLookupSql,[variant,org,form,accountB])).rows.length,0);
+    assert.equal((await db.query(formLandingLookupSql,['00000000-0000-4000-8000-000000000007',org,form,accountA])).rows.length,0);
+    assert.equal((await db.query(formLandingLookupSql,['00000000-0000-4000-8000-000000000008',org,form,accountA])).rows.length,0);
   }finally{await db.close();}
 });

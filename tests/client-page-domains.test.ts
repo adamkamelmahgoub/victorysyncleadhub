@@ -55,3 +55,47 @@ test('custom page host serves only its published page and never another slug',as
     assert.ok(queries.some(sql=>sql.includes('lower(custom_domain)')));
   }finally{mcpPool.query=original}
 });
+
+test('custom domain keeps an A/B visitor on the same variant and passes UTM into its form',async()=>{
+  const original=mcpPool.query;
+  const baseId='40000000-0000-4000-8000-000000000011',variantId='40000000-0000-4000-8000-000000000012';
+  const base={id:baseId,organization_id:'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1',
+    client_account_id:'10000000-0000-4000-8000-000000000001',name:'Plumbing',slug:'plumbing',
+    status:'published',sections:[],published_sections:[{id:'hero',type:'hero',heading:'Base headline'},
+      {id:'form',type:'form',heading:'Get a quote'}],theme:{primary:'#2563eb'},published_theme:{primary:'#2563eb'},
+    custom_domain:'offers.example.com',variant_of:null,form_id:'50000000-0000-4000-8000-000000000001',
+    tracking:{ga4_id:'G-ABC123'},traffic_split:100,visits:0};
+  const variant={...base,id:variantId,slug:'plumbing-b',custom_domain:null,variant_of:baseId,
+    published_sections:[{id:'hero',type:'hero',heading:'Variant headline'},
+      {id:'form',type:'form',heading:'Get a quote'}],tracking:{},traffic_split:0};
+  const eventParams:unknown[][]=[];
+  mcpPool.query=(async(sql:string,params?:unknown[])=>{
+    if(sql.includes('lower(custom_domain)'))return {rows:[base],rowCount:1};
+    if(sql.includes('variant_of=$1'))return {rows:[variant],rowCount:1};
+    if(sql.includes('select slug from public.forms'))return {rows:[{slug:'lead'}],rowCount:1};
+    if(sql.includes('insert into public.landing_page_events'))eventParams.push(params||[]);
+    return {rows:[],rowCount:0};
+  }) as typeof mcpPool.query;
+  try{
+    const {default:handler}=await import('../api/marketing.js');
+    async function invoke(cookie=''){
+      let content='';const headers:Record<string,string>={};
+      const response={statusCode:200,setHeader(key:string,value:string){headers[key]=value},
+        end(value?:string){content=value||''}};
+      await handler({method:'GET',url:'/?utm_source=google&utm_campaign=fall+offer',
+        headers:{host:'offers.example.com',cookie}} as never,response as never);
+      return {content,headers};
+    }
+    const first=await invoke();
+    assert.match(first.content,/Variant headline/);
+    assert.match(first.content,/gtag\/js\?id=G-ABC123/);
+    assert.match(first.content,new RegExp(`lp=${variantId}&amp;utm_source=google&amp;utm_campaign=fall\\+offer`));
+    assert.match(first.headers['set-cookie'],/Path=\//);
+    assert.doesNotMatch(first.headers['set-cookie'],/Path=\/p\//);
+    base.traffic_split=0;
+    const second=await invoke(`lp_variant_${baseId}=${variantId}`);
+    assert.match(second.content,/Variant headline/);
+    assert.equal(eventParams[0][1],variantId);
+    assert.equal(eventParams[0][2],variantId);
+  }finally{mcpPool.query=original;}
+});

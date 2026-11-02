@@ -25,6 +25,9 @@ export function leadDedupeLockKeys(accountId:string|null,phone:string,email:stri
 export const pageDailyStatsSql=`select created_at::date AS day,count(*) filter(where event_type='view')::integer views,
         count(*) filter(where event_type='form_submit')::integer submissions from public.landing_page_events
         where landing_page_id=$1 and organization_id=$2 and created_at>=now()-interval '30 days' group by 1 order by 1`;
+export const formLandingLookupSql=`select variant_of from public.landing_pages
+        where id=$1 and organization_id=$2 and status='published' and form_id=$3
+        and client_account_id is not distinct from $4::uuid`;
 type Field={id:string;label:string;fieldType:string;required:boolean;order:number;placeholder:string|null;options:string[];mappedLeadField:string|null};
 type FormRow={id:string;name:string;description:string|null;status:string;slug:string;campaign_id:string|null;client_account_id:string|null;fields:Field[];success_message:string|null;submit_button_text:string;redirect_url:string|null;created_at:string;updated_at:string;submission_count?:number};
 type PageRow={id:string;client_account_id:string|null;name:string;slug:string;status:string;sections:Array<Record<string,unknown>>;theme:Record<string,unknown>;draft_sections:Array<Record<string,unknown>>|null;draft_theme:Record<string,unknown>|null;published_sections:Array<Record<string,unknown>>|null;published_theme:Record<string,unknown>|null;version:number;template_key:string|null;tracking:Record<string,unknown>;social_image_url:string|null;custom_domain:string|null;subdomain:string|null;traffic_split:number;variant_of:string|null;seo_title:string|null;seo_description:string|null;form_id:string|null;visits:number;published_at:string|null;created_at:string;updated_at:string};
@@ -194,7 +197,8 @@ async function publicForm(req:IncomingMessage,res:ServerResponse,slug:string,sub
         email=case when email is null or email='' then $3 else email end,
         custom_fields=coalesce(custom_fields,'{}'::jsonb)||$4::jsonb,updated_at=now()
         where id=$1`,[leadId,phone,email,JSON.stringify({utm})]);
-      const landing=pageId?await db.query(`select 1 from public.landing_pages where id=$1 and organization_id=$2 and status='published' and form_id=$3`,[pageId,org,form.id]):null;
+      const landing=pageId?await db.query<{variant_of:string|null}>(formLandingLookupSql,
+        [pageId,org,form.id,form.client_account_id]):null;
       const resolvedPage=landing?.rowCount?pageId:null;
       const marketingPage=pageId&&!resolvedPage?await db.query(`select 1 from public.marketing_landing_pages p where p.id=$1 and p.organization_id=$2
         and p.status='published' and p.client_account_id is not distinct from $4::uuid
@@ -205,8 +209,8 @@ async function publicForm(req:IncomingMessage,res:ServerResponse,slug:string,sub
         values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id`,[form.id,leadId,org,form.client_account_id,JSON.stringify(validated.data),plain(req.headers.referer,1000)||null,key,JSON.stringify(utm),resolvedPage,resolvedMarketingPage]);
       submissionId=result.rows[0].id;
       await db.query(`insert into public.activities(lead_id,type,description) values($1,'form_submission',$2)`,[leadId,`Lead submitted form: ${form.name}`]);
-      if(resolvedPage)await db.query(`insert into public.landing_page_events(organization_id,landing_page_id,event_type,utm)
-        values($1,$2,'form_submit',$3)`,[org,resolvedPage,JSON.stringify(utm)]);
+      if(resolvedPage)await db.query(`insert into public.landing_page_events(organization_id,landing_page_id,variant_page_id,client_account_id,event_type,utm)
+        values($1,$2,$3,$4,'form_submit',$5)`,[org,resolvedPage,landing?.rows[0]?.variant_of?resolvedPage:null,form.client_account_id,JSON.stringify(utm)]);
       if(resolvedMarketingPage)await db.query(`insert into public.marketing_landing_page_events(page_id,event_type,client_account_id)
         values($1,'form_submission',$2)`,[resolvedMarketingPage,form.client_account_id]);
       await db.query('commit');
@@ -229,24 +233,26 @@ async function publicPage(req:IncomingMessage,res:ServerResponse,slug:string|nul
   let found=base;
   if(!base.variant_of){const variants=await mcpPool.query<PageRow>(`select * from public.landing_pages where variant_of=$1 and organization_id=$2 and status='published' order by created_at limit 1`,[base.id,org]);
     const variant=variants.rows[0];if(variant){const cookie=String(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(`lp_variant_${base.id}=`))?.split('=')[1];
-      const selected=cookie===base.id||cookie===variant.id?cookie:(Math.random()*100<variant.traffic_split?variant.id:base.id);
-      found=selected===variant.id?variant:base;res.setHeader('set-cookie',`lp_variant_${base.id}=${selected}; Path=/p/${base.slug}; Max-Age=2592000; SameSite=Lax; Secure; HttpOnly`);}}
-  const page={...found,sections:found.published_sections||found.sections,theme:found.published_theme||found.theme};
+      const selected=cookie===base.id||cookie===variant.id?cookie:(Math.random()*100<base.traffic_split?variant.id:base.id);
+      found=selected===variant.id?variant:base;res.setHeader('set-cookie',`lp_variant_${base.id}=${selected}; Path=/; Max-Age=2592000; SameSite=Lax; Secure; HttpOnly`);}}
+  const page={...found,sections:found.published_sections||found.sections,theme:found.published_theme||found.theme,
+    tracking:{...(base.tracking||{}),...(found.tracking||{})}};
   const linked=page.form_id?await mcpPool.query<{slug:string}>(`select slug from public.forms where id=$1 and organization_id=$2 and status='active' limit 1`,[page.form_id,org]):null;
   const referrer=plain(req.headers.referer,1000);let referrerDomain:string|null=null;
   try{if(referrer)referrerDomain=new URL(referrer).hostname.slice(0,200);}catch{}
-  const url=new URL(req.url||'/','https://local.invalid');const utm=Object.fromEntries(['utm_source','utm_medium','utm_campaign'].map(key=>[key,plain(url.searchParams.get(key),120)]).filter(([,value])=>value));
+  const url=new URL(req.url||'/','https://local.invalid');const utm=Object.fromEntries(['utm_source','utm_medium','utm_campaign','utm_term','utm_content'].map(key=>[key,plain(url.searchParams.get(key),120)]).filter(([,value])=>value));
   await mcpPool.query(`update public.landing_pages set visits=visits+1 where id=$1`,[page.id]);
   await mcpPool.query(`insert into public.landing_page_events(organization_id,landing_page_id,variant_page_id,client_account_id,event_type,referrer_domain,utm)
     values($1,$2,$3,$4,'view',$5,$6)`,[org,page.id,page.id!==base.id?page.id:null,page.client_account_id||null,referrerDomain,JSON.stringify(utm)]);
-  securityHeaders(res);res.setHeader('content-security-policy',"default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; frame-src 'self' https://www.youtube.com https://player.vimeo.com; script-src 'unsafe-inline' https://www.googletagmanager.com https://connect.facebook.net; connect-src 'self' https://www.google-analytics.com https://www.facebook.com; form-action 'self'; base-uri 'none'; frame-ancestors 'self'");res.setHeader('cache-control','no-store');res.end(renderPage(page as unknown as RenderPage,linked?.rows[0]?.slug||null));
+  securityHeaders(res);res.setHeader('content-security-policy',"default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; frame-src 'self' https://www.youtube.com https://player.vimeo.com; script-src 'unsafe-inline' https://www.googletagmanager.com https://connect.facebook.net; connect-src 'self' https://www.google-analytics.com https://www.facebook.com; form-action 'self'; base-uri 'none'; frame-ancestors 'self'");res.setHeader('cache-control','no-store');res.end(renderPage({...page,utm} as unknown as RenderPage,linked?.rows[0]?.slug||null));
 }
 export default async function handler(req:IncomingMessage,res:ServerResponse){try{
   const url=new URL(req.url||'/','https://local.invalid'),path=url.pathname,method=req.method||'GET';
   if(path==='/api/landing-pages/event'&&method==='POST'){
     const input=z.object({pageId:z.string().uuid(),event:z.enum(['form_start','phone_click'])}).strict().parse(await body(req,4096));
-    await mcpPool.query(`insert into public.landing_page_events(organization_id,landing_page_id,client_account_id,event_type)
-      select organization_id,id,client_account_id,$2 from public.landing_pages where id=$1 and status='published'`,[input.pageId,input.event]);
+    await mcpPool.query(`insert into public.landing_page_events(organization_id,landing_page_id,variant_page_id,client_account_id,event_type)
+      select organization_id,id,case when variant_of is null then null else id end,client_account_id,$2
+      from public.landing_pages where id=$1 and status='published'`,[input.pageId,input.event]);
     return json(res,200,{ok:true});
   }
   let match=path.match(/^\/f\/([a-z0-9-]+)$/);if(match&&['GET','POST'].includes(method))return await publicForm(req,res,match[1],method==='POST');
