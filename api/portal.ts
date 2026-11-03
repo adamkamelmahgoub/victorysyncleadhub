@@ -341,6 +341,8 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
         ? await rpc<unknown>(user.token,'portal_lead_page',{p_account:selected.id,p_limit:200})
         : parsed.section==='pages'
         ? await rpc<unknown>(user.token,'portal_pages',{p_account:selected.id})
+        : parsed.section==='forms'
+        ? await rpc<unknown>(user.token,'portal_forms',{p_account:selected.id})
         : await rpc<unknown>(user.token,'portal_snapshot',{p_account:selected.id,p_page:parsed.section});
       if (parsed.action === 'export') {
         let rows = Array.isArray(data) ? data : (data && typeof data === 'object' ?
