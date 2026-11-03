@@ -41,9 +41,9 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Public page renderer | `api/client-landing.ts` | partial | `marketing-pages.test.mjs` | Lighthouse and custom domain QA needed. |
 | Page analytics and A/B | marketing pages API | partial | source review | GTM, GA4, pixel and split tests needed. |
 | AI page generation | OpenRouter page route | partial | `landing-ai-policy.test.ts` | Editor block input and nested proof/image validation now pass; ten structured live samples and fixtures still needed. |
-| AI chat edits and audits | page editor AI | partial | source review | One-step undo and usage tests needed. |
+| AI chat edits and audits | page editor AI | partial | `landing-ai-patches.test.ts`, `landing-editor.spec.ts` | Seven validated patch operations apply as one undo step with a review list; desktop/mobile browser checks pass. Live OpenRouter and audit suggestions still need QA. |
 | AI proof policy | `landing-ai-policy.ts` | partial | `landing-ai-policy.test.ts` | Years, prices, credentials, proof sections and unsupplied images are rejected in sections and blocks; ten model fixtures and browser QA pending. |
-| AI token budget | `ai_requests` | partial | source review | Budget enforcement test needed. |
+| AI token budget | `ai_requests` | partial | source review | Monthly spend now aggregates across every sub-account in the organization; live budget and cost logging tests are still needed. |
 | Pipeline board pagination | opportunities UI | partial | `pipeline-board-pagination.test.ts` | Older leads page by stage locally; browser and full database QA pending. |
 | Original lead dates | `leads.custom_fields` | partial | `restore-original-lead-dates.test.ts` | Migration prepared; backup and copy dry run pending. |
 | Unified tasks | `company_tasks`, `contact_tasks` | partial | `unified-tasks-view.test.ts` | Shared view and source-aware actions prepared; full database QA pending. |

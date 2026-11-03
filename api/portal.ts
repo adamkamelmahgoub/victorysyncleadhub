@@ -1,7 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 import { assertNoUnsupportedProof,assertApprovedAiImages } from '../lib/landing-ai-policy.js';
-import {aiPageInputSchema} from '../lib/landing-ai-input.js';
+import {aiPageInputSchema,aiPageEditInputSchema} from '../lib/landing-ai-input.js';
+import {aiPatchJsonSchema,aiPatchResponseSchema,applyAiPatches} from '../lib/landing-ai-patches.js';
 import {mcpPool} from '../lib/mcp-auth.js';
 import {registry,sectionTypes} from '../lib/landing-section-registry.js';
 import {clientInviteUrl} from '../lib/client-invite.js';
@@ -121,6 +122,7 @@ const postSchema = z.discriminatedUnion('action', [
     package:z.enum(['starter','scale','domination','overflow','business_hours','coverage_247','appt_part_time','appt_full_time','revive','custom']),
     ownerEmail:z.string().email().max(320),ownerName:z.string().trim().min(1).max(200)}).strict(),
   aiPageInputSchema,
+  aiPageEditInputSchema,
   pageSchema,
 ]);
 type PortalCookie = PortalSelection;
@@ -207,12 +209,14 @@ const aiJsonSchema = {
       properties:{background:{type:'string'},foreground:{type:'string'},accent:{type:'string'},font:{type:'string',enum:['sans','serif']}}},
   },
 } as const;
-async function generatePage(user: PortalUser, accountId: string, prompt: string, currentSections?: unknown) {
+async function pageAiSetup(user:PortalUser,accountId:string,currentSections?:unknown){
   const limits=await mcpPool.query<{requests:number;spent:number;budget:number|null}>(`select
     (select count(*)::integer from public.ai_requests where user_id=$1 and created_at>now()-interval '1 hour') requests,
-    (select coalesce(sum(cost_cents),0)::float from public.ai_requests where created_at>=date_trunc('month',now()) and client_account_id=$2) spent,
+    (select coalesce(sum(r.cost_cents),0)::float from public.ai_requests r
+      join public.sub_accounts a on a.id=r.client_account_id
+      where r.created_at>=date_trunc('month',now()) and a.organization_id=$2) spent,
     nullif(o.settings->>'ai_monthly_budget_cents','')::float budget
-    from public.organizations o where o.id=$3`,[user.id,accountId,ORG]);
+    from public.organizations o where o.id=$2`,[user.id,ORG]);
   if(Number(limits.rows[0]?.requests||0)>=30)throw new Error('AI request limit reached. Try again in an hour');
   if(limits.rows[0]?.budget!=null&&Number(limits.rows[0].spent)>=Number(limits.rows[0].budget))throw new Error('Monthly AI budget reached');
   const context = await rpc<Record<string,unknown>>(user.token,'portal_ai_context',{p_account:accountId});
@@ -221,7 +225,12 @@ async function generatePage(user: PortalUser, accountId: string, prompt: string,
     .filter((value):value is string=>typeof value==='string'&&value.startsWith('landing-media/'))
     .map(value=>`${mediaBase}/storage/v1/object/public/${value}`);
   const existingImages=(Array.isArray(currentSections)?currentSections:[])
-    .flatMap(value=>value&&typeof value==='object'&&'imageUrl' in value&&typeof value.imageUrl==='string'?[value.imageUrl]:[]);
+    .flatMap(value=>{
+      if(!value||typeof value!=='object')return [];
+      const section=value as {imageUrl?:unknown;blocks?:Array<{imageUrl?:unknown}>};
+      return [section.imageUrl,...(Array.isArray(section.blocks)?section.blocks.map(block=>block.imageUrl):[])]
+        .filter((image):image is string=>typeof image==='string');
+    });
   const approvedImages=[...approvedPhotos,...existingImages,...(typeof context.logoUrl==='string'?[context.logoUrl]:[])];
   const clientContext={...context,photos:approvedPhotos};
   const key = process.env.OPENROUTER_API_KEY;
@@ -229,6 +238,10 @@ async function generatePage(user: PortalUser, accountId: string, prompt: string,
   const fallback = 'openai/gpt-4o-mini-2024-07-18';
   const primary = String(context.model || process.env.OPENROUTER_LANDING_MODEL || 'openai/gpt-4o-mini');
   const models = [...new Set([primary,fallback])];
+  return {clientContext,approvedImages,key,models};
+}
+async function generatePage(user: PortalUser, accountId: string, prompt: string, currentSections?: unknown) {
+  const {clientContext,approvedImages,key,models}=await pageAiSetup(user,accountId,currentSections);
   let lastError: Error = new Error('AI page generation failed');
   for (const model of models) {
     try {
@@ -260,6 +273,42 @@ async function generatePage(user: PortalUser, accountId: string, prompt: string,
       return parsed;
       }
     } catch (error) { lastError = error instanceof Error ? error : new Error(String(error)); }
+  }
+  throw lastError;
+}
+async function generatePageEdits(user:PortalUser,accountId:string,prompt:string,
+  currentSections:z.infer<typeof aiPageEditInputSchema>['currentSections'],
+  currentTheme:z.infer<typeof aiPageEditInputSchema>['currentTheme']){
+  const {clientContext,approvedImages,key,models}=await pageAiSetup(user,accountId,currentSections);
+  let lastError:Error=new Error('AI page edit failed');
+  for(const model of models){
+    try{
+      let feedback='';
+      for(let attempt=0;attempt<3;attempt++){
+        const response=await fetch('https://openrouter.ai/api/v1/chat/completions',{
+          method:'POST',headers:{authorization:`Bearer ${key}`,'content-type':'application/json'},
+          body:JSON.stringify({model,temperature:0.3,max_tokens:2200,
+            response_format:{type:'json_schema',json_schema:{name:'landing_page_edit',strict:true,schema:aiPatchJsonSchema}},
+            messages:[{role:'system',content:'Return only validated patch operations for the requested landing page edit. Preserve all sections and blocks the user did not ask to change. Use existing IDs when editing; give new sections and blocks unique newId values. An afterId of null appends a section. Never invent reviews, ratings, awards, licences, years in business, guarantees, prices, results, or credentials. Never use raw HTML or em dashes. Use only approved client photos. Do not create or edit proof sections.'},
+              {role:'user',content:JSON.stringify({brief:prompt,client:clientContext,currentSections,currentTheme,
+                sectionRegistry:Object.values(registry).filter(item=>!['reviews','testimonial','trust_bar'].includes(item.type))
+                  .map(({type,label,fields,maxBlocks})=>({type,label,fields,maxBlocks})),validationFeedback:feedback})}]}),
+          signal:AbortSignal.timeout(45000),
+        });
+        const data=await response.json() as {choices?:Array<{message?:{content?:string}}>;
+          error?:{message?:string};usage?:{prompt_tokens?:number;completion_tokens?:number;cost?:number}};
+        if(!response.ok)throw Error(data.error?.message||'AI provider failed');
+        const parsed=aiPatchResponseSchema.safeParse(JSON.parse(data.choices?.[0]?.message?.content||'{}'));
+        if(!parsed.success){feedback=parsed.error.issues.map(issue=>`${issue.path.join('.')}: ${issue.message}`).join('; ');
+          if(attempt<2)continue;throw parsed.error;}
+        try{applyAiPatches(currentSections,currentTheme,parsed.data.patches,approvedImages)}
+        catch(error){feedback=error instanceof Error?error.message:'Invalid page edit';if(attempt<2)continue;throw error;}
+        await mcpPool.query(`insert into public.ai_requests(user_id,client_account_id,prompt_tokens,completion_tokens,cost_cents,action)
+          values($1,$2,$3,$4,$5,'landing_page_edit')`,[user.id,accountId,Number(data.usage?.prompt_tokens||0),
+            Number(data.usage?.completion_tokens||0),Number(data.usage?.cost||0)*100]);
+        return {...parsed.data,approvedImages};
+      }
+    }catch(error){lastError=error instanceof Error?error:Error(String(error));}
   }
   throw lastError;
 }
@@ -518,7 +567,16 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
     if (parsed.action === 'ai_page') {
       if(!await rpc<boolean>(user.token,'portal_page_edit_allowed',{p_account:selected.id}))
         return send(res,403,{error:'Page editing is unavailable for this account'});
+      if(!await rpc<boolean>(user.token,'client_feature_enabled',{p_feature:'landing_page_ai'}))
+        return send(res,403,{error:'AI page editing is disabled'});
       return send(res,200,await generatePage(user,selected.id,parsed.prompt,parsed.currentSections));
+    }
+    if(parsed.action==='ai_page_edit'){
+      if(!await rpc<boolean>(user.token,'portal_page_edit_allowed',{p_account:selected.id}))
+        return send(res,403,{error:'Page editing is unavailable for this account'});
+      if(!await rpc<boolean>(user.token,'client_feature_enabled',{p_feature:'landing_page_ai'}))
+        return send(res,403,{error:'AI page editing is disabled'});
+      return send(res,200,await generatePageEdits(user,selected.id,parsed.prompt,parsed.currentSections,parsed.currentTheme));
     }
     if (parsed.action === 'billing_portal') {
       const customer = await rpc<string|null>(user.token,'portal_billing_customer',{p_account:selected.id});

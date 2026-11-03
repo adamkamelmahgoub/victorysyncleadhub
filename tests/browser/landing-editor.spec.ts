@@ -93,6 +93,33 @@ test('draft iframe renders its hero without horizontal clipping',async({page},te
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth+1);
 });
 
+test('AI patch preview changes only the requested heading and undoes in one step',async({page},testInfo)=>{
+  await page.route('**/api/portal',route=>{
+    const request=route.request();
+    if(request.method()!=='POST'||request.postDataJSON()?.action!=='ai_page_edit')return route.fallback();
+    expect(request.postDataJSON()?.currentSections?.[0]?.id).toBe('hero-1');
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+      summary:'Shorten the hero headline',approvedImages:[],patches:[
+        {op:'update_settings',sectionId:'hero-1',field:'heading',value:'Austin plumbing help'},
+      ],
+    })});
+  });
+  await page.goto(`/landing-pages/${pageId}`);
+  await page.getByRole('button',{name:'AI assistant'}).click();
+  await page.getByLabel('AI page instructions').fill('Shorten the hero heading for Austin');
+  await page.getByRole('button',{name:'Suggest page edits'}).click();
+  await expect(page.getByText('Review suggested changes')).toBeVisible();
+  if(testInfo.project.name==='mobile')await page.getByRole('tab',{name:'Page preview'}).click();
+  const preview=page.frameLocator('iframe[title="Draft landing page preview"]');
+  await expect(preview.getByRole('heading',{name:'Original heading'})).toBeVisible();
+  if(testInfo.project.name==='mobile')await page.getByRole('tab',{name:'Edit sections'}).click();
+  await page.getByRole('button',{name:'Apply to draft'}).click();
+  if(testInfo.project.name==='mobile')await page.getByRole('tab',{name:'Page preview'}).click();
+  await expect(preview.getByRole('heading',{name:'Austin plumbing help'})).toBeVisible();
+  await page.getByRole('button',{name:'Undo'}).click();
+  await expect(preview.getByRole('heading',{name:'Original heading'})).toBeVisible();
+});
+
 test('mobile editor switches between editable controls and page preview',async({page},testInfo)=>{
   test.skip(testInfo.project.name!=='mobile');
   await page.goto(`/landing-pages/${pageId}`);
