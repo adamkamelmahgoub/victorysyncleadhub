@@ -37,6 +37,8 @@ test.beforeEach(async({page})=>{
       const data=action==='accounts'?{accounts:[{id:accountId,name:'Demo Plumbing',health_score:82,
           leads_this_week:8,overdue_tasks:0,failed_payments:0}],selected:{accountId,viewAsClient:false}}:
         action==='branding'?{name:'Demo Plumbing',logoUrl:null,brand:{primary:'#2563eb',text:'#172033',background:'#ffffff'}}:
+        action==='review_summary'?{requestsSent:130,requestsClicked:45,reviewsReceived:125,averageRating:4.8,
+          trend:[{month:'2026-10',rating:4.8,count:125}]}:
         action==='snapshot'?snapshot(url.searchParams.get('section')):
         action==='metrics'?{account:{id:accountId,name:'Demo Plumbing',goal_metric:'new_leads',goal_value:20},
           newLeads:8,bookedJobs:3,answeredCalls:21,missedCallsRecovered:2,reviewsReceived:4,
@@ -185,6 +187,14 @@ test('review picker searches older Won leads beyond the first lead page',async({
   expect(search).toBe('Jordan');
   await expect(page.getByRole('textbox',{name:'Customer name'})).toHaveValue('Jordan Older');
   await expect(page.getByRole('textbox',{name:'Customer phone'})).toHaveValue('+15125550999');
+});
+
+test('review summary shows totals beyond the visible review rows',async({page})=>{
+  await page.goto('/client-portal/reviews');
+  await expect(page.getByText('Reviews received')).toBeVisible();
+  await expect(page.getByText('125',{exact:true}).first()).toBeVisible();
+  await expect(page.getByText('130',{exact:true}).first()).toBeVisible();
+  await expect(page.getByText('45',{exact:true}).first()).toBeVisible();
 });
 
 for(const [section,visibleText] of [
