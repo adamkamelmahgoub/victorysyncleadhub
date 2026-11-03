@@ -5,6 +5,7 @@ import { clientReportPdf } from '../lib/client-report-pdf.js';
 import {previousReportPeriod,reportMetricRange} from '../lib/client-report-period.js';
 import {mightyCallAuthUrl,mightyCallProduct,mightyCallUrl} from '../lib/mightycall-endpoints.js';
 import {externalSendsEnabled,requireExternalSends} from '../lib/external-send-mode.js';
+import {clientPortalLink} from '../lib/client-portal-link.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const inputSchema = z.object({ limit: z.number().int().min(1).max(50).optional() }).strict();
@@ -75,7 +76,6 @@ async function sendEmail(to:string,subject:string,body:string,job:Job) {
     'content-type':'application/json','Idempotency-Key':`${job.id}-${crypto.createHash('sha256').update(to.toLowerCase()).digest('hex').slice(0,12)}`},body:JSON.stringify({from:process.env.REPORT_FROM_EMAIL,to:[to],subject,text:body}),signal:AbortSignal.timeout(12000)});
   if(!response.ok)throw Error(`Email delivery ${response.status}`);
 }
-function portalLink(path:string){return `${(process.env.APP_URL||'https://app.victorysync.com').replace(/\/$/,'')}/client-portal/${path}`}
 function coveredNow(account:Account){
   const configured=account.settings?.covered_hours as {start?:string;end?:string;days?:number[]}|undefined;
   const start=/^([01]\d|2[0-3]):[0-5]\d$/.test(configured?.start||'')?configured?.start:'09:00';
@@ -254,7 +254,7 @@ async function handle(job:Job) {
   if(job.kind==='owner_alert'){
     const isCall=job.source_id.startsWith('call:');
     const detail=isCall?'A call was missed':'A new lead submitted a form';
-    const link=portalLink(isCall?'calls':'leads');
+    const link=clientPortalLink(isCall?'calls':'leads',process.env.PORTAL_BASE_URL,process.env.APP_URL);
     const preferences=account.settings?.notifications as {email?:boolean;text?:boolean;phone?:string}|undefined;
     if(preferences?.email!==false&&account.owner_email)await sendEmail(account.owner_email,`${account.name}: ${detail}`,`${detail}. Open your client portal: ${link}`,job);
     if(preferences?.text&&preferences.phone)await sendText(account,preferences.phone,`${account.name}: ${detail}. ${link}`,job);
