@@ -11,6 +11,11 @@ test('checkout template migration is repeatable and gates service provisioning',
     await client.connect();
     try{
       await client.query('begin');
+      await client.query('create extension if not exists pgcrypto with schema extensions');
+      await client.query(`create or replace function extensions.gen_random_bytes(integer) returns bytea
+        language sql as $$ select public.gen_random_bytes($1) $$`);
+      await client.query(`create or replace function extensions.digest(text,text) returns bytea
+        language sql as $$ select public.digest($1,$2) $$`);
       await client.query(`create or replace function auth.role() returns text language sql stable
         as $$ select nullif(current_setting('request.jwt.claim.role',true),'') $$`);
       const sql=readFileSync(new URL('../supabase/migrations/20261103_04_checkout_account_template.sql',import.meta.url),'utf8')
@@ -21,6 +26,10 @@ test('checkout template migration is repeatable and gates service provisioning',
         .replace(/^begin;\s*/i,'').replace(/\s*commit;\s*$/i,'');
       await client.query(stagesSql);
       await client.query(stagesSql);
+      const creationSql=readFileSync(new URL('../supabase/migrations/20261103_06_client_snapshot_single_source.sql',import.meta.url),'utf8')
+        .replace(/^--[^\n]*\n/,'').replace(/^begin;\s*/i,'').replace(/\s*commit;\s*$/i,'');
+      await client.query(creationSql);
+      await client.query(creationSql);
       await client.query("select set_config('request.jwt.claim.role','service_role',true)");
       await client.query('savepoint disabled_flag');
       await client.query("update public.user_feature_access set enabled=false where user_id is null and feature_key='client_accounts'");
@@ -76,5 +85,30 @@ test('checkout template migration is repeatable and gates service provisioning',
       const meeting=(await client.query("select count(*) from public.pipeline_stages where pipeline_id=$1 and key='meeting_booked'",
         [agencyPipeline])).rows[0].count;
       assert.equal(Number(meeting),1,'agency prospect pipelines retain the meeting stage');
+      await client.query(`insert into public.companies(id,name,stage,source,phone,website,email,contact_name)
+        values('70000000-0000-4000-8000-000000000001','Checkout HVAC','client','checkout',
+          '+15125550100','https://example.test','checkout@example.test','Checkout Owner')`);
+      const created=(await client.query("select public.portal_create_client('70000000-0000-4000-8000-000000000001','starter','checkout@example.test','Checkout Owner') result")).rows[0].result;
+      const beforeSnapshot=(await client.query(`select
+        (select count(*)::integer from public.company_tasks where client_account_id=$1) tasks,
+        (select count(*)::integer from public.automation_workflows where client_account_id=$1) workflows`,
+        [created.accountId])).rows[0];
+      assert.deepEqual(beforeSnapshot,{tasks:0,workflows:0});
+      await client.query('select public.portal_apply_account_template($1,$2)',[created.accountId,'starter']);
+      const duplicateTasks=(await client.query(`select title,count(*)::integer as count from public.company_tasks
+        where client_account_id=$1 group by title having count(*)>1`,[created.accountId])).rows;
+      assert.deepEqual(duplicateTasks,[]);
+      const actualTasks=Number((await client.query('select count(*) from public.company_tasks where client_account_id=$1',
+        [created.accountId])).rows[0].count);
+      const templateTasks=Number((await client.query(
+        "select jsonb_array_length(payload->'onboarding_tasks') count from public.account_templates where key='starter'"
+      )).rows[0].count);
+      assert.equal(actualTasks,templateTasks,'new clients receive one onboarding checklist');
+      const actualWorkflows=Number((await client.query('select count(*) from public.automation_workflows where client_account_id=$1',
+        [created.accountId])).rows[0].count);
+      const templateWorkflows=Number((await client.query(
+        "select jsonb_array_length(payload->'workflows') count from public.account_templates where key='starter'"
+      )).rows[0].count);
+      assert.equal(actualWorkflows,templateWorkflows,'new clients receive one workflow set');
     }finally{await client.query('rollback').catch(()=>undefined);await client.end();}
   });
