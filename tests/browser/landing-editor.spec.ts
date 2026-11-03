@@ -93,6 +93,19 @@ test('draft iframe renders its hero without horizontal clipping',async({page},te
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth+1);
 });
 
+test('direct page link is read only when editing is disabled',async({page})=>{
+  await page.route(`**/api/landing-pages/${pageId}`,route=>route.fulfill({status:200,
+    contentType:'application/json',body:JSON.stringify({...initialPage,readOnly:true})}));
+  await page.goto(`/landing-pages/${pageId}?from=client-portal`);
+  await expect(page.getByText('View only · draft')).toBeVisible();
+  await expect(page.getByRole('button',{name:'Publish'})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Add section'})).toHaveCount(0);
+  const preview=page.frameLocator('iframe[title="Read-only landing page preview"]');
+  await expect(preview.getByRole('heading',{name:'Original heading'})).toBeVisible();
+  await expect(preview.locator('[contenteditable]')).toHaveCount(0);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);
+});
+
 test('clicking a preview block selects it and inline edits its heading',async({page},testInfo)=>{
   await page.route(`**/api/landing-pages/${pageId}`,route=>{
     if(route.request().method()!=='GET')return route.fulfill({status:200,contentType:'application/json',

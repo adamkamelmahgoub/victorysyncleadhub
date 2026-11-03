@@ -423,7 +423,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
       (select count(*)::integer from public.form_submissions s where s.landing_page_id=p.id) submissions
       from public.landing_pages p where p.organization_id=$2 and (p.id=$1 or p.variant_of=$1) order by p.created_at`,[id,org]);
       return json(res,200,{variants:rows.rows.map(row=>({...row,conversionRate:Number(row.views)?Number(row.submissions)/Number(row.views)*100:0}))});}
-    if(method==='GET'&&!parts[1]){const found=await mcpPool.query<PageRow>(`select * from public.landing_pages where id=$1 and organization_id=$2`,[id,org]);return found.rows[0]?json(res,200,pageShape(found.rows[0],req)):json(res,404,{error:'Page not found'});}
+    if(method==='GET'&&!parts[1]){const found=await mcpPool.query<PageRow>(`select * from public.landing_pages where id=$1 and organization_id=$2`,[id,org]);return found.rows[0]?json(res,200,{...pageShape(found.rows[0],req),readOnly:selected.readOnly||!selected.canEdit}):json(res,404,{error:'Page not found'});}
     if(method==='GET'&&parts[1]==='versions'){const versions=await mcpPool.query(`select version,published_at,note,published_by from public.landing_page_versions where page_id=$1 order by version desc limit 50`,[id]);return json(res,200,{versions:versions.rows});}
     if(method==='POST'&&parts[1]==='restore'){const data=await body(req);const version=Number(data.version);if(!Number.isInteger(version)||version<1)throw new Error('Invalid version');
       const restored=await mcpPool.query<PageRow>(`update public.landing_pages p set draft_sections=v.sections,draft_theme=v.theme,sections=v.sections,theme=v.theme,updated_at=now()
