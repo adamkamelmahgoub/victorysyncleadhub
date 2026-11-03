@@ -31,7 +31,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Missed-call text-back | delivery worker | partial | `client-missed-call-delivery.test.ts`, `client-missed-call-claims.test.ts`, `client-immediate-delivery.test.ts` | Due-now dispatch plus atomic 24-hour claim, lead linking and opt-out pass locally; live timing and provider delivery need QA. |
 | Review request after Won | delivery worker | partial | `client-review-click.test.ts`, `client-review-delivery.test.ts` | Mocked SMS, email, reminder and consent recheck pass; database delay and provider sandbox QA remain. |
 | STOP and DND | delivery worker | partial | `client-missed-call-delivery.test.ts`, `client-review-delivery.test.ts`, `client-stop-confirmation.test.ts`, `client-stop-confirmation-claim.test.ts` | Confirmation works with delivery disabled and a one-time claim blocks uncertain duplicate sends; all workflow types still need QA. |
-| Call usage meter | `client_call_details`, agency overview | partial | source review | Package hour and 80% alert tests needed. |
+| Call usage meter | `client_call_details`, agency overview | partial | `client-call-usage.test.ts` | Native SQL test covers current-month answered minutes, excluded missed and other-account calls, 80% threshold inputs, direct access denial and repeat migration. Slack alert delivery still needs provider QA. |
 | Ad spend | `ad_spend_entries`, portal | partial | source review | Manual UI and later API sync need QA. |
 | Workflow list and editor | `automation.tsx` | partial | `native-workflows.test.ts` | Visual builder branches, goals and logs need audit. |
 | Workflow execution logs and retry | `automation_runs`, portal | partial | `account-templates-ops.test.mjs` | Mock provider execution needed. |
