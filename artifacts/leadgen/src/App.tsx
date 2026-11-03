@@ -311,7 +311,7 @@ function AuthenticatedApp() {
   if (window.location.hostname === "portal.victorysync.com" && ["/", "/dashboard", "/victorysync"].includes(location)) {
     return <Redirect to="/client-portal" />;
   }
-  if (["client_owner", "client_staff"].includes(role) && ["/", "/dashboard", "/victorysync", "/leadgen"].includes(location)) {
+  if (["client_owner", "client_staff"].includes(role) && ["/", "/dashboard", "/victorysync", "/leadgen", "/login"].includes(location)) {
     return <Redirect to="/client-portal/dashboard" />;
   }
 
