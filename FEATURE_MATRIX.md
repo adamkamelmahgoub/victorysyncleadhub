@@ -4,7 +4,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 
 | Feature | Route or file | Status | Evidence | Notes |
 | --- | --- | --- | --- | --- |
-| Client sub-accounts | `api/portal.ts`, `sub_accounts` | partial | `client-create-db.test.mjs`, `legacy-client-create.test.ts`, `client-checkout-template-migration.test.ts` | Both UI entry points and signed Stripe checkout apply the package snapshot; local idempotence passes. Full browser and production-copy QA pending. |
+| Client sub-accounts | `api/portal.ts`, `sub_accounts` | partial | `client-create-db.test.mjs`, `legacy-client-create.test.ts`, `client-checkout-template-migration.test.ts`, `client-create-flow.spec.ts` | Manual and closed-company creation, invite link, and signed Stripe template application pass with synthetic data and desktop/mobile browser checks. Live production-copy QA pending. |
 | Client tenancy and RLS | `20261026_01_client_tenancy_foundation.sql` | partial | `client-tenancy-all-tables.test.ts`, `client-tenancy-db.test.mjs` | Local roles and RLS test all 28 explicitly client-scoped tables for reads and cross-account writes. Full live schema and API route review remain pending. |
 | Agency account switcher | `account-switcher.tsx` | partial | desktop/mobile portal browser check | Top-bar search, client selection and horizontal fit pass with synthetic agency accounts; live cookie and assigned-account QA remain. |
 | Agency staff assignments | `sub_account_assignments` | partial | `client-tenancy-db.test.mjs` | Assigned-account restrictions need per-route test. |
