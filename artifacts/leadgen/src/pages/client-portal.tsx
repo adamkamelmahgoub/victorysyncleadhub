@@ -40,7 +40,7 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/,'');
 
 function nice(value:string) { return value.replace(/([a-z0-9])([A-Z])/g,'$1 $2').replace(/_/g,' ').replace(/\b\w/g,c => c.toUpperCase()); }
 type LaunchpadStep = {key:string;label:string;done:boolean;path:string};
-function Launchpad({accountId}:{accountId:string|null}) {
+function Launchpad({accountId,role,pagePermissions}:{accountId:string|null;role:string;pagePermissions:string[]|null}) {
   const {data,error,isLoading}=useQuery<{accountName:string;steps:LaunchpadStep[]}>({queryKey:['portal-launchpad',accountId],
     queryFn:()=>apiFetch('/api/portal?action=launchpad'),enabled:!!accountId,retry:false});
   if(!accountId)return <Card className="p-6">Select a client account to view the setup checklist.</Card>;
@@ -55,7 +55,7 @@ function Launchpad({accountId}:{accountId:string|null}) {
     <div className="grid gap-3 sm:grid-cols-2">{steps.map(step=><Card key={step.key} className="flex items-center gap-4 p-4 sm:p-5">
       {step.done?<CheckCircle2 className="h-6 w-6 shrink-0 text-emerald-600"/>:<Circle className="h-6 w-6 shrink-0 text-slate-400"/>}
       <div className="min-w-0 flex-1"><h3 className="font-medium">{step.label}</h3><p className="mt-1 text-xs text-muted-foreground">{step.done?'Complete':'Needs attention'}</p></div>
-      <Link href={step.path} className="shrink-0 text-sm font-medium text-blue-600 hover:underline">Open</Link>
+      {canAccessPath(step.path,pagePermissions,role)?<Link href={step.path} className="shrink-0 text-sm font-medium text-blue-600 hover:underline">Open</Link>:<span className="shrink-0 text-xs text-muted-foreground">Ask your account owner</span>}
     </Card>)}</div></div>;
 }
 function show(value:unknown) {
@@ -595,7 +595,7 @@ export default function ClientPortal() {
     {admin&&!tab&&<FeatureManager/>}
     {(!tab && !agency) && <p>Select an account to continue.</p>}
     {tab&&<><nav aria-label="Portal pages" className="flex gap-2 overflow-x-auto pb-2">{pages.filter(page=>canAccessPath(`/client-portal/${page}`,pagePermissions,role)).map(page=><Link key={page} href={`/client-portal/${page}`} className={`shrink-0 rounded-lg px-3 py-2 text-sm ${tab===page?'bg-blue-600 text-white':'border bg-white'}`}>{nice(page)}</Link>)}</nav>
-      {tab==='launchpad'?<Launchpad accountId={selectedId}/>:pageLoading?<p>Loading {tab}…</p>:pageError?<Card role="alert" className="p-6">{String(pageError)}</Card>:snapshot&&<>
+      {tab==='launchpad'?<Launchpad accountId={selectedId} role={role} pagePermissions={pagePermissions}/>:pageLoading?<p>Loading {tab}…</p>:pageError?<Card role="alert" className="p-6">{String(pageError)}</Card>:snapshot&&<>
         {['leads','calls','reviews','reports'].includes(tab)&&<div className="flex justify-end"><Button variant="outline" size="sm" disabled={snapshot.readOnly} onClick={()=>void exportData()}><Download className="mr-1 h-4 w-4"/>Export</Button></div>}
         {tab==='dashboard'&&<Dashboard admin={admin}/>}
         {tab==='leads'&&<LeadTable data={snapshot.data as {rows:Lead[];stages:{id:string;name:string}[]}} readOnly={snapshot.readOnly||limited}/>}

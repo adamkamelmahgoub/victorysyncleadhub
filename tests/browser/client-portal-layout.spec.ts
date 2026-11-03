@@ -53,6 +53,10 @@ test.beforeEach(async({page})=>{
           period_start:'2026-09-01',period_end:'2026-09-30',status:'sent',work_done:'Updated campaign pages',
           whats_next:'Improve follow-up',pdf_path:'demo.pdf'}]:
         action==='page_edit_allowed'?true:
+        action==='launchpad'?{accountName:'Demo Plumbing',steps:[
+          {key:'phone',label:'Connect your phone number',done:false,path:'/client-portal/settings'},
+          {key:'page',label:'Publish your first landing page',done:false,path:'/client-portal/pages'},
+          {key:'workflow',label:'Activate your first workflow',done:false,path:'/automation'}]}:
         action==='page_stats'?[{id:'50000000-0000-4000-8000-000000000001',visits:100,leads:12}]:[];
       return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});
     }
@@ -70,6 +74,20 @@ test('client dashboard fits the viewport and has no serious accessibility violat
   expect(result.violations.filter(item=>['critical','serious'].includes(item.impact||''))
     .flatMap(item=>item.nodes.map(node=>`${item.id}: ${node.target.join(' ')} ${node.html}`))).toEqual([]);
   await page.screenshot({path:testInfo.outputPath('client-dashboard.png'),fullPage:true});
+});
+
+test('launchpad shows only reachable actions to client staff',async({page})=>{
+  const staffJwt=`${tokenPart({alg:'HS256',typ:'JWT'})}.${tokenPart({sub:userId,role:'authenticated',
+    crm_role:'client_staff',crm_client_account_id:accountId,exp:4102444800})}.test-signature`;
+  await page.addInitScript(value=>{
+    const key='sb-supabase-auth-token',session=JSON.parse(localStorage.getItem(key)||'{}');
+    localStorage.setItem(key,JSON.stringify({...session,access_token:value}));
+  },staffJwt);
+  await page.goto('/client-portal/launchpad');
+  await expect(page.getByRole('heading',{name:'Set up Demo Plumbing'})).toBeVisible();
+  await expect(page.getByRole('link',{name:'Open'})).toHaveCount(0);
+  await expect(page.getByText('Ask your account owner')).toHaveCount(3);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);
 });
 
 test('account switcher is available in the top bar without clipping the portal',async({page})=>{

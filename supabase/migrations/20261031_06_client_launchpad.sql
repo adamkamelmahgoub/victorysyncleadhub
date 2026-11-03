@@ -15,7 +15,7 @@ begin
     jsonb_build_object('key','page','label','Publish your first landing page','done',exists(
       select 1 from public.marketing_landing_pages p where p.client_account_id=a.id and p.status='published'),'path','/client-portal/pages'),
     jsonb_build_object('key','workflow','label','Activate your first workflow','done',exists(
-      select 1 from public.automation_workflows w where w.client_account_id=a.id and w.is_active),'path','/client-portal/dashboard')
+      select 1 from public.automation_workflows w where w.client_account_id=a.id and w.is_active),'path','/automation')
   )) into result from public.sub_accounts a where a.id=p_account;
   return result;
 end $$;
