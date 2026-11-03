@@ -37,6 +37,7 @@ Open the account's **Pages** tab. The template page starts as a draft. Replace p
 **Save draft** updates the editor without changing the live page. **Publish** copies the draft to the live page and records a numbered version. Open **Version history** inside the page editor and choose **Restore to draft** to recover an older version's sections and theme. The live page remains on its current version until you publish again. Client users need the `client_page_editing` feature to restore or publish; agency admins and assigned marketing staff can edit their accounts.
 
 The client editor also autosaves an edited draft after two seconds. Wait for **Saved** before leaving it. Hide, duplicate, reorder, or delete sections from the section list; Undo and Redo work until the editor closes. AI output appears as a suggestion. Review it and select **Apply to draft** before publishing.
+When `client_page_editing` is enabled, a client owner can choose **Full builder** beside a page in the portal. With the flag off, the portal shows a read-only **View** action and disables **New page**. The full builder returns to the client portal when opened from that page list.
 
 ## AI page assistant
 

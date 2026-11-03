@@ -35,6 +35,7 @@ const querySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('lead_page'), beforeAt: z.string().datetime({offset:true}), beforeId: uuid }).strict(),
   z.object({ action: z.literal('ad_spend') }),
   z.object({ action: z.literal('page_stats') }),
+  z.object({ action: z.literal('page_edit_allowed') }),
   z.object({ action: z.literal('page_versions'), pageId:uuid }),
   z.object({ action: z.literal('report_file'), reportId:uuid }),
   z.object({ action: z.literal('reports') }),
@@ -53,19 +54,28 @@ const querySchema = z.discriminatedUnion('action', [
 const sectionSchema = z.object({
   id: z.string().min(1).max(100),
   type: z.enum(sectionTypes),
+  eyebrow:z.string().max(500).optional(),imageAlt:z.string().max(500).optional(),
+  quote:z.string().max(3000).optional(),author:z.string().max(300).optional(),
   heading: z.string().max(5000).optional(), body: z.string().max(5000).optional(),
   buttonText: z.string().max(200).optional(), buttonUrl: z.string().max(2000).optional(),
   imageUrl: z.string().max(2000).optional(), formId: z.union([z.string().uuid(),z.literal('')]).optional(),
   items: z.array(z.string().max(300)).max(12).optional(),
+  blocks:z.array(z.object({id:z.string().min(1).max(80),type:z.string().min(1).max(40),
+    heading:z.string().max(500).optional(),body:z.string().max(3000).optional(),
+    imageUrl:z.string().max(1000).optional(),hidden:z.boolean().optional(),
+    attested:z.boolean().optional()}).strict()).max(20).optional(),
   hidden: z.boolean().optional(),
-}).strict();
+}).strict().superRefine((value,ctx)=>{
+  if((value.blocks?.length||0)>registry[value.type].maxBlocks)
+    ctx.addIssue({code:'custom',message:'Too many blocks for this section'});
+});
 const themeSchema = z.object({
   background: z.string().regex(/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i),
   foreground: z.string().regex(/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i),
   accent: z.string().regex(/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i),
   font: z.enum(['sans','serif']),
 }).strict();
-const pageSchema = z.object({ action: z.literal('save_page'), id: uuid.nullable(),
+export const pageSchema = z.object({ action: z.literal('save_page'), id: uuid.nullable(),
   title: z.string().trim().min(1).max(180), slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(100),
   sections: z.array(sectionSchema).max(40), theme: themeSchema,
   seoDescription: z.string().max(320), status: z.enum(['draft','published']),
@@ -201,15 +211,19 @@ export const aiJsonSchema = {
   properties:{
     title:{type:'string'},seoDescription:{type:'string'},
     sections:{type:'array',items:{type:'object',additionalProperties:false,
-      required:['id','type','heading','body','buttonText','buttonUrl','imageUrl','formId','items'],
+      required:['id','type','heading','body','buttonText','buttonUrl','imageUrl','formId','items','blocks'],
       properties:{id:{type:'string'},type:{type:'string',enum:sectionTypes},
         heading:{type:'string'},body:{type:'string'},buttonText:{type:'string'},buttonUrl:{type:'string'},
-        imageUrl:{type:'string'},formId:{type:'string'},items:{type:'array',items:{type:'string'}}}}},
+        imageUrl:{type:'string'},formId:{type:'string'},items:{type:'array',items:{type:'string'}},
+        blocks:{type:'array',maxItems:20,items:{type:'object',additionalProperties:false,
+          required:['id','type','heading','body','imageUrl','hidden','attested'],
+          properties:{id:{type:'string'},type:{type:'string'},heading:{type:'string'},body:{type:'string'},
+            imageUrl:{type:'string'},hidden:{type:'boolean'},attested:{type:'boolean'}}}}}}},
     theme:{type:'object',additionalProperties:false,required:['background','foreground','accent','font'],
       properties:{background:{type:'string'},foreground:{type:'string'},accent:{type:'string'},font:{type:'string',enum:['sans','serif']}}},
   },
 } as const;
-export const aiPageSystemPrompt='Create or edit a mobile-first landing page as structured JSON. Use plain words, short sentences, a service-and-city headline, one clear call to action, and the provided phone number. Never invent reviews, ratings, awards, licences, years in business, guarantees, prices, results, or business credentials. Use [Add a real customer review] and similar placeholders when facts are missing. Use only the uploaded photos provided. Never use em dashes or raw HTML. Keep forms unlinked unless a form ID was supplied.';
+export const aiPageSystemPrompt='Create or edit a mobile-first landing page as structured JSON. Use plain words, short sentences, a service-and-city headline, one clear call to action, and the provided phone number. Use ordered blocks for services, benefits, steps, and FAQ where helpful. Never invent reviews, ratings, awards, licences, years in business, guarantees, prices, results, or business credentials. Use [Add a real customer review] and similar placeholders when facts are missing. Use only the uploaded photos provided. Never use em dashes or raw HTML. Keep forms unlinked unless a form ID was supplied.';
 async function pageAiSetup(user:PortalUser,accountId:string,currentSections?:unknown){
   const limits=await mcpPool.query<{requests:number;spent:number;budget:number|null}>(`select
     (select count(*)::integer from public.ai_requests where user_id=$1 and created_at>now()-interval '1 hour') requests,
@@ -356,6 +370,8 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
         {p_account:selected.id}));
       if (parsed.action === 'page_stats') return send(res,200,await rpc(user.token,'portal_page_stats',
         {p_account:selected.id}));
+      if (parsed.action === 'page_edit_allowed') return send(res,200,
+        !selected.viewAsClient&&await rpc<boolean>(user.token,'portal_page_edit_allowed',{p_account:selected.id}));
       if (parsed.action === 'page_versions') return send(res,200,await rpc(user.token,'portal_page_versions',
         {p_account:selected.id,p_page:parsed.pageId}));
       if (parsed.action === 'report_file') {

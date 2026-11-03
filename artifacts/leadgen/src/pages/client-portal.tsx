@@ -10,11 +10,14 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import type {SectionType} from '../../../../lib/landing-section-registry';
 
 type Page = {id:string;name:string;slug:string;public_slug?:string|null;status:'draft'|'published';seo_description:string;
   sections:Section[];theme:Theme;created_at:string};
-type Section = {id:string;type:'hero'|'text'|'features'|'image'|'cta'|'form';heading?:string;body?:string;
-  buttonText?:string;buttonUrl?:string;imageUrl?:string;formId?:string;items?:string[];hidden?:boolean};
+type Section = {id:string;type:SectionType;heading?:string;body?:string;eyebrow?:string;imageAlt?:string;
+  quote?:string;author?:string;buttonText?:string;buttonUrl?:string;imageUrl?:string;formId?:string;
+  items?:string[];hidden?:boolean;blocks?:Array<{id:string;type:string;heading?:string;body?:string;
+    imageUrl?:string;hidden?:boolean;attested?:boolean}>};
 type Theme = {background:string;foreground:string;accent:string;font:'sans'|'serif'};
 type Account = {id:string;name:string;health_score:number;leads_this_week:number;overdue_tasks:number;failed_payments:number;last_active_at:string|null};
 type ClosedCompany = {id:string;name:string;email:string|null;contact_name:string|null};
@@ -398,7 +401,7 @@ function PageBuilder({initial,readOnly,onSaved}:{initial?:Page;readOnly:boolean;
         <button aria-label="Move up" disabled={readOnly||index===0} onClick={()=>move(index,-1)}><ArrowUp className="h-3 w-3"/></button>
         <button aria-label="Move down" disabled={readOnly||index===draft.sections.length-1} onClick={()=>move(index,1)}><ArrowDown className="h-3 w-3"/></button>
         <button aria-label={item.hidden?'Show section':'Hide section'} disabled={readOnly} onClick={()=>{setSelected(item.id);edit(old=>({...old,sections:old.sections.map(section=>section.id===item.id?{...section,hidden:!section.hidden}:section)}))}}>{item.hidden?<EyeOff className="h-3 w-3"/>:<Eye className="h-3 w-3"/>}</button>
-        <button aria-label="Duplicate section" disabled={readOnly||draft.sections.length>=40} onClick={()=>{const duplicate={...structuredClone(item),id:crypto.randomUUID()};edit(old=>({...old,sections:[...old.sections.slice(0,index+1),duplicate,...old.sections.slice(index+1)]}));setSelected(duplicate.id)}}><Copy className="h-3 w-3"/></button>
+        <button aria-label="Duplicate section" disabled={readOnly||draft.sections.length>=40} onClick={()=>{const duplicate={...structuredClone(item),id:crypto.randomUUID(),blocks:item.blocks?.map(block=>({...block,id:crypto.randomUUID()}))};edit(old=>({...old,sections:[...old.sections.slice(0,index+1),duplicate,...old.sections.slice(index+1)]}));setSelected(duplicate.id)}}><Copy className="h-3 w-3"/></button>
         <button aria-label="Delete section" disabled={readOnly} onClick={()=>{edit(old=>({...old,sections:old.sections.filter(section=>section.id!==item.id)}));if(selected===item.id)setSelected(null)}}><Trash2 className="h-3 w-3"/></button></div>)}
         <div className="grid grid-cols-2 gap-1">{sections.map(type=><Button key={type} size="sm" variant="outline" disabled={readOnly||draft.sections.length>=40} onClick={()=>{const item:Section={id:crypto.randomUUID(),type,heading:`New ${type} section`,body:''};edit(old=>({...old,sections:[...old.sections,item]}));setSelected(item.id)}}><Plus className="mr-1 h-3 w-3"/>{nice(type)}</Button>)}</div>
       </Card>
@@ -407,6 +410,7 @@ function PageBuilder({initial,readOnly,onSaved}:{initial?:Page;readOnly:boolean;
           {draft.sections.filter(item=>!item.hidden).map(item=><section key={item.id} onClick={()=>setSelected(item.id)} className={`cursor-pointer border-2 p-10 ${selected===item.id?'border-blue-500':'border-transparent'}`}>
             <h2 className="mb-3 text-3xl font-bold">{item.heading}</h2><p>{item.body}</p>
             {item.type==='features'&&<div className="mt-3 grid gap-2 sm:grid-cols-3">{item.items?.map((text,index)=><div key={index} className="rounded border p-3">{text}</div>)}</div>}
+            {!!item.blocks?.length&&<div className="mt-3 grid gap-2 sm:grid-cols-2">{item.blocks.filter(block=>!block.hidden).map(block=><div key={block.id} className="rounded border p-3"><h3 className="font-semibold">{block.heading}</h3><p>{block.body}</p></div>)}</div>}
             {item.type==='image'&&item.imageUrl&&<img alt={item.heading||''} src={item.imageUrl} className="mt-3 max-h-80 rounded object-cover"/>}
             {item.buttonText&&<span className="mt-4 inline-block rounded px-4 py-2 text-white" style={{background:draft.theme.accent}}>{item.buttonText}</span>}
           </section>)}</div></div>
@@ -552,6 +556,8 @@ export default function ClientPortal() {
   const {data:branding}=useQuery<{name:string;logoUrl:string|null;brand:{primary?:string;text?:string;background?:string}|null}>({queryKey:['portal-branding',selectedId],queryFn:()=>apiFetch('/api/portal?action=branding'),enabled:!!selectedId,retry:false});
   const {data:snapshot,error:pageError,isLoading:pageLoading} = useQuery<Snapshot>({queryKey:['portal',tab,selectedId],queryFn:()=>apiFetch(`/api/portal?action=snapshot&section=${tab}`),enabled:!!tab&&tab!=='launchpad'&&!!selectedId,retry:false});
   const {data:pageStats}=useQuery<Array<{id:string;visits:number;leads:number}>>({queryKey:['portal-page-stats',selectedId],queryFn:()=>apiFetch('/api/portal?action=page_stats'),enabled:tab==='pages'&&!!selectedId,retry:false});
+  const {data:pageEditAllowed=false}=useQuery<boolean>({queryKey:['portal-page-edit-allowed',selectedId],
+    queryFn:()=>apiFetch('/api/portal?action=page_edit_allowed'),enabled:tab==='pages'&&!!selectedId,retry:false});
   const [editing,setEditing] = useState<Page|undefined>();
   const [creating,setCreating] = useState(false);
   useEffect(()=>{setEditing(undefined);setCreating(false)},[tab,selectedId]);
@@ -593,7 +599,7 @@ export default function ClientPortal() {
         {['leads','calls','reviews','reports'].includes(tab)&&<div className="flex justify-end"><Button variant="outline" size="sm" disabled={snapshot.readOnly} onClick={()=>void exportData()}><Download className="mr-1 h-4 w-4"/>Export</Button></div>}
         {tab==='dashboard'&&<Dashboard admin={admin}/>}
         {tab==='leads'&&<LeadTable data={snapshot.data as {rows:Lead[];stages:{id:string;name:string}[]}} readOnly={snapshot.readOnly||limited}/>}
-        {tab==='pages'&&<div className="space-y-4"><Button disabled={snapshot.readOnly} onClick={()=>{setCreating(true);setEditing(undefined)}}><Plus className="mr-1 h-4 w-4"/>New page</Button>{(creating||editing)?<PageBuilder key={editing?.id??'new'} initial={editing} readOnly={snapshot.readOnly} onSaved={()=>{setCreating(false);setEditing(undefined);void queryClient.invalidateQueries({queryKey:['portal','pages']});void queryClient.invalidateQueries({queryKey:['portal-page-stats']})}}/>:<div className="grid gap-3 md:grid-cols-2">{(snapshot.data as Page[]).map(page=>{const stats=pageStats?.find(x=>x.id===page.id);return <Card key={page.id} className="p-4"><h3 className="font-semibold">{page.name}</h3><p className="mb-2 text-xs text-muted-foreground">/{page.slug} · {page.status}</p><p className="mb-3 text-sm">{stats?.visits??0} visits · {stats?.leads??0} leads · {stats?.visits?((stats.leads/stats.visits)*100).toFixed(1):'0'}% conversion</p><div className="flex gap-2"><Button size="sm" variant="outline" onClick={()=>setEditing(page)}>{snapshot.readOnly?'View':'Edit'}</Button>{page.status==='published'&&<a aria-label={`Open ${page.name} published page`} href={`${BASE}/p/${page.public_slug||page.slug}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-white px-3 hover:bg-slate-50"><ExternalLink className="h-4 w-4"/></a>}</div></Card>})}</div>}</div>}
+        {tab==='pages'&&<div className="space-y-4"><Button disabled={snapshot.readOnly||!pageEditAllowed} onClick={()=>{setCreating(true);setEditing(undefined)}}><Plus className="mr-1 h-4 w-4"/>New page</Button>{(creating||editing)?<PageBuilder key={editing?.id??'new'} initial={editing} readOnly={snapshot.readOnly||!pageEditAllowed} onSaved={()=>{setCreating(false);setEditing(undefined);void queryClient.invalidateQueries({queryKey:['portal','pages']});void queryClient.invalidateQueries({queryKey:['portal-page-stats']})}}/>:<div className="grid gap-3 md:grid-cols-2">{(snapshot.data as Page[]).map(page=>{const stats=pageStats?.find(x=>x.id===page.id);return <Card key={page.id} className="p-4"><h3 className="font-semibold">{page.name}</h3><p className="mb-2 text-xs text-muted-foreground">/{page.slug} · {page.status}</p><p className="mb-3 text-sm">{stats?.visits??0} visits · {stats?.leads??0} leads · {stats?.visits?((stats.leads/stats.visits)*100).toFixed(1):'0'}% conversion</p><div className="flex gap-2"><Button size="sm" variant="outline" onClick={()=>setEditing(page)}>{pageEditAllowed&&!snapshot.readOnly?"Edit":"View"}</Button>{pageEditAllowed&&!snapshot.readOnly&&<Link href={`/landing-pages/${page.id}?from=client-portal`}><Button size="sm" variant="outline">Full builder</Button></Link>}{page.status==='published'&&<a aria-label={`Open ${page.name} published page`} href={`${BASE}/p/${page.public_slug||page.slug}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-white px-3 hover:bg-slate-50"><ExternalLink className="h-4 w-4"/></a>}</div></Card>})}</div>}</div>}
         {tab==='billing'&&<BillingPanel rows={snapshot.data as Record<string,unknown>[]} readOnly={snapshot.readOnly}/>}
         {tab==='settings'&&<div className="space-y-4">{(admin||role==='client_owner')&&<ClientSettings readOnly={snapshot.readOnly}/>}{admin&&!snapshot.readOnly&&<AccountSettings value={snapshot.data as Record<string,unknown>} onSaved={()=>void queryClient.invalidateQueries({queryKey:['portal','settings']})}/>}{admin&&!snapshot.readOnly&&<ReviewDelaySettings/>}{admin&&<StaffAssignments/>}{(admin||role==='client_owner'||role==='client')&&<ClientStaffInvite/>}</div>}
         {tab==='calls'&&<CallLog canEdit={agency&&!snapshot.readOnly} admin={admin&&!snapshot.readOnly}/>}

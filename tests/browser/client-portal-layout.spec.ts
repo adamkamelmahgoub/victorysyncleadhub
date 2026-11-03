@@ -52,6 +52,7 @@ test.beforeEach(async({page})=>{
         action==='reports'?[{id:'90000000-0000-4000-8000-000000000001',type:'monthly',
           period_start:'2026-09-01',period_end:'2026-09-30',status:'sent',work_done:'Updated campaign pages',
           whats_next:'Improve follow-up',pdf_path:'demo.pdf'}]:
+        action==='page_edit_allowed'?true:
         action==='page_stats'?[{id:'50000000-0000-4000-8000-000000000001',visits:100,leads:12}]:[];
       return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});
     }
@@ -69,6 +70,19 @@ test('client dashboard fits the viewport and has no serious accessibility violat
   expect(result.violations.filter(item=>['critical','serious'].includes(item.impact||''))
     .flatMap(item=>item.nodes.map(node=>`${item.id}: ${node.target.join(' ')} ${node.html}`))).toEqual([]);
   await page.screenshot({path:testInfo.outputPath('client-dashboard.png'),fullPage:true});
+});
+
+test('client page editing flag controls the full builder and quick editor',async({page})=>{
+  await page.goto('/client-portal/pages');
+  await expect(page.getByRole('button',{name:'Full builder'})).toBeVisible();
+  await expect(page.getByRole('link',{name:'Full builder'})).toHaveAttribute('href',
+    '/landing-pages/50000000-0000-4000-8000-000000000001?from=client-portal');
+  await page.route('**/api/portal?action=page_edit_allowed',route=>route.fulfill({status:200,
+    contentType:'application/json',body:'false'}));
+  await page.reload();
+  await expect(page.getByRole('button',{name:'Full builder'})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'New page'})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'View'})).toBeVisible();
 });
 
 test('client owner can move a lead to Won, save a note, and record job value',async({page})=>{
