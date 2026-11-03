@@ -235,18 +235,34 @@ function ReviewRequestForm() {
   const {data:wonLeads=[]}=useQuery<Pick<Lead,'id'|'first_name'|'last_name'|'phone'>[]>({
     queryKey:['portal-won-leads',leadSearch],
     queryFn:()=>apiFetch(`/api/portal?action=won_leads&query=${encodeURIComponent(leadSearch)}`),retry:false});
-  const request=useMutation({mutationFn:()=>apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'request_review',name,phone,leadId})}),onSuccess:()=>{setName('');setPhone('');setLeadId(null);void queryClient.invalidateQueries({queryKey:['portal','reviews']});void queryClient.invalidateQueries({queryKey:['portal-review-summary']})}});
+  const request=useMutation({mutationFn:()=>apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'request_review',name,phone,leadId})}),onSuccess:()=>{setName('');setPhone('');setLeadId(null);void queryClient.invalidateQueries({queryKey:['portal','reviews']});void queryClient.invalidateQueries({queryKey:['portal-review-summary']});void queryClient.invalidateQueries({queryKey:['portal-review-list']})}});
   return <Card className="space-y-3 p-4"><h2 className="font-semibold">Request a review</h2><p className="text-xs text-muted-foreground">Choose a customer who submitted a form or called your business.</p><Input aria-label="Search Won leads" placeholder="Search Won customers" value={leadSearch} maxLength={100} onChange={event=>setLeadSearch(event.target.value)}/><select aria-label="Won lead" className="w-full rounded border p-2 text-sm" value={leadId||''} onChange={e=>{const id=e.target.value;setLeadId(id||null);const lead=wonLeads.find(x=>x.id===id);if(lead){setName(`${lead.first_name} ${lead.last_name}`.trim());setPhone(lead.phone||'')}}}><option value="">Enter customer details or pick a Won lead</option>{wonLeads.map(lead=><option key={lead.id} value={lead.id}>{lead.first_name} {lead.last_name}</option>)}</select><div className="flex flex-wrap gap-2"><Input aria-label="Customer name" className="min-w-40 flex-1" placeholder="Customer name" value={name} onChange={e=>setName(e.target.value)}/><Input aria-label="Customer phone" className="min-w-40 flex-1" placeholder="+1..." value={phone} onChange={e=>setPhone(e.target.value)}/><Button disabled={!name||!/^\+1\d{10}$/.test(phone)||request.isPending} onClick={()=>request.mutate()}>Request review</Button></div>{request.error&&<p role="alert" className="text-red-600">{String(request.error)}</p>}{request.isSuccess&&<p className="text-green-700">Review request scheduled.</p>}</Card>;
 }
 type ReviewSummary={requestsSent:number;requestsClicked:number;reviewsReceived:number;averageRating:number|null;
   trend:Array<{month:string;rating:number;count:number}>};
-function ReviewPanel({data,readOnly,accountId}:{data:Record<string,unknown>;readOnly:boolean;accountId:string|null}) {
+type ReviewPage={rows:Record<string,unknown>[];nextCursor:{at:string;id:string}|null};
+function ReviewList({kind,accountId}:{kind:'reviews'|'requests';accountId:string|null}) {
+  const {data,error}=useQuery<ReviewPage>({queryKey:['portal-review-list',accountId,kind],
+    queryFn:()=>apiFetch(`/api/portal?action=review_page&kind=${kind}`),enabled:!!accountId,retry:false});
+  const [older,setOlder]=useState<Record<string,unknown>[]>([]);
+  const [cursor,setCursor]=useState<ReviewPage['nextCursor']>(null);
+  useEffect(()=>{setOlder([]);setCursor(data?.nextCursor??null)},[data]);
+  const loadOlder=useMutation({mutationFn:async(value:{at:string;id:string})=>apiFetch(
+    `/api/portal?action=review_page&kind=${kind}&beforeAt=${encodeURIComponent(value.at)}&beforeId=${encodeURIComponent(value.id)}`) as Promise<ReviewPage>,
+    onSuccess:page=>{setOlder(current=>{const seen=new Set([...(data?.rows??[]),...current].map(row=>String(row.id)));
+      return [...current,...page.rows.filter(row=>!seen.has(String(row.id)))]});setCursor(page.nextCursor)}});
+  const rows=[...(data?.rows??[]),...older.filter(row=>!data?.rows.some(first=>first.id===row.id))];
+  return <section className="space-y-3"><h2 className="font-semibold">{nice(kind)}</h2>{error&&<p role="alert" className="text-red-600">Could not load {kind}: {String(error)}</p>}
+    {!error&&<DataTable rows={rows}/>}<div className="flex flex-wrap items-center gap-3 text-sm text-slate-700"><span>{rows.length} {kind} shown</span>{cursor&&<Button size="sm" variant="outline" disabled={loadOlder.isPending} onClick={()=>loadOlder.mutate(cursor)}>{loadOlder.isPending?'Loading...':`Load older ${kind}`}</Button>}</div>
+    {loadOlder.error&&<p role="alert" className="text-red-600">Could not load older {kind}: {String(loadOlder.error)}</p>}</section>;
+}
+function ReviewPanel({readOnly,accountId}:{readOnly:boolean;accountId:string|null}) {
   const {data:summary,error}=useQuery<ReviewSummary>({queryKey:['portal-review-summary',accountId],
     queryFn:()=>apiFetch('/api/portal?action=review_summary'),enabled:!!accountId,retry:false});
   return <div className="space-y-4">{!readOnly&&<ReviewRequestForm/>}{error&&<p role="alert" className="text-red-600">Could not load review summary: {String(error)}</p>}{summary&&<div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{[
     ['Requests sent',summary.requestsSent],['Requests clicked',summary.requestsClicked],
     ['Reviews received',summary.reviewsReceived],['Average rating',summary.averageRating===null?'No ratings':`${summary.averageRating} / 5`],
-  ].map(([label,value])=><Card key={label} className="p-4"><p className="text-xs text-slate-700">{label}</p><p className="mt-2 text-xl font-semibold">{value}</p></Card>)}</div>}<Card className="p-4"><h2 className="font-semibold">Rating trend</h2><div className="mt-3 flex items-end gap-3 overflow-x-auto">{summary?.trend.length?summary.trend.map(item=><div key={item.month} className="min-w-16 text-center text-xs"><div className="mx-auto w-10 rounded-t bg-blue-500" style={{height:`${Math.max(8,item.rating/5*90)}px`}}/><p className="mt-1">{item.month}</p><p>{item.rating.toFixed(1)} / 5</p><p>{item.count} reviews</p></div>):<p className="text-sm text-muted-foreground">No reviews in the past six months.</p>}</div></Card>{Object.entries(data).map(([key,value])=><div key={key} className="space-y-2"><h2 className="font-semibold">{nice(key)}</h2><DataTable rows={Array.isArray(value)?value as Record<string,unknown>[]:[]}/></div>)}</div>;
+  ].map(([label,value])=><Card key={label} className="p-4"><p className="text-xs text-slate-700">{label}</p><p className="mt-2 text-xl font-semibold">{value}</p></Card>)}</div>}<Card className="p-4"><h2 className="font-semibold">Rating trend</h2><div className="mt-3 flex items-end gap-3 overflow-x-auto">{summary?.trend.length?summary.trend.map(item=><div key={item.month} className="min-w-16 text-center text-xs"><div className="mx-auto w-10 rounded-t bg-blue-500" style={{height:`${Math.max(8,item.rating/5*90)}px`}}/><p className="mt-1">{item.month}</p><p>{item.rating.toFixed(1)} / 5</p><p>{item.count} reviews</p></div>):<p className="text-sm text-muted-foreground">No reviews in the past six months.</p>}</div></Card><ReviewList kind="reviews" accountId={accountId}/><ReviewList kind="requests" accountId={accountId}/></div>;
 }
 type ReportRow={id:string;type:string;period_start:string;period_end:string;status:string;work_done:string|null;whats_next:string|null;pdf_path:string|null};
 function ReportArchive({canEdit}:{canEdit:boolean}) {
@@ -581,7 +597,7 @@ export default function ClientPortal() {
         {tab==='billing'&&<BillingPanel rows={snapshot.data as Record<string,unknown>[]} readOnly={snapshot.readOnly}/>}
         {tab==='settings'&&<div className="space-y-4">{(admin||role==='client_owner')&&<ClientSettings readOnly={snapshot.readOnly}/>}{admin&&!snapshot.readOnly&&<AccountSettings value={snapshot.data as Record<string,unknown>} onSaved={()=>void queryClient.invalidateQueries({queryKey:['portal','settings']})}/>}{admin&&!snapshot.readOnly&&<ReviewDelaySettings/>}{admin&&<StaffAssignments/>}{(admin||role==='client_owner'||role==='client')&&<ClientStaffInvite/>}</div>}
         {tab==='calls'&&<CallLog canEdit={agency&&!snapshot.readOnly} admin={admin&&!snapshot.readOnly}/>}
-        {tab==='reviews'&&<ReviewPanel data={snapshot.data as Record<string,unknown>} readOnly={snapshot.readOnly||limited} accountId={selectedId}/>}
+        {tab==='reviews'&&<ReviewPanel readOnly={snapshot.readOnly||limited} accountId={selectedId}/>}
         {tab==='reports'&&<ReportArchive canEdit={agency&&!snapshot.readOnly}/>}
         {tab==='forms'&&<DataTable rows={snapshot.data as Record<string,unknown>[]}/>}
       </>}</>}

@@ -28,6 +28,8 @@ const querySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('lead_timeline'), leadId: uuid }),
   z.object({ action: z.literal('won_leads'), query:z.string().max(100) }).strict(),
   z.object({ action: z.literal('review_summary') }),
+  z.object({ action: z.literal('review_page'), kind:z.enum(['reviews','requests']),
+    beforeAt:z.string().datetime({offset:true}).optional(),beforeId:uuid.optional() }).strict(),
   z.object({ action: z.literal('lead_page'), beforeAt: z.string().datetime({offset:true}), beforeId: uuid }).strict(),
   z.object({ action: z.literal('ad_spend') }),
   z.object({ action: z.literal('page_stats') }),
@@ -295,6 +297,9 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
         {p_account:selected.id,p_query:parsed.query}));
       if (parsed.action === 'review_summary') return send(res,200,await rpc(user.token,'portal_review_summary',
         {p_account:selected.id}));
+      if (parsed.action === 'review_page') return send(res,200,await rpc(user.token,'portal_review_page',
+        {p_account:selected.id,p_kind:parsed.kind,p_before_at:parsed.beforeAt||null,
+          p_before_id:parsed.beforeId||null,p_limit:100}));
       if (parsed.action === 'lead_page') return send(res,200,await rpc(user.token,'portal_lead_page',
         {p_account:selected.id,p_before_at:parsed.beforeAt,p_before_id:parsed.beforeId,p_limit:200}));
       if (parsed.action === 'ad_spend') return send(res,200,await rpc(user.token,'portal_ad_spend',
@@ -346,6 +351,17 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
             const page=await rpc<{rows:Array<Record<string,unknown>>;nextCursor:{createdAt:string;id:string}|null}>(
               user.token,'portal_lead_page',{p_account:selected.id,p_before_at:cursor.createdAt,
                 p_before_id:cursor.id,p_limit:200});
+            rows=[...rows,...page.rows];cursor=page.nextCursor;
+          }
+        }
+        if(parsed.section==='reviews'){
+          const first=await rpc<{rows:Array<Record<string,unknown>>;nextCursor:{at:string;id:string}|null}>(
+            user.token,'portal_review_page',{p_account:selected.id,p_kind:'reviews',p_limit:100});
+          rows=first.rows;
+          let cursor=first.nextCursor;
+          while(cursor){
+            const page=await rpc<typeof first>(user.token,'portal_review_page',{
+              p_account:selected.id,p_kind:'reviews',p_before_at:cursor.at,p_before_id:cursor.id,p_limit:100});
             rows=[...rows,...page.rows];cursor=page.nextCursor;
           }
         }

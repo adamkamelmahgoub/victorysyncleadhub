@@ -39,6 +39,9 @@ test.beforeEach(async({page})=>{
         action==='branding'?{name:'Demo Plumbing',logoUrl:null,brand:{primary:'#2563eb',text:'#172033',background:'#ffffff'}}:
         action==='review_summary'?{requestsSent:130,requestsClicked:45,reviewsReceived:125,averageRating:4.8,
           trend:[{month:'2026-10',rating:4.8,count:125}]}:
+        action==='review_page'?{rows:url.searchParams.get('kind')==='reviews'?[{
+          id:'70000000-0000-4000-8000-000000000001',reviewer:'Verified customer',rating:5,
+          created_at:'2026-10-15T00:00:00Z'}]:[],nextCursor:null}:
         action==='snapshot'?snapshot(url.searchParams.get('section')):
         action==='metrics'?{account:{id:accountId,name:'Demo Plumbing',goal_metric:'new_leads',goal_value:20},
           newLeads:8,bookedJobs:3,answeredCalls:21,missedCallsRecovered:2,reviewsReceived:4,
@@ -195,6 +198,33 @@ test('review summary shows totals beyond the visible review rows',async({page})=
   await expect(page.getByText('125',{exact:true}).first()).toBeVisible();
   await expect(page.getByText('130',{exact:true}).first()).toBeVisible();
   await expect(page.getByText('45',{exact:true}).first()).toBeVisible();
+});
+
+test('reviews and requests can load older rows independently',async({page})=>{
+  const firstReviews=Array.from({length:100},(_,index)=>({id:`70000000-0000-4000-8000-${String(index+1).padStart(12,'0')}`,
+    reviewer:`Customer ${index+1}`,rating:5,created_at:'2026-10-15T00:00:00Z'}));
+  const firstRequests=Array.from({length:100},(_,index)=>({id:`80000000-0000-4000-8000-${String(index+1).padStart(12,'0')}`,
+    contact_name:`Request ${index+1}`,status:'sent',sent_at:'2026-10-15T00:00:00Z'}));
+  const reviewCursor={at:'2026-10-15T00:00:00Z',id:firstReviews[99].id};
+  const requestCursor={at:'2026-10-15T00:00:00Z',id:firstRequests[99].id};
+  await page.route('**/api/portal*',route=>{
+    const url=new URL(route.request().url());
+    if(url.searchParams.get('action')!=='review_page')return route.fallback();
+    const reviews=url.searchParams.get('kind')==='reviews';
+    const older=!!url.searchParams.get('beforeId');
+    const rows=older?[reviews?{id:'70000000-0000-4000-8000-000000000101',reviewer:'Older reviewer',rating:4,
+      created_at:'2026-10-14T00:00:00Z'}:{id:'80000000-0000-4000-8000-000000000101',contact_name:'Older request',
+      status:'clicked',sent_at:'2026-10-14T00:00:00Z'}]:reviews?firstReviews:firstRequests;
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({rows,
+      nextCursor:older?null:reviews?reviewCursor:requestCursor})});
+  });
+  await page.goto('/client-portal/reviews');
+  await page.getByRole('button',{name:'Load older reviews'}).click();
+  await expect(page.getByText('Older reviewer')).toBeVisible();
+  await page.getByRole('button',{name:'Load older requests'}).click();
+  await expect(page.getByText('Older request')).toBeVisible();
+  await expect(page.getByRole('button',{name:'Load older reviews'})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Load older requests'})).toHaveCount(0);
 });
 
 for(const [section,visibleText] of [
