@@ -11,6 +11,7 @@ import {externalSendsEnabled} from '../lib/external-send-mode.js';
 import {portalBillingReturnUrl} from '../lib/portal-billing-url.js';
 import {requiresAgencyMfa} from '../lib/portal-roles.js';
 import {providerReadiness} from '../lib/provider-readiness.js';
+import {approvedAiImageUrls} from '../lib/landing-ai-approved-images.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const ORG = 'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
@@ -227,7 +228,7 @@ export const aiJsonSchema = {
   },
 } as const;
 export const aiPageSystemPrompt='Create or edit a mobile-first landing page as structured JSON. Use plain words, short sentences, a service-and-city headline, one clear call to action, and the provided phone number. Use ordered blocks for services, benefits, steps, and FAQ where helpful. Never invent reviews, ratings, awards, licences, years in business, guarantees, prices, results, or business credentials. Use [Add a real customer review] and similar placeholders when facts are missing. Use only the uploaded photos provided. Never use em dashes or raw HTML. Keep forms unlinked unless a form ID was supplied.';
-async function pageAiSetup(user:PortalUser,accountId:string,currentSections?:unknown){
+async function pageAiSetup(user:PortalUser,accountId:string){
   const limits=await mcpPool.query<{requests:number;spent:number;budget:number|null}>(`select
     (select count(*)::integer from public.ai_requests where user_id=$1 and created_at>now()-interval '1 hour') requests,
     (select coalesce(sum(r.cost_cents),0)::float from public.ai_requests r
@@ -238,19 +239,8 @@ async function pageAiSetup(user:PortalUser,accountId:string,currentSections?:unk
   if(Number(limits.rows[0]?.requests||0)>=30)throw new Error('AI request limit reached. Try again in an hour');
   if(limits.rows[0]?.budget!=null&&Number(limits.rows[0].spent)>=Number(limits.rows[0].budget))throw new Error('Monthly AI budget reached');
   const context = await rpc<Record<string,unknown>>(user.token,'portal_ai_context',{p_account:accountId});
-  const mediaBase=String(process.env.SUPABASE_URL||'').replace(/\/$/,'');
-  const approvedPhotos=(Array.isArray(context.photos)?context.photos:[])
-    .filter((value):value is string=>typeof value==='string'&&value.startsWith('landing-media/'))
-    .map(value=>`${mediaBase}/storage/v1/object/public/${value}`);
-  const existingImages=(Array.isArray(currentSections)?currentSections:[])
-    .flatMap(value=>{
-      if(!value||typeof value!=='object')return [];
-      const section=value as {imageUrl?:unknown;blocks?:Array<{imageUrl?:unknown}>};
-      return [section.imageUrl,...(Array.isArray(section.blocks)?section.blocks.map(block=>block.imageUrl):[])]
-        .filter((image):image is string=>typeof image==='string');
-    });
-  const approvedImages=[...approvedPhotos,...existingImages,...(typeof context.logoUrl==='string'?[context.logoUrl]:[])];
-  const clientContext={...context,photos:approvedPhotos};
+  const approvedImages=approvedAiImageUrls(context,String(process.env.SUPABASE_URL||''));
+  const clientContext={...context,photos:approvedImages.filter(url=>url.includes('/storage/v1/object/public/landing-media/'))};
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error('OpenRouter is not configured');
   const fallback = 'openai/gpt-4o-mini-2024-07-18';
@@ -259,7 +249,7 @@ async function pageAiSetup(user:PortalUser,accountId:string,currentSections?:unk
   return {clientContext,approvedImages,key,models};
 }
 async function generatePage(user: PortalUser, accountId: string, prompt: string, currentSections?: unknown) {
-  const {clientContext,approvedImages,key,models}=await pageAiSetup(user,accountId,currentSections);
+  const {clientContext,approvedImages,key,models}=await pageAiSetup(user,accountId);
   let lastError: Error = new Error('AI page generation failed');
   for (const model of models) {
     try {
@@ -297,7 +287,7 @@ async function generatePage(user: PortalUser, accountId: string, prompt: string,
 async function generatePageEdits(user:PortalUser,accountId:string,prompt:string,
   currentSections:z.infer<typeof aiPageEditInputSchema>['currentSections'],
   currentTheme:z.infer<typeof aiPageEditInputSchema>['currentTheme']){
-  const {clientContext,approvedImages,key,models}=await pageAiSetup(user,accountId,currentSections);
+  const {clientContext,approvedImages,key,models}=await pageAiSetup(user,accountId);
   let lastError:Error=new Error('AI page edit failed');
   for(const model of models){
     try{
