@@ -45,3 +45,10 @@ test('AI proof and image policy checks nested blocks',()=>{
   assert.throws(()=>assertApprovedAiImages([{blocks:[{imageUrl:'https://example.com/invented.jpg'}]}],[]),/unapproved image/);
   assert.doesNotThrow(()=>assertApprovedAiImages([{blocks:[{imageUrl:'https://example.com/approved.jpg'}]}],['https://example.com/approved.jpg']));
 });
+
+test('generated copy rejects raw HTML and em dashes in sections and blocks',()=>{
+  assert.throws(()=>assertNoUnsupportedProof([{heading:'Fast service\u2014call today'}]),/raw HTML or an em dash/);
+  assert.throws(()=>assertNoUnsupportedProof([{body:'<strong>Call today</strong>'}]),/raw HTML or an em dash/);
+  assert.throws(()=>assertNoUnsupportedProof([{type:'services',blocks:[{body:'Drain cleaning\u2014book now'}]}]),/raw HTML or an em dash/);
+  assert.throws(()=>assertNoUnsupportedProof([{eyebrow:'<script>alert(1)</script>'}]),/raw HTML or an em dash/);
+});
