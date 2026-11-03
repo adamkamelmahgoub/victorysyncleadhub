@@ -43,3 +43,16 @@ test('hidden blocks stay in the draft but do not appear on the published page',(
   assert.doesNotMatch(html,/Unpublished offer/);
   assert.ok(html.indexOf('Drain cleaning')<html.indexOf('Water heaters'));
 });
+
+test('editor preview identifies a block and keeps edit controls out of the published page',()=>{
+  const page={name:'Services',sections:[{id:'services',type:'services' as const,heading:'Our services',
+    blocks:[{id:'drains',type:'service',heading:'Drain cleaning',body:'Request a visit.'}]}],
+    theme:{primary:'#245eea'}};
+  const preview=renderPage(page,null,true),published=renderPage(page);
+  assert.match(preview,/data-block="drains"/);
+  assert.match(preview,/data-block-field="heading"/);
+  assert.match(preview,/data-block-field="body"/);
+  assert.match(preview,/blockId:block\?\.dataset\.block/);
+  assert.doesNotMatch(published,/data-block="drains"/);
+  assert.doesNotMatch(published,/contenteditable/);
+});

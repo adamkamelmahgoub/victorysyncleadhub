@@ -93,6 +93,28 @@ test('draft iframe renders its hero without horizontal clipping',async({page},te
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth+1);
 });
 
+test('clicking a preview block selects it and inline edits its heading',async({page},testInfo)=>{
+  await page.route(`**/api/landing-pages/${pageId}`,route=>{
+    if(route.request().method()!=='GET')return route.fulfill({status:200,contentType:'application/json',
+      body:JSON.stringify({...initialPage,...route.request().postDataJSON()})});
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({...initialPage,
+      sections:[{id:'services-1',type:'services',heading:'Our services',body:'Help for homeowners',
+        blocks:[{id:'drains-1',type:'service',heading:'Drain cleaning',body:'Request a visit.'}]}]})});
+  });
+  await page.goto(`/landing-pages/${pageId}`);
+  if(testInfo.project.name==='mobile')await page.getByRole('tab',{name:'Page preview'}).click();
+  const preview=page.frameLocator('iframe[title="Draft landing page preview"]');
+  await preview.getByRole('heading',{name:'Drain cleaning'}).click();
+  if(testInfo.project.name==='mobile')await page.getByRole('tab',{name:'Edit sections'}).click();
+  await expect(page.locator('#block-drains-1 input[placeholder="Title"]')).toHaveValue('Drain cleaning');
+  if(testInfo.project.name==='mobile')await page.getByRole('tab',{name:'Page preview'}).click();
+  await preview.getByRole('heading',{name:'Drain cleaning'}).fill('Water heater repair');
+  await preview.getByRole('heading',{name:'Water heater repair'}).blur();
+  await expect(preview.getByRole('heading',{name:'Water heater repair'})).toBeVisible();
+  if(testInfo.project.name==='mobile')await page.getByRole('tab',{name:'Edit sections'}).click();
+  await expect(page.locator('#block-drains-1 input[placeholder="Title"]')).toHaveValue('Water heater repair');
+});
+
 test('AI patch preview changes only the requested heading and undoes in one step',async({page},testInfo)=>{
   await page.route('**/api/portal',route=>{
     const request=route.request();
