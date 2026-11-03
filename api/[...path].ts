@@ -17,6 +17,7 @@ import { readPortalSelection } from '../lib/portal-cookie.js';
 import { newFormSlug } from '../lib/form-slug.js';
 import {pipelineBoardQuerySchema,fetchPipelinePage} from '../lib/pipeline-board.js';
 import {clientInviteUrl} from '../lib/client-invite.js';
+import {clientInviteSignupSchema} from '../lib/client-invite-signup.js';
 import { z } from 'zod';
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 
@@ -778,15 +779,12 @@ async function signupWithInvite(req: VercelRequest, res: VercelResponse) {
     sendJson(res, 503, { message: "Invited-user signup requires the Supabase service role key" });
     return;
   }
-  const body = await readJson(req) as Record<string, unknown>;
-  const name = String(body.name ?? "").trim();
-  const email = String(body.email ?? "").trim().toLowerCase();
-  const password = String(body.password ?? "");
-  const inviteCode = String(body.inviteCode ?? "").trim();
-  if (!name || !email || password.length < 8 || !inviteCode) {
+  const parsed=clientInviteSignupSchema.safeParse(await readJson(req));
+  if (!parsed.success) {
     sendJson(res, 400, { message: "Name, email, an 8-character password, and invite code are required" });
     return;
   }
+  const {name,email,password,inviteCode}=parsed.data;
 
   const codeHash = crypto.createHash("sha256").update(inviteCode).digest("hex");
   const invites = await supabaseRest(
