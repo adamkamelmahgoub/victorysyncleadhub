@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 import { assertNoUnsupportedProof,assertApprovedAiImages } from '../lib/landing-ai-policy.js';
+import {aiPageInputSchema} from '../lib/landing-ai-input.js';
 import {mcpPool} from '../lib/mcp-auth.js';
 import {registry,sectionTypes} from '../lib/landing-section-registry.js';
 import {clientInviteUrl} from '../lib/client-invite.js';
@@ -119,8 +120,7 @@ const postSchema = z.discriminatedUnion('action', [
     phone:z.string().max(40),website:z.union([z.literal(''),z.string().url().startsWith('https://')]),
     package:z.enum(['starter','scale','domination','overflow','business_hours','coverage_247','appt_part_time','appt_full_time','revive','custom']),
     ownerEmail:z.string().email().max(320),ownerName:z.string().trim().min(1).max(200)}).strict(),
-  z.object({ action: z.literal('ai_page'), prompt: z.string().trim().min(5).max(4000),
-    currentSections: z.array(sectionSchema).max(40).optional() }).strict(),
+  aiPageInputSchema,
   pageSchema,
 ]);
 type PortalCookie = PortalSelection;

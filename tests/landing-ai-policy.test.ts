@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {assertNoUnsupportedProof,assertApprovedAiImages} from '../lib/landing-ai-policy.js';
+import {aiPageInputSchema} from '../lib/landing-ai-input.js';
 
 test('rejects unsupported social proof from structured page content',()=>{
   for(const claim of ['5-star reviews','Licensed and insured','Trusted by thousands','Award winning','Guaranteed results',
@@ -28,4 +29,19 @@ test('rejects proof sections and images that were not supplied by the client',()
     assert.throws(()=>assertNoUnsupportedProof([{type,heading:'Customer feedback'}]),/unsupported proof sections/);
   assert.throws(()=>assertApprovedAiImages([{imageUrl:'https://example.com/invented.jpg'}],[]),/unapproved image/);
   assert.doesNotThrow(()=>assertApprovedAiImages([{imageUrl:'https://example.com/approved.jpg'}],['https://example.com/approved.jpg']));
+});
+
+test('AI edit input accepts editor sections with ordered blocks and rejects unsafe links',()=>{
+  const input={action:'ai_page',prompt:'Shorten the benefits section',currentSections:[{
+    id:'benefits-1',type:'features',heading:'Our services',body:'Help for homeowners',
+    buttonUrl:'#contact',blocks:[{id:'service-1',type:'Benefit',heading:'Fast scheduling',body:'Call us today'}],
+  }]};
+  assert.equal(aiPageInputSchema.safeParse(input).success,true);
+  assert.equal(aiPageInputSchema.safeParse({...input,currentSections:[{...input.currentSections[0],buttonUrl:'javascript:alert(1)'}]}).success,false);
+});
+
+test('AI proof and image policy checks nested blocks',()=>{
+  assert.throws(()=>assertNoUnsupportedProof([{type:'features',blocks:[{heading:'5-star reviews'}]}]),/unsupported claims/);
+  assert.throws(()=>assertApprovedAiImages([{blocks:[{imageUrl:'https://example.com/invented.jpg'}]}],[]),/unapproved image/);
+  assert.doesNotThrow(()=>assertApprovedAiImages([{blocks:[{imageUrl:'https://example.com/approved.jpg'}]}],['https://example.com/approved.jpg']));
 });
