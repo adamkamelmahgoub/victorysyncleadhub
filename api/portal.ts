@@ -68,6 +68,9 @@ const sectionSchema = z.object({
 }).strict().superRefine((value,ctx)=>{
   if((value.blocks?.length||0)>registry[value.type].maxBlocks)
     ctx.addIssue({code:'custom',message:'Too many blocks for this section'});
+  const allowed=(registry[value.type].allowedBlockTypes||[]).map(type=>type.toLowerCase());
+  if(value.blocks?.some(block=>!allowed.includes(block.type.toLowerCase())))
+    ctx.addIssue({code:'custom',message:'Block type is not allowed in this section'});
 });
 const themeSchema = z.object({
   background: z.string().regex(/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i),
@@ -267,7 +270,7 @@ async function generatePage(user: PortalUser, accountId: string, prompt: string,
         body:JSON.stringify({model,temperature:0.4,max_tokens:2200,
           response_format:{type:'json_schema',json_schema:{name:'landing_page',strict:true,schema:aiJsonSchema}},
           messages:[{role:'system',content:aiPageSystemPrompt},
-            {role:'user',content:JSON.stringify({brief:prompt,client:clientContext,currentSections,sectionRegistry:Object.values(registry).filter(item=>!['reviews','testimonial','trust_bar'].includes(item.type)).map(({type,label,fields,maxBlocks})=>({type,label,fields,maxBlocks})),validationFeedback:feedback})}]}),
+            {role:'user',content:JSON.stringify({brief:prompt,client:clientContext,currentSections,sectionRegistry:Object.values(registry).filter(item=>!['reviews','testimonial','trust_bar'].includes(item.type)).map(({type,label,fields,maxBlocks,allowedBlockTypes})=>({type,label,fields,maxBlocks,allowedBlockTypes:allowedBlockTypes||[]})),validationFeedback:feedback})}]}),
         signal:AbortSignal.timeout(45000),
       });
       const data = await response.json() as {choices?:Array<{message?:{content?:string}}> ;error?:{message?:string};usage?:{prompt_tokens?:number;completion_tokens?:number;cost?:number}};

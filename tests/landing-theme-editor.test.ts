@@ -56,3 +56,10 @@ test('editor preview identifies a block and keeps edit controls out of the publi
   assert.doesNotMatch(published,/data-block="drains"/);
   assert.doesNotMatch(published,/contenteditable/);
 });
+
+test('section registry allows only its declared block types',()=>{
+  const section={id:'services',type:'services',blocks:[{id:'one',type:'Service',heading:'Drain cleaning'}]};
+  assert.equal(sectionsSchema.safeParse([section]).success,true);
+  assert.equal(sectionsSchema.safeParse([{...section,blocks:[{...section.blocks[0],type:'Question'}]}]).success,false);
+  assert.equal(sectionsSchema.safeParse([{id:'cta',type:'cta',blocks:section.blocks}]).success,false);
+});

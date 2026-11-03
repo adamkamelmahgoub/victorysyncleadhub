@@ -24,4 +24,8 @@ test('AI generation rejects blocks beyond the section limit and unapproved image
   assert.equal(aiResponseSchema.safeParse({...generated,sections:[{...generated.sections[0],blocks:[
     ...blocks,...Array.from({length:12},(_,index)=>({...blocks[0],id:`service-${index+2}`}))]}]}).success,false);
   assert.throws(()=>assertApprovedAiImages([{blocks:[{imageUrl:'https://example.com/invented.jpg'}]}],[]),/unapproved image/);
+  const invalid={...generated,sections:[{...generated.sections[0],blocks:[{...blocks[0],type:'Question'}]}]};
+  assert.equal(aiResponseSchema.safeParse(invalid).success,false);
+  assert.equal(pageSchema.safeParse({action:'save_page',id:null,title:invalid.title,slug:'austin-drain-cleaning',
+    sections:invalid.sections,theme:invalid.theme,seoDescription:invalid.seoDescription,status:'draft'}).success,false);
 });
