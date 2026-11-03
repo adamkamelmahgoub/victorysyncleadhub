@@ -6,7 +6,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | --- | --- | --- | --- | --- |
 | Client sub-accounts | `api/portal.ts`, `sub_accounts` | partial | `client-create-db.test.mjs`, `legacy-client-create.test.ts` | Both UI entry points use canonical provisioning; full browser and production-copy QA pending. |
 | Client tenancy and RLS | `20261026_01_client_tenancy_foundation.sql` | partial | `client-tenancy-all-tables.test.ts`, `client-tenancy-db.test.mjs` | Local roles and RLS test all 28 explicitly client-scoped tables for reads and cross-account writes. Full live schema and API route review remain pending. |
-| Agency account switcher | `account-switcher.tsx` | partial | source review | Search and mobile behavior need QA. |
+| Agency account switcher | `account-switcher.tsx` | partial | desktop/mobile portal browser check | Top-bar search, client selection and horizontal fit pass with synthetic agency accounts; live cookie and assigned-account QA remain. |
 | Agency staff assignments | `sub_account_assignments` | partial | `client-tenancy-db.test.mjs` | Assigned-account restrictions need per-route test. |
 | Roles and page permissions | `permissions.ts`, portal middleware | partial | `client-portal-permissions.test.ts` | Page and API parity needs verification. |
 | Client invite and acceptance | `api/portal.ts`, `client-invite.ts` | partial | `client-invite.test.ts` | Provider email and browser acceptance unverified. |

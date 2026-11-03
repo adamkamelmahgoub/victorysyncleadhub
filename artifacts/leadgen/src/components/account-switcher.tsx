@@ -25,8 +25,10 @@ export function AccountSwitcher({variant='header'}:{variant?:'header'|'sidebar'}
     navigate(value ? '/client-portal/dashboard' : '/client-portal');
   }
   return <div className={variant==='sidebar'?'space-y-2':'flex min-w-0 items-center gap-2'}>
-    {variant==='sidebar'&&agency&&data.accounts.length>4&&<input aria-label="Search client accounts" placeholder="Search accounts" value={search}
-      onChange={event=>setSearch(event.target.value)} className="h-9 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-white outline-none placeholder:text-slate-400 focus:border-blue-500"/>}
+    {agency&&data.accounts.length>4&&<input aria-label="Search client accounts" placeholder="Search accounts" value={search}
+      onChange={event=>setSearch(event.target.value)} className={variant==='sidebar'
+        ?'h-9 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs text-white outline-none placeholder:text-slate-400 focus:border-blue-500'
+        :'h-10 w-28 rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs text-slate-800 outline-none placeholder:text-slate-500 focus:border-blue-500 sm:w-36'}/>}
     <label className="block min-w-0 flex-1 text-xs"><span className="sr-only">Selected client account</span>
     <select aria-label="Selected client account" className={variant==='sidebar'
       ?'h-10 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm font-medium text-white outline-none focus:border-blue-500'

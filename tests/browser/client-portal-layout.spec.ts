@@ -72,6 +72,46 @@ test('client dashboard fits the viewport and has no serious accessibility violat
   await page.screenshot({path:testInfo.outputPath('client-dashboard.png'),fullPage:true});
 });
 
+test('account switcher is available in the top bar without clipping the portal',async({page})=>{
+  await page.goto('/client-portal/dashboard');
+  const switcher=page.locator('header').getByRole('combobox',{name:'Selected client account'});
+  await expect(switcher).toBeVisible();
+  await expect(switcher).toHaveValue(accountId);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);
+});
+
+test('agency top-bar switcher searches assigned client accounts',async({page})=>{
+  const agencyJwt=`${tokenPart({alg:'HS256',typ:'JWT'})}.${tokenPart({sub:userId,role:'authenticated',
+    crm_role:'agency_admin',aal:'aal2',exp:4102444800})}.test-signature`;
+  await page.addInitScript(value=>{
+    const key='sb-supabase-auth-token',session=JSON.parse(localStorage.getItem(key)||'{}');
+    localStorage.setItem(key,JSON.stringify({...session,access_token:value}));
+  },agencyJwt);
+  const accounts=Array.from({length:5},(_,index)=>({id:`10000000-0000-4000-8000-00000000000${index+1}`,
+    name:index===4?'Westside HVAC':`Client ${index+1}`,health_score:80,leads_this_week:0,
+    overdue_tasks:0,failed_payments:0}));
+  let switched:string|null=null;
+  await page.route('**/api/portal',route=>{
+    if(route.request().method()!=='POST')return route.fallback();
+    const body=route.request().postDataJSON() as {action?:string;accountId?:string};
+    if(body.action!=='switch')return route.fallback();
+    switched=body.accountId||null;
+    return route.fulfill({status:200,contentType:'application/json',body:'{}'});
+  });
+  await page.route('**/api/portal?action=accounts',route=>route.fulfill({status:200,
+    contentType:'application/json',body:JSON.stringify({accounts,selected:{accountId,viewAsClient:false}})}));
+  await page.goto('/client-portal/dashboard');
+  const header=page.locator('header');
+  await header.getByRole('textbox',{name:'Search client accounts'}).fill('Westside');
+  const switcher=header.getByRole('combobox',{name:'Selected client account'});
+  await expect(switcher.getByRole('option')).toHaveCount(3);
+  await expect(switcher.getByRole('option',{name:'Agency view'})).toBeAttached();
+  await expect(switcher.getByRole('option',{name:'Westside HVAC'})).toBeAttached();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);
+  await switcher.selectOption(accounts[4].id);
+  await expect.poll(()=>switched).toBe(accounts[4].id);
+});
+
 test('client page editing flag controls the full builder and quick editor',async({page})=>{
   await page.goto('/client-portal/pages');
   await expect(page.getByRole('button',{name:'Full builder'})).toBeVisible();

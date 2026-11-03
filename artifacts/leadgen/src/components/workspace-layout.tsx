@@ -326,7 +326,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <span className="truncate text-xs font-medium text-slate-600">
             {current}
           </span>
-          <div className="ml-auto md:hidden"><AccountSwitcher /></div>
+          <div className="ml-auto min-w-0"><AccountSwitcher /></div>
           {canAccessPath("/companies", pagePermissions, role) && (
             <form
               className="relative w-full min-w-[160px] flex-1 sm:max-w-64 sm:flex-none"
