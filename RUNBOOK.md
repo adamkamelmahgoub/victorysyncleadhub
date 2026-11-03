@@ -42,6 +42,8 @@ The client editor also autosaves an edited draft after two seconds. Wait for **S
 
 Enable `landing_page_builder` and `landing_page_ai` in the feature manager. Open a page, choose **AI assistant**, and describe the edit. Review the proposed patch list, then choose **Apply to draft**. The edit is one Undo step and stays private until **Publish**. Only use testimonials, ratings, awards, licenses, and guarantees supplied by the client. The assistant uses the existing OpenRouter configuration.
 
+The manual structured-output check uses ten synthetic home-service prompts and no client data. Set `OPENROUTER_API_KEY` in the local shell, then run `pnpm run test:ai-live`. Valid responses are saved after each prompt to `tests/fixtures/landing-ai-live-synthetic.json` so an interrupted run can resume. Keep the key out of Git. This check is not part of pull-request CI because it uses live model credits.
+
 ## Operations and reports
 
 The **Accounts overview** table shows package, MRR, health, lead goal, response time, answering minutes, texts, AI tokens, and manager. Agency admins can edit MRR. A nightly database job refreshes health scores. **Failed automations** shows recent failed runs; correct the underlying provider or data issue, then select **Retry**. The delivery worker must be scheduled and `delivery_automation` enabled for jobs to run. Reports are drafted from account data and require a manager to review the narrative before sending.

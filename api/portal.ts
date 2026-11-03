@@ -194,9 +194,9 @@ async function account(req: IncomingMessage,user: PortalUser): Promise<{id:strin
   if (!id || !accounts.some(a => a.id === id)) throw new Error('Select a client account');
   return {id,viewAsClient: Boolean(saved?.viewAsClient && user.role === 'agency_admin')};
 }
-const aiResponseSchema = z.object({ sections: z.array(sectionSchema).min(1).max(40), theme: themeSchema,
+export const aiResponseSchema = z.object({ sections: z.array(sectionSchema).min(1).max(40), theme: themeSchema,
   title: z.string().min(1).max(180), seoDescription: z.string().max(320) }).strict();
-const aiJsonSchema = {
+export const aiJsonSchema = {
   type:'object',additionalProperties:false,required:['title','seoDescription','sections','theme'],
   properties:{
     title:{type:'string'},seoDescription:{type:'string'},
@@ -209,6 +209,7 @@ const aiJsonSchema = {
       properties:{background:{type:'string'},foreground:{type:'string'},accent:{type:'string'},font:{type:'string',enum:['sans','serif']}}},
   },
 } as const;
+export const aiPageSystemPrompt='Create or edit a mobile-first landing page as structured JSON. Use plain words, short sentences, a service-and-city headline, one clear call to action, and the provided phone number. Never invent reviews, ratings, awards, licences, years in business, guarantees, prices, results, or business credentials. Use [Add a real customer review] and similar placeholders when facts are missing. Use only the uploaded photos provided. Never use em dashes or raw HTML. Keep forms unlinked unless a form ID was supplied.';
 async function pageAiSetup(user:PortalUser,accountId:string,currentSections?:unknown){
   const limits=await mcpPool.query<{requests:number;spent:number;budget:number|null}>(`select
     (select count(*)::integer from public.ai_requests where user_id=$1 and created_at>now()-interval '1 hour') requests,
@@ -251,7 +252,7 @@ async function generatePage(user: PortalUser, accountId: string, prompt: string,
         method:'POST',headers:{authorization:`Bearer ${key}`,'content-type':'application/json'},
         body:JSON.stringify({model,temperature:0.4,max_tokens:2200,
           response_format:{type:'json_schema',json_schema:{name:'landing_page',strict:true,schema:aiJsonSchema}},
-          messages:[{role:'system',content:'Create or edit a mobile-first landing page as structured JSON. Use plain words, short sentences, a service-and-city headline, one clear call to action, and the provided phone number. Never invent reviews, ratings, awards, licences, years in business, guarantees, prices, results, or business credentials. Use [Add a real customer review] and similar placeholders when facts are missing. Use only the uploaded photos provided. Never use em dashes or raw HTML. Keep forms unlinked unless a form ID was supplied.'},
+          messages:[{role:'system',content:aiPageSystemPrompt},
             {role:'user',content:JSON.stringify({brief:prompt,client:clientContext,currentSections,sectionRegistry:Object.values(registry).filter(item=>!['reviews','testimonial','trust_bar'].includes(item.type)).map(({type,label,fields,maxBlocks})=>({type,label,fields,maxBlocks})),validationFeedback:feedback})}]}),
         signal:AbortSignal.timeout(45000),
       });

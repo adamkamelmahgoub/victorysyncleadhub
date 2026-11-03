@@ -17,6 +17,7 @@
     "test:e2e": "playwright test",
     "test:a11y": "playwright test tests/browser/client-portal-layout.spec.ts tests/browser/reputation.spec.ts --workers=1",
     "test:lh": "tsx scripts/generate-lighthouse-page.ts && lhci autorun",
+    "test:ai-live": "tsx scripts/qa-landing-ai-live.ts",
     "test:bundle-secrets": "node scripts/check-browser-secrets.mjs",
     "test:crm": "tsx --test tests/company-crm.test.ts tests/company-migration.test.ts",
     "test:contacts": "tsx --tsconfig artifacts/leadgen/tsconfig.test.json --test tests/contact-display.test.ts tests/segment-filters.test.ts tests/api-cache.test.ts artifacts/leadgen/tests/contact-grid.test.tsx",
