@@ -16,7 +16,8 @@ export function AccountSwitcher({variant='header'}:{variant?:'header'|'sidebar'}
     queryFn:() => apiFetch('/api/portal?action=accounts'),retry:false,
     enabled:role !== 'no_access'});
   if (error || !data || !data.accounts.length) return null;
-  const agency = ['owner','admin','member','viewer','agent','agency_admin','agency_staff'].includes(role);
+  const agency = ['owner','admin','member','viewer','agent','agency_admin','agency_staff'].includes(role)&&
+    !data.selected?.viewAsClient;
   const selectedId=data.selected?.accountId ?? (data.accounts.length === 1 && !agency ? data.accounts[0].id : '');
   const visible=data.accounts.filter(account=>account.id===selectedId||account.name.toLowerCase().includes(search.trim().toLowerCase()));
   async function select(value:string) {

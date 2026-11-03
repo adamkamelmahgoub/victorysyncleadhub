@@ -332,10 +332,16 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
     const url = new URL(req.url || '/api/portal','https://local.invalid');
     if (req.method === 'GET') {
       const parsed = querySchema.parse(Object.fromEntries(url.searchParams));
+      const impersonating=user.role==='agency_admin'&&verify(req,user.id)?.viewAsClient===true;
       if (parsed.action === 'accounts') {
         const accounts = await rpc<unknown>(user.token,'portal_accounts');
-        return send(res,200,{accounts,selected:verify(req,user.id)});
+        const selected=verify(req,user.id);
+        return send(res,200,{accounts:impersonating&&Array.isArray(accounts)
+          ?accounts.filter((item:{id:string})=>item.id===selected?.accountId):accounts,selected});
       }
+      if (impersonating&&['agency_overview','provider_readiness','failed_automations',
+        'closed_companies','features','ai_model'].includes(parsed.action))
+        return send(res,403,{error:'Client view is read only'});
       if (parsed.action === 'agency_overview') return send(res,200,await rpc(user.token,'portal_agency_overview'));
       if (parsed.action === 'provider_readiness') return user.role === 'agency_admin'
         ? send(res,200,providerReadiness(process.env)) : send(res,403,{error:'Agency admin access required'});
@@ -439,6 +445,8 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
     }
     if (req.method !== 'POST') return send(res,405,{error:'Method not allowed'});
     const parsed = postSchema.parse(await read(req));
+    if (parsed.action!=='switch'&&user.role==='agency_admin'&&verify(req,user.id)?.viewAsClient)
+      return send(res,403,{error:'Client view is read only'});
     if (parsed.action === 'switch') {
       const accounts = await rpc<Array<{id:string}>>(user.token,'portal_accounts');
       if (parsed.accountId && !accounts.some(a => a.id === parsed.accountId)) return send(res,403,{error:'Account unavailable'});

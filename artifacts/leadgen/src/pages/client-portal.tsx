@@ -536,9 +536,11 @@ export default function ClientPortal() {
   const path = location.replace(/^\/leadgen/,'');
   const current = path.split('/')[2] as PortalPage|undefined;
   const tab = pages.includes(current as PortalPage) ? current as PortalPage : null;
-  const agency = ['owner','admin','member','viewer','agent','agency_admin','agency_staff'].includes(role);
+  const agencyRole = ['owner','admin','member','viewer','agent','agency_admin','agency_staff'].includes(role);
   const {data:accounts,error:accountsError,isLoading:accountsLoading} = useQuery<Accounts>({queryKey:['portal-accounts'],queryFn:()=>apiFetch('/api/portal?action=accounts'),retry:false});
-  const admin = ['owner','admin','agency_admin'].includes(role);
+  const viewingAsClient=accounts?.selected?.viewAsClient===true;
+  const agency=agencyRole&&!viewingAsClient;
+  const admin=['owner','admin','agency_admin'].includes(role)&&!viewingAsClient;
   const {data:closedCompanies} = useQuery<ClosedCompany[]>({queryKey:['portal-closed-companies'],
     queryFn:()=>apiFetch('/api/portal?action=closed_companies'),enabled:admin&&!tab,retry:false});
   const [companyId,setCompanyId] = useState('');
@@ -601,7 +603,7 @@ export default function ClientPortal() {
         {tab==='leads'&&<LeadTable data={snapshot.data as {rows:Lead[];stages:{id:string;name:string}[]}} readOnly={snapshot.readOnly||limited}/>}
         {tab==='pages'&&<div className="space-y-4"><Button disabled={snapshot.readOnly||!pageEditAllowed} onClick={()=>{setCreating(true);setEditing(undefined)}}><Plus className="mr-1 h-4 w-4"/>New page</Button>{(creating||editing)?<PageBuilder key={editing?.id??'new'} initial={editing} readOnly={snapshot.readOnly||!pageEditAllowed} onSaved={()=>{setCreating(false);setEditing(undefined);void queryClient.invalidateQueries({queryKey:['portal','pages']});void queryClient.invalidateQueries({queryKey:['portal-page-stats']})}}/>:<div className="grid gap-3 md:grid-cols-2">{(snapshot.data as Page[]).map(page=>{const stats=pageStats?.find(x=>x.id===page.id);return <Card key={page.id} className="p-4"><h3 className="font-semibold">{page.name}</h3><p className="mb-2 text-xs text-muted-foreground">/{page.slug} · {page.status}</p><p className="mb-3 text-sm">{stats?.visits??0} visits · {stats?.leads??0} leads · {stats?.visits?((stats.leads/stats.visits)*100).toFixed(1):'0'}% conversion</p><div className="flex gap-2"><Button size="sm" variant="outline" onClick={()=>setEditing(page)}>{pageEditAllowed&&!snapshot.readOnly?"Edit":"View"}</Button>{pageEditAllowed&&!snapshot.readOnly&&<Link href={`/landing-pages/${page.id}?from=client-portal`}><Button size="sm" variant="outline">Full builder</Button></Link>}{page.status==='published'&&<a aria-label={`Open ${page.name} published page`} href={`${BASE}/p/${page.public_slug||page.slug}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-white px-3 hover:bg-slate-50"><ExternalLink className="h-4 w-4"/></a>}</div></Card>})}</div>}</div>}
         {tab==='billing'&&<BillingPanel rows={snapshot.data as Record<string,unknown>[]} readOnly={snapshot.readOnly}/>}
-        {tab==='settings'&&<div className="space-y-4">{(admin||role==='client_owner')&&<ClientSettings readOnly={snapshot.readOnly}/>}{admin&&!snapshot.readOnly&&<AccountSettings value={snapshot.data as Record<string,unknown>} onSaved={()=>void queryClient.invalidateQueries({queryKey:['portal','settings']})}/>}{admin&&!snapshot.readOnly&&<ReviewDelaySettings/>}{admin&&<StaffAssignments/>}{(admin||role==='client_owner'||role==='client')&&<ClientStaffInvite/>}</div>}
+        {tab==='settings'&&<div className="space-y-4">{(admin||role==='client_owner'||viewingAsClient)&&<ClientSettings readOnly={snapshot.readOnly}/>}{admin&&!snapshot.readOnly&&<AccountSettings value={snapshot.data as Record<string,unknown>} onSaved={()=>void queryClient.invalidateQueries({queryKey:['portal','settings']})}/>}{admin&&!snapshot.readOnly&&<ReviewDelaySettings/>}{admin&&<StaffAssignments/>}{(admin||role==='client_owner'||role==='client')&&!viewingAsClient&&<ClientStaffInvite/>}</div>}
         {tab==='calls'&&<CallLog canEdit={agency&&!snapshot.readOnly} admin={admin&&!snapshot.readOnly}/>}
         {tab==='reviews'&&<ReviewPanel readOnly={snapshot.readOnly||limited} accountId={selectedId}/>}
         {tab==='reports'&&<ReportArchive canEdit={agency&&!snapshot.readOnly}/>}

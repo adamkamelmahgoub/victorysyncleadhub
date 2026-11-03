@@ -139,9 +139,14 @@ export function Layout({ children }: { children: ReactNode }) {
   const [pageSearchOpen, setPageSearchOpen] = useState(false);
   const [refreshLiveSegments, setRefreshLiveSegments] = useState(false);
   const { user, role, pagePermissions, signOut } = useAuth();
-  const clientWorkspace = role === "client_owner" || role === "client_staff";
+  const agencyRole = ["owner", "admin", "member", "viewer", "agent", "agency_admin", "agency_staff"].includes(role);
+  const {data:portalAccounts}=useQuery<{selected:{viewAsClient:boolean}|null}>({queryKey:["portal-accounts"],
+    queryFn:()=>apiFetch('/api/portal?action=accounts'),enabled:agencyRole&&location.startsWith('/client-portal'),retry:false});
+  const viewAsClient=portalAccounts?.selected?.viewAsClient===true;
+  const navigationRole=viewAsClient?'client_owner':role;
+  const clientWorkspace = role === "client_owner" || role === "client_staff" || viewAsClient;
   const primary = clientWorkspace ? clientCore : core;
-  const canSeeSegments = role !== "client" && role !== "agent" && canAccessPath("/segments", pagePermissions, role);
+  const canSeeSegments = !clientWorkspace&&role !== "client" && role !== "agent" && canAccessPath("/segments", pagePermissions, navigationRole);
   const { data: segmentResponse } = useQuery<Array<{id:string;name:string;contactCount:number}>>({ queryKey: ["segments"], queryFn: () => apiFetch("/api/segments"), enabled: canSeeSegments, staleTime: 5 * 60_000, refetchOnWindowFocus: false });
   const { data: liveSegmentResponse } = useQuery<Array<{id:string;name:string;contactCount:number}>>({ queryKey: ["segments", "live"], queryFn: () => apiFetch("/api/segments?liveCounts=1"), enabled: canSeeSegments && refreshLiveSegments, staleTime: 5 * 60_000, refetchOnWindowFocus: false });
   const segments = asArray<{id:string;name:string;contactCount:number}>(liveSegmentResponse ?? segmentResponse);
@@ -179,7 +184,7 @@ export function Layout({ children }: { children: ReactNode }) {
   }, []);
   const searchablePages = [...primary, ...groups.flatMap((group) => group.links),
     { href: "/settings", label: "Settings", icon: Settings }]
-    .filter((item) => canAccessPath(item.href, pagePermissions, role))
+    .filter((item) => canAccessPath(item.href, pagePermissions, navigationRole))
     .filter((item) => item.label.toLowerCase().includes(pageSearch.trim().toLowerCase()));
   const current =
     [...primary, ...groups.flatMap((group) => group.links)].find((item) =>
@@ -187,7 +192,7 @@ export function Layout({ children }: { children: ReactNode }) {
     )?.label ?? (path.startsWith("/client-portal/")
       ? `Client ${path.split("/")[2]}` : "Workspace");
   function navLink(item: Item) {
-    return !canAccessPath(item.href, pagePermissions, role) ? null : (
+    return !canAccessPath(item.href, pagePermissions, navigationRole) ? null : (
       <Link
         key={item.href}
         href={item.href}
@@ -250,7 +255,7 @@ export function Layout({ children }: { children: ReactNode }) {
           {!collapsed || mobile
             ? groups.map((group) => {
                 const links = group.links.filter((item) =>
-                  canAccessPath(item.href, pagePermissions, role),
+                  canAccessPath(item.href, pagePermissions, navigationRole),
                 );
                 if (!links.length) return null;
                 return (
@@ -327,7 +332,7 @@ export function Layout({ children }: { children: ReactNode }) {
             {current}
           </span>
           <div className="ml-auto min-w-0"><AccountSwitcher /></div>
-          {canAccessPath("/companies", pagePermissions, role) && (
+          {canAccessPath("/companies", pagePermissions, navigationRole) && (
             <form
               className="relative w-full min-w-[160px] flex-1 sm:max-w-64 sm:flex-none"
               onSubmit={(event) => {
