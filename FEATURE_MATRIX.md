@@ -53,7 +53,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Social contact matching | `social_profiles`, social inbox | partial | `social-inbox.ts` source review | Manual link exists; auto-match remains incomplete. |
 | GHL-style agency shell | navigation components | partial | source review | Public reference and parity QA pending. |
 | GHL-style client shell | portal layout | partial | `client-portal-layout.spec.ts` desktop/mobile screenshots | Eight synthetic portal pages fit both viewports with no serious axe findings; live data and interaction QA remain. |
-| Launchpad | `/client-portal/launchpad` | partial | `client-portal-permissions.test.ts` | Account-scoped checklist added; migration, browser and RLS QA pending. |
+| Launchpad | `/client-portal/launchpad` | partial | `client-launchpad.test.ts`, desktop/mobile browser checks | Account-scoped checklist, repeatable migration and reachable actions verified locally; live Supabase QA pending. |
 | Unified conversations | `social-inbox.tsx` | partial | source review | SMS, email, calls in one thread unverified. |
 | Calendar week/month | `calendar.tsx` | partial | source review | Appointment slide-over QA needed. |
 | Contacts smart lists and bulk tools | contact pages | partial | existing unit tests | Browser and data tests needed. |
