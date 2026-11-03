@@ -170,6 +170,12 @@ test('blocks can be reordered, hidden, duplicated, and removed',async({page})=>{
   await expect(page.locator('[id^="block-"]')).toHaveCount(1);
   await page.getByRole('button',{name:'Add block'}).click();
   await page.getByPlaceholder('Title').nth(1).fill('Water heaters');
+  await page.getByRole('button',{name:'Drag tree block'}).nth(1)
+    .dragTo(page.getByRole('button',{name:'Drag tree block'}).nth(0),{steps:12});
+  await expect(page.getByPlaceholder('Title').first()).toHaveValue('Water heaters');
+  await page.getByRole('button',{name:'Drag block'}).nth(1)
+    .dragTo(page.getByRole('button',{name:'Drag block'}).nth(0),{steps:12});
+  await expect(page.getByPlaceholder('Title').first()).toHaveValue('Drain cleaning');
   await page.getByRole('button',{name:'Move block up'}).nth(1).click();
   await expect(page.getByPlaceholder('Title').first()).toHaveValue('Water heaters');
   await page.getByRole('button',{name:'Hide block'}).first().click();
@@ -283,9 +289,11 @@ test('editor hides, duplicates, reorders and removes sections',async({page},test
     .getByRole('button',{name:'Remove'}).click();
   await expect(page.getByRole('button',{name:/Services gridOur services/})).toHaveCount(1);
   if(testInfo.project.name==='mobile')await service.getByRole('button',{name:'Move section up'}).click();
-  else await service.dragTo(hero);
-  await expect.poll(async()=>page.locator('[draggable="true"] > button:first-child').allTextContents())
-    .toEqual(['Services gridOur services','HeroOriginal heading']);
+  else await page.getByRole('button',{name:'Drag section'}).nth(1)
+    .dragTo(page.getByRole('button',{name:'Drag section'}).nth(0),{steps:12});
+  await expect.poll(async()=>(await page.getByRole('button',{name:'Drag section'}).locator('..').allTextContents())
+    .map(text=>text.includes('Services grid')?'services':'hero'))
+    .toEqual(['services','hero']);
   await expect.poll(()=>saved?.map(section=>section.type)||[]).toEqual(['services','hero']);
   expect(saved?.[0]?.hidden).toBe(true);
 });
