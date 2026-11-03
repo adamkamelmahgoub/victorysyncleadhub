@@ -40,7 +40,7 @@ The client editor also autosaves an edited draft after two seconds. Wait for **S
 
 ## AI page assistant
 
-Enable `landing_page_builder` and `landing_page_ai` in the feature manager. Open a page in the editor and enter a prompt. Review all generated copy and sections before saving. Only use testimonials, ratings, awards, licenses, and guarantees supplied by the client. The assistant uses the existing OpenRouter configuration.
+Enable `landing_page_builder` and `landing_page_ai` in the feature manager. Open a page, choose **AI assistant**, and describe the edit. Review the proposed patch list, then choose **Apply to draft**. The edit is one Undo step and stays private until **Publish**. Only use testimonials, ratings, awards, licenses, and guarantees supplied by the client. The assistant uses the existing OpenRouter configuration.
 
 ## Operations and reports
 
