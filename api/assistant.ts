@@ -5,6 +5,7 @@ import { allowedEmail } from "../lib/mcp-auth.js";
 import { createCrmMcpServer } from "../lib/mcp-tools.js";
 import { VICTORYSYNC_SELLER_CONTEXT } from "../lib/victorysync-context.js";
 import { plainAssistantText } from "../lib/plain-assistant-text.js";
+import { readPortalSelection } from "../lib/portal-cookie.js";
 import { addMemory, addMessage, createConversation, deleteConversation, deleteMemory,
   getConversation, listConversations, listMemories, listMessages, type ToolEvent } from "../lib/assistant-store.js";
 
@@ -44,6 +45,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   if (!profile.ok) return send(res, 401, { error: "Session expired" });
   const user = await profile.json() as { id: string; email: string; email_confirmed_at?: string;
     user_metadata?: { enrichment_provider?: string } };
+  const cookie=Array.isArray(req.headers.cookie)?req.headers.cookie[0]:req.headers.cookie;
+  if(readPortalSelection(cookie,user.id)?.viewAsClient)
+    return send(res,403,{error:'Client view is read only'});
   if (!user.email_confirmed_at || !allowedEmail(user.email))
     return send(res, 403, { error: "Only the CRM administrator can use the assistant" });
   const url = new URL(req.url || "/api/assistant", "https://app.victorysync.com");

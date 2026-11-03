@@ -3474,6 +3474,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const currentUser = await authenticateRequest(req);
     req.authenticatedUserId=currentUser.id;
+    if (selectedAccountCookie(req)?.viewAsClient &&
+      path !== '/api/auth/sync-session' && path !== '/api/activity/events') {
+      sendJson(res,403,{message:'Client view is read only'});return;
+    }
     const claimedRole = String(currentUser.user_metadata?.role ?? "");
     if (path !== "/api/auth/sync-session" && path !== "/api/activity/events" &&
       (["agency_staff", "client_owner", "client_staff"].includes(claimedRole) ||

@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { allowedEmail, mcpPool } from "../lib/mcp-auth.js";
 import { askAboutLead, askAboutCompany, bulkEnrich, edgeCall, enrichLead, enrichCompany, jobStatus, leadEnrichment, previewBulk, resumeEnrichmentJob, validUuid } from "../lib/enrichment-client.js";
+import { readPortalSelection } from "../lib/portal-cookie.js";
 
 export const config = { api: { bodyParser: false }, maxDuration: 300 };
 function respond(res: ServerResponse, status: number, data: unknown) {
@@ -29,6 +30,8 @@ async function admin(req: IncomingMessage): Promise<{ id: string; email: string 
   });
   if (!response.ok) throw new Error("Session expired; sign in again");
   const user = await response.json() as { id: string; email: string; email_confirmed_at?: string };
+  const cookie=Array.isArray(req.headers.cookie)?req.headers.cookie[0]:req.headers.cookie;
+  if(readPortalSelection(cookie,user.id)?.viewAsClient)throw new Error('Client view is read only');
   if (!user.email_confirmed_at || !allowedEmail(user.email))
     throw new Error("Enrichment is available to the CRM administrator only");
   return user;
@@ -123,6 +126,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   } catch (error) {
     const message = error instanceof Error ? error.message : "Enrichment request failed";
     respond(res, message.includes("budget") ? 402 : message.includes("Sign in") || message.includes("Session") ? 401 :
-      message.includes("administrator") ? 403 : 400, { error: message });
+      message.includes("administrator") || message==='Client view is read only' ? 403 : 400, { error: message });
   }
 }
