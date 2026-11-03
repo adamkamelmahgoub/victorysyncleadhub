@@ -481,7 +481,7 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
           catch(error){console.error('Client invite email failed',error instanceof Error?error.name:'unknown')}
         }
       }
-      if (externalSendsEnabled()&&process.env.SLACK_WEBHOOK_URL) await fetch(process.env.SLACK_WEBHOOK_URL,{method:'POST',
+      if (!created.existing&&externalSendsEnabled()&&process.env.SLACK_WEBHOOK_URL) await fetch(process.env.SLACK_WEBHOOK_URL,{method:'POST',
         headers:{'content-type':'application/json'},body:JSON.stringify({text:`New VictorySync client account: ${parsed.ownerName} (${parsed.package})`}),
         signal:AbortSignal.timeout(5000)}).catch(()=>undefined);
       return send(res,201,{accountId:created.accountId,existing:created.existing,inviteSent,inviteUrl});
