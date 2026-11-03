@@ -155,6 +155,23 @@ function Dashboard({admin}:{admin:boolean}) {
   </div>;
 }
 type LeadPage = {rows:Lead[];stages:{id:string;name:string}[];nextCursor?:{createdAt:string;id:string}|null};
+type TimelineEvent={event_type:string;body:string|null;metadata:Record<string,unknown>|null;created_at:string};
+function LeadTimelineEvent({event}:{event:TimelineEvent}){
+  const meta=event.metadata??{};
+  const fields=event.event_type==='form'&&meta.data&&typeof meta.data==='object'&&!Array.isArray(meta.data)
+    ?Object.entries(meta.data as Record<string,unknown>).filter(([,value])=>
+      ['string','number','boolean'].includes(typeof value)&&String(value).trim()).slice(0,20):[];
+  const details=[event.event_type==='text'&&typeof meta.direction==='string'?nice(meta.direction):null,
+    event.event_type==='call'&&typeof meta.outcome==='string'?nice(meta.outcome):null,
+    event.event_type==='call'&&typeof meta.duration_seconds==='number'?`${meta.duration_seconds}s`:null,
+    event.event_type==='email'&&typeof meta.subject==='string'?meta.subject:null].filter(Boolean);
+  return <div className="min-w-0 border-t py-3 text-sm"><p className="font-medium">{nice(event.event_type)} <span className="font-normal text-muted-foreground">{new Date(event.created_at).toLocaleString()}</span></p>
+    {details.length>0&&<p className="mt-1 text-xs text-muted-foreground">{details.join(' · ')}</p>}
+    {event.body&&<p className="mt-1 whitespace-pre-wrap break-words">{event.body}</p>}
+    {fields.length>0&&<dl className="mt-2 grid gap-x-3 gap-y-1 rounded-lg bg-slate-50 p-3 sm:grid-cols-2">{fields.map(([key,value])=><div key={key} className="min-w-0"><dt className="text-xs text-muted-foreground">{nice(key)}</dt><dd className="break-words">{String(value)}</dd></div>)}</dl>}
+    {typeof meta.recording_url==='string'&&<audio controls src={meta.recording_url} className="mt-2 w-full"/>}
+  </div>;
+}
 function LeadTable({data,readOnly}:{data:LeadPage;readOnly:boolean}) {
   const queryClient = useQueryClient();
   const [olderRows,setOlderRows]=useState<Lead[]>([]);
@@ -174,7 +191,7 @@ function LeadTable({data,readOnly}:{data:LeadPage;readOnly:boolean}) {
     onSuccess:() => queryClient.invalidateQueries({queryKey:['portal','leads']})});
   const valueChange=useMutation({mutationFn:(leadId:string)=>apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'set_job_value',leadId,value:Number(jobValue)})}),
     onSuccess:()=>{setJobValue('');void queryClient.invalidateQueries({queryKey:['portal-lead-timeline']})}});
-  const {data:timeline}=useQuery<{lead:Lead;events:Array<{event_type:string;body:string|null;metadata:Record<string,unknown>;created_at:string}>}>({
+  const {data:timeline,error:timelineError,isLoading:timelineLoading}=useQuery<{lead:Lead;events:TimelineEvent[]}>({
     queryKey:['portal-lead-timeline',selected],queryFn:()=>apiFetch(`/api/portal?action=lead_timeline&leadId=${selected}`),enabled:!!selected,retry:false});
   if (!allRows.length) return <Card className="p-8 text-center text-muted-foreground">No client leads yet.</Card>;
   const leadCard=(lead:Lead)=><Card key={lead.id} className="min-w-0 space-y-3 p-4">
@@ -194,7 +211,10 @@ function LeadTable({data,readOnly}:{data:LeadPage;readOnly:boolean}) {
     {loadOlder.error&&<p role="alert" className="text-red-600">Could not load older leads: {String(loadOlder.error)}</p>}
     {selected&&<Card className="space-y-3 p-4"><div className="flex justify-between"><h3 className="font-semibold">Lead timeline</h3><Button size="sm" variant="outline" onClick={()=>setSelected(null)}>Close</Button></div>
       <div className="flex flex-wrap gap-2"><Input aria-label="Job value" type="number" min="0" className="w-36" placeholder="Job value" value={jobValue} onChange={e=>setJobValue(e.target.value)}/><Button disabled={readOnly||!jobValue||valueChange.isPending} onClick={()=>valueChange.mutate(selected)}>Save job value</Button></div>
-      {timeline?.events.map((event,index)=><div key={index} className="border-t py-2 text-sm"><p className="font-medium">{nice(event.event_type)} <span className="font-normal text-muted-foreground">{new Date(event.created_at).toLocaleString()}</span></p><p>{event.body}</p>{typeof event.metadata.recording_url==='string'&&<audio controls src={event.metadata.recording_url} className="mt-2 w-full"/>}</div>)}</Card>}
+      {timelineLoading&&<p className="text-sm text-muted-foreground">Loading timeline...</p>}
+      {timelineError&&<p role="alert" className="text-sm text-red-600">Could not load timeline: {String(timelineError)}</p>}
+      {timeline&&!timeline.events.length&&<p className="text-sm text-muted-foreground">No activity yet.</p>}
+      {timeline?.events.map((event,index)=><LeadTimelineEvent key={`${event.created_at}-${event.event_type}-${index}`} event={event}/>)}</Card>}
     {change.error&&<p role="alert" className="text-red-600">{String(change.error)}</p>}
   </div>;
 }

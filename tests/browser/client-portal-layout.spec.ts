@@ -169,7 +169,13 @@ test('client owner can move a lead to Won, save a note, and record job value',as
     if(action==='lead_timeline')return route.fulfill({status:200,contentType:'application/json',
       body:JSON.stringify({lead:{...lead,pipeline_stage_id:stage,notes:note},events:[{
         event_type:'call',body:'Customer booked a repair',created_at:'2026-10-15T12:00:00Z',
-        metadata:{recording_url:'https://example.test/recording.mp3'}}]})});
+        metadata:{recording_url:'https://example.test/recording.mp3',outcome:'booked',duration_seconds:120}},
+        {event_type:'form',body:null,created_at:'2026-10-15T11:00:00Z',
+          metadata:{data:{service_needed:'Water heater repair',zip_code:'78701'}}},
+        {event_type:'text',body:'We can visit tomorrow.',created_at:'2026-10-15T10:00:00Z',
+          metadata:{direction:'outbound'}},
+        {event_type:'email',body:'Your request is confirmed.',created_at:'2026-10-15T09:00:00Z',
+          metadata:{subject:'Service request'}}]})});
     return route.fallback();
   });
   await page.goto('/client-portal/leads');
@@ -183,6 +189,10 @@ test('client owner can move a lead to Won, save a note, and record job value',as
   await page.getByRole('button',{name:'Timeline'}).click();
   await expect(page.getByText('Customer booked a repair')).toBeVisible();
   await expect(page.locator('audio[controls]')).toHaveCount(1);
+  await expect(page.getByText('Water heater repair')).toBeVisible();
+  await expect(page.getByText('Zip Code')).toBeVisible();
+  await expect(page.getByText('We can visit tomorrow.')).toBeVisible();
+  await expect(page.getByText('Service request')).toBeVisible();
   await page.getByRole('spinbutton',{name:'Job value'}).fill('1250');
   await page.getByRole('button',{name:'Save job value'}).click();
   await expect.poll(()=>writes.some(x=>x.action==='set_job_value'&&x.value===1250)).toBe(true);
