@@ -206,7 +206,8 @@ async function account(req: IncomingMessage,user: PortalUser): Promise<{id:strin
   const accounts = await rpc<Array<{id:string}>>(user.token,'portal_accounts');
   const saved = verify(req,user.id);
   const id = saved?.accountId || (accounts.length === 1 ? accounts[0].id : null);
-  if (!id || !accounts.some(a => a.id === id)) throw new Error('Select a client account');
+  if (!id) throw new Error('Select a client account');
+  if (!accounts.some(a => a.id === id)) throw new Error('Access denied');
   return {id,viewAsClient: Boolean(saved?.viewAsClient && user.role === 'agency_admin')};
 }
 export const aiResponseSchema = z.object({ sections: z.array(sectionSchema).min(1).max(40), theme: themeSchema,
@@ -335,10 +336,11 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
       const parsed = querySchema.parse(Object.fromEntries(url.searchParams));
       const impersonating=user.role==='agency_admin'&&verify(req,user.id)?.viewAsClient===true;
       if (parsed.action === 'accounts') {
-        const accounts = await rpc<unknown>(user.token,'portal_accounts');
-        const selected=verify(req,user.id);
-        return send(res,200,{accounts:impersonating&&Array.isArray(accounts)
-          ?accounts.filter((item:{id:string})=>item.id===selected?.accountId):accounts,selected});
+        const accounts = await rpc<Array<{id:string}>>(user.token,'portal_accounts');
+        const saved=verify(req,user.id);
+        const selected=saved?.accountId&&accounts.some(item=>item.id===saved.accountId)?saved:null;
+        return send(res,200,{accounts:impersonating
+          ?accounts.filter(item=>item.id===selected?.accountId):accounts,selected});
       }
       if (impersonating&&['agency_overview','provider_readiness','failed_automations',
         'closed_companies','features','ai_model'].includes(parsed.action))
