@@ -291,7 +291,9 @@ async function handle(job:Job) {
     if(!uploaded.ok)throw Error(`Report storage ${uploaded.status}`);
     const signed=await fetch(`${base}/storage/v1/object/sign/client-reports/${path}`,{method:'POST',headers:{apikey:key,authorization:`Bearer ${key}`,'content-type':'application/json'},body:JSON.stringify({expiresIn:604800}),signal:AbortSignal.timeout(10000)});
     const signedBody=await signed.json() as {signedURL?:string};if(!signed.ok||!signedBody.signedURL)throw Error('Report link failed');
-    const emails=[...new Set([account.owner_email,...recipients.map(x=>x.email)].filter(Boolean))];
+    const emails=[...new Set([account.owner_email,...recipients.map(x=>x.email)]
+      .filter((email):email is string=>typeof email==='string'&&Boolean(email.trim()))
+      .map(email=>email.trim().toLowerCase()))];
     if(!emails.length)throw Error('No report recipients configured');
     for(const email of emails)await sendEmail(email,`${account.name} ${report.type} report`,
       `Your report is ready. Download the PDF: ${base}/storage/v1${signedBody.signedURL}\n\nWhat we did: ${report.work_done}\nWhat's next: ${report.whats_next}`,job);

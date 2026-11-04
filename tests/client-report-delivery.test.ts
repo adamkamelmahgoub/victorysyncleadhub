@@ -43,7 +43,8 @@ test('report worker archives the approved PDF and emails only active recipients 
         missedCallsRecovered:1,reviewsReceived:2,averageRating:4.5,adSpendCents:50000});
     }
     if(url.pathname==='/rest/v1/report_recipients'){
-      recipientQuery=url.search;return Response.json([{email:'office@example.test'}]);
+      recipientQuery=url.search;return Response.json([
+        {email:'OWNER@EXAMPLE.TEST'},{email:'office@example.test'}]);
     }
     if(url.pathname.startsWith('/storage/v1/object/client-reports/')){
       uploads++;assert.equal(init?.headers&&'content-type'in init.headers?init.headers['content-type']:null,'application/pdf');
