@@ -3,7 +3,7 @@ import test from 'node:test';
 import {Readable} from 'node:stream';
 import type {IncomingMessage,ServerResponse} from 'node:http';
 import {mcpPool} from '../lib/mcp-auth.js';
-import handler from '../api/public-booking.js';
+import handler from '../api/client-landing.js';
 
 test('public booking endpoint hides private rows and rejects a repeated slot under its event lock',async()=>{
   const originalQuery=mcpPool.query;

@@ -1,9 +1,8 @@
 import type {IncomingMessage,ServerResponse} from 'node:http';
-import {mcpPool} from '../lib/mcp-auth.js';
+import {mcpPool} from './mcp-auth.js';
 import {availableBookingSlots,bookingSlug,publicBookingInput,
-  type ExistingBooking,type PublicEventType} from '../lib/public-booking.js';
+  type ExistingBooking,type PublicEventType} from './public-booking.js';
 
-export const config={api:{bodyParser:false},maxDuration:20};
 function send(res:ServerResponse,status:number,data:unknown){res.statusCode=status;
   res.setHeader('content-type','application/json; charset=utf-8');
   res.setHeader('cache-control','no-store');res.setHeader('x-content-type-options','nosniff');

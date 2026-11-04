@@ -1,6 +1,7 @@
 import type {IncomingMessage,ServerResponse} from 'node:http';
 import {mcpPool} from '../lib/mcp-auth.js';
 import {renderLandingPage,type LandingSection,type LandingTheme} from '../lib/marketing-pages.js';
+import publicBooking from '../lib/public-booking-handler.js';
 
 export const config={api:{bodyParser:false},maxDuration:30};
 const slugPattern=/^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -8,6 +9,8 @@ const uuidPattern=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 const org='cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
 function reply(res:ServerResponse,status:number,message:string){res.statusCode=status;res.setHeader('content-type','text/plain; charset=utf-8');res.end(message)}
 export default async function handler(req:IncomingMessage,res:ServerResponse){
+  if(/^\/api\/public\/booking\/[^/]+$/.test(new URL(req.url||'/','https://local.invalid').pathname))
+    return publicBooking(req,res);
   if(req.method!=='GET')return reply(res,405,'Method not allowed');
   const url=new URL(req.url||'/','https://local.invalid');
   try{
