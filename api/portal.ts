@@ -633,6 +633,6 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
     const message = error instanceof Error ? error.message : 'Portal request failed';
     return send(res,/Sign in|Session expired/.test(message)?401
       :/Access denied|unavailable|disabled|verification|read only/.test(message)?403
-      :/Add a Google review link|opted-in lead|Contact opted out/.test(message)?400:500,{error:message});
+      :/Add a Google review link|opted-in lead|Contact opted out|Complete both report narrative fields|Add a report recipient/.test(message)?400:500,{error:message});
   }
 }
