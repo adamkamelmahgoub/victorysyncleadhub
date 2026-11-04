@@ -55,6 +55,20 @@ Other automated SMS jobs also reserve their job ID before contacting MightyCall.
 
 ## Secrets and provider activation
 
+Enter production values in Vercel's **victorysyncplatform > Settings > Environment Variables** page. Select **Production** for each variable, save, then redeploy the production build. The values can stay in Vercel; there is no need to paste them into chat.
+
+| Purpose | Vercel variable | Value to enter |
+| --- | --- | --- |
+| Database worker access | `SUPABASE_SERVICE_ROLE_KEY` | The project's service role key, server side only. |
+| Portal and public page links | `PORTAL_BASE_URL`, `PUBLIC_PAGES_BASE_URL` | The HTTPS origins used by clients and published pages. |
+| MightyCall SMS and calls | `MIGHTYCALL_API_KEY`, `MIGHTYCALL_SECRET_KEY`, `MIGHTYCALL_WEBHOOK_SECRET` | API credentials and the signing secret configured for the MightyCall webhook. |
+| Stripe billing | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | The secret key for the active Stripe mode and the signing secret for this app's Stripe endpoint. |
+| Email | `RESEND_API_KEY`, `INVITE_FROM_EMAIL`, `REPORT_FROM_EMAIL` | An API key and sender addresses on a domain verified with Resend. |
+| Agency alerts | `SLACK_WEBHOOK_URL` | An incoming webhook URL for the agency alert channel. |
+| Delivery worker | `CLIENT_DELIVERY_WORKER_SECRET` | A unique random secret; enter the same value in Supabase Vault as described below. |
+
+After redeploying, open **Client portal > Agency view > Delivery setup** and check configuration presence. Keep `CLIENT_DELIVERY_SANDBOX=1` while verifying configuration, migrations and signed webhook fixtures. For the controlled provider check, set it to `0` and redeploy, then run one Stripe, form, missed-call, review and report event with approved test contacts and synthetic records. If any check fails, restore `1` and redeploy before troubleshooting.
+
 In Vercel, open the **victorysyncplatform** project, then **Settings → Environment Variables**. Add each variable to the **Production** environment and save it. Use server-only names exactly as written here, with no `NEXT_PUBLIC_` prefix. Redeploy the production deployment after saving. The main variables are `SUPABASE_SERVICE_ROLE_KEY`, `PORTAL_BASE_URL`, `PUBLIC_PAGES_BASE_URL`, `MIGHTYCALL_API_KEY`, `MIGHTYCALL_SECRET_KEY` (or `MIGHTYCALL_USER_KEY`), `MIGHTYCALL_WEBHOOK_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`, `INVITE_FROM_EMAIL`, `REPORT_FROM_EMAIL`, `SLACK_WEBHOOK_URL`, and `CLIENT_DELIVERY_WORKER_SECRET`. The app also uses its existing OpenRouter variables. Check the specific integration handlers before changing a provider secret name. Keep all secret values in Vercel; do not paste them into a chat or commit them.
 
 Set `INVITE_FROM_EMAIL` and `REPORT_FROM_EMAIL` to addresses on a sending domain verified with Resend. They may use the same address. The first sends client invites; the second sends automatic reports. A Resend API key alone cannot send these emails without a valid sender address. `SLACK_WEBHOOK_URL` is an incoming webhook URL used for agency alerts; `SLACK_BOT_TOKEN` does not replace it in these handlers.
