@@ -271,7 +271,9 @@ async function publicPage(req:IncomingMessage,res:ServerResponse,slug:string|nul
     const variant=variants.rows[0];if(variant){const cookie=String(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(`lp_variant_${base.id}=`))?.split('=')[1];
       const selected=cookie===base.id||cookie===variant.id?cookie:(Math.random()*100<base.traffic_split?variant.id:base.id);
       found=selected===variant.id?variant:base;res.setHeader('set-cookie',`lp_variant_${base.id}=${selected}; Path=/; Max-Age=2592000; SameSite=Lax; Secure; HttpOnly`);}}
-  const page={...found,sections:found.published_sections||found.sections,theme:found.published_theme||found.theme,
+  if(!Array.isArray(found.published_sections)||!found.published_sections.length||!found.published_theme)
+    return json(res,404,{error:'Page unavailable'});
+  const page={...found,sections:found.published_sections,theme:found.published_theme,
     tracking:{...(base.tracking||{}),...(found.tracking||{})}};
   const linked=page.form_id?await mcpPool.query<{slug:string}>(`select slug from public.forms where id=$1 and organization_id=$2 and status='active' limit 1`,[page.form_id,org]):null;
   const referrer=plain(req.headers.referer,1000);let referrerDomain:string|null=null;
