@@ -32,6 +32,9 @@ test('dashboard and PDF aggregate counts all rows and excludes the next period',
     const migration=await readFile(new URL('../supabase/migrations/20261101_01_shared_client_metrics.sql',import.meta.url),'utf8');
     await db.exec(migration);
     await db.exec(migration);
+    const prorated=await readFile(new URL('../supabase/migrations/20261107_07_shared_spend_proration.sql',import.meta.url),'utf8');
+    await db.exec(prorated);
+    await db.exec(prorated);
     const result=await db.query<{metrics:Record<string,unknown>}>(`select public.client_dashboard_metric_values(
       '10000000-0000-4000-8000-000000000001','2026-10-01T00:00:00Z','2026-11-01T00:00:00Z') as metrics`);
     const metrics=result.rows[0]?.metrics;
@@ -40,6 +43,12 @@ test('dashboard and PDF aggregate counts all rows and excludes the next period',
     assert.equal(metrics?.averageRating,4.5);
     assert.equal(metrics?.adSpendCents,50000);
     assert.deepEqual(metrics?.sourceBreakdown,{website:1205});
+    const week=await db.query<{metrics:{adSpendCents:number}}>(`select public.client_dashboard_metric_values(
+      '10000000-0000-4000-8000-000000000001','2026-10-05T00:00:00Z','2026-10-12T00:00:00Z') as metrics`);
+    assert.equal(week.rows[0].metrics.adSpendCents,11290);
+    const boundary=await db.query<{metrics:{adSpendCents:number}}>(`select public.client_dashboard_metric_values(
+      '10000000-0000-4000-8000-000000000001','2026-10-30T00:00:00Z','2026-11-03T00:00:00Z') as metrics`);
+    assert.equal(boundary.rows[0].metrics.adSpendCents,9892);
     await db.exec('begin; set local role authenticated;');
     await assert.rejects(()=>db.query(`select public.client_dashboard_metric_values(
       '10000000-0000-4000-8000-000000000001','2026-10-01T00:00:00Z','2026-11-01T00:00:00Z')`),
