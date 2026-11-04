@@ -200,11 +200,11 @@ async function handle(job:Job) {
   }
   if(job.kind==='review_request') {
     if(!account.google_review_link||!/^https:\/\//.test(account.google_review_link))return 'cancelled';
-    let request:{id:string;lead_id:string|null;contact_name:string;contact_phone:string;contact_email:string|null;click_token:string;clicked_at:string|null}|null=null;
+    let request:{id:string;lead_id:string|null;contact_name:string;contact_phone:string;contact_email:string|null;click_token:string;clicked_at:string|null;status?:string}|null=null;
     if(job.source_id.startsWith('request:'))request=await row('review_requests',`id=eq.${job.source_id.slice(8)}&client_account_id=eq.${account.id}`);
     else if(job.source_id.startsWith('lead:')){
       const lead=await row<Lead>('leads',`id=eq.${job.source_id.slice(5)}&client_account_id=eq.${account.id}`);
-      if(!lead||lead.dnc||!lead.phone)return 'cancelled';
+      if(!lead||lead.dnc||!lead.phone||!['form','call','missed_call'].includes(lead.opt_in_source||lead.source||''))return 'cancelled';
       const existing=await rest<typeof request[]>(`review_requests?client_account_id=eq.${account.id}&lead_id=eq.${lead.id}&select=*&limit=1`);
       request=existing[0]||null;
       if(!request){const created=await rest<Array<NonNullable<typeof request>>>('review_requests','POST',{client_account_id:account.id,lead_id:lead.id,contact_name:lead.first_name||'Customer',contact_phone:lead.phone,contact_email:lead.email,channel:'sms',platform:'google',status:'pending'});request=created[0]||null;}
@@ -215,7 +215,7 @@ async function handle(job:Job) {
       if(!lead||lead.dnc||!lead.phone)return 'cancelled';
       const created=await rest<Array<NonNullable<typeof request>>>('review_requests','POST',{client_account_id:account.id,lead_id:lead.id,contact_name:appointment.guest_name,contact_phone:lead.phone,contact_email:lead.email,channel:'sms',platform:'google',status:'pending'});request=created[0]||null;
     }
-    if(!request||request.clicked_at)return 'cancelled';
+    if(!request||request.clicked_at||['sent','reminder','clicked'].includes(request.status||''))return 'cancelled';
     const lead=request.lead_id?await row<Lead>('leads',`id=eq.${request.lead_id}&client_account_id=eq.${account.id}`):null;
     if(!lead||lead.dnc||!e164(lead.phone)||e164(lead.phone)!==e164(request.contact_phone)
       ||!['form','call','missed_call'].includes(lead.opt_in_source||lead.source||''))return 'cancelled';
