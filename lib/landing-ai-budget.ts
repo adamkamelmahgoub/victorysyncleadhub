@@ -11,3 +11,9 @@ export function assertAiPageLimits(limits:{requests:number;spent:number;budget:n
   if(limits?.budget!=null&&Number(limits.spent)>=Number(limits.budget))
     throw Error('Monthly AI budget reached');
 }
+
+export function aiUsageCostCents(usage:{cost?:number}|undefined){
+  if(typeof usage?.cost!=='number'||!Number.isFinite(usage.cost)||usage.cost<0)
+    throw Error('AI provider did not return valid cost information');
+  return usage.cost*100;
+}

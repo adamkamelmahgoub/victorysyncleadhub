@@ -12,7 +12,7 @@ import {portalBillingReturnUrl} from '../lib/portal-billing-url.js';
 import {requiresAgencyMfa} from '../lib/portal-roles.js';
 import {providerReadiness} from '../lib/provider-readiness.js';
 import {approvedAiImageUrls} from '../lib/landing-ai-approved-images.js';
-import {aiPageLimitsSql,assertAiPageLimits} from '../lib/landing-ai-budget.js';
+import {aiPageLimitsSql,assertAiPageLimits,aiUsageCostCents} from '../lib/landing-ai-budget.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const ORG = 'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
@@ -256,7 +256,7 @@ async function generatePage(user: PortalUser, accountId: string, prompt: string,
       for(let attempt=0;attempt<3;attempt++){
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method:'POST',headers:{authorization:`Bearer ${key}`,'content-type':'application/json'},
-        body:JSON.stringify({model,temperature:0.4,max_tokens:2200,
+        body:JSON.stringify({model,temperature:0.4,max_tokens:2200,usage:{include:true},
           response_format:{type:'json_schema',json_schema:{name:'landing_page',strict:true,schema:aiJsonSchema}},
           messages:[{role:'system',content:aiPageSystemPrompt},
             {role:'user',content:JSON.stringify({brief:prompt,client:clientContext,currentSections,sectionRegistry:Object.values(registry).filter(item=>!['reviews','testimonial','trust_bar'].includes(item.type)).map(({type,label,fields,maxBlocks,allowedBlockTypes})=>({type,label,fields,maxBlocks,allowedBlockTypes:allowedBlockTypes||[]})),validationFeedback:feedback})}]}),
@@ -264,6 +264,9 @@ async function generatePage(user: PortalUser, accountId: string, prompt: string,
       });
       const data = await response.json() as {choices?:Array<{message?:{content?:string}}> ;error?:{message?:string};usage?:{prompt_tokens?:number;completion_tokens?:number;cost?:number}};
       if (!response.ok) throw new Error(data.error?.message || 'AI provider failed');
+      const costCents=aiUsageCostCents(data.usage);
+      await mcpPool.query(`insert into public.ai_requests(user_id,client_account_id,prompt_tokens,completion_tokens,cost_cents,action)
+        values($1,$2,$3,$4,$5,'landing_page_generate')`,[user.id,accountId,Number(data.usage?.prompt_tokens||0),Number(data.usage?.completion_tokens||0),costCents]);
       const parsedResult=aiResponseSchema.safeParse(JSON.parse(data.choices?.[0]?.message?.content || '{}'));
       if(!parsedResult.success){feedback=parsedResult.error.issues.map(issue=>`${issue.path.join('.')}: ${issue.message}`).join('; ');if(attempt<2)continue;throw parsedResult.error}
       const parsed=parsedResult.data;
@@ -275,11 +278,12 @@ async function generatePage(user: PortalUser, accountId: string, prompt: string,
         if(attempt<2)continue;
         throw error;
       }
-      await mcpPool.query(`insert into public.ai_requests(user_id,client_account_id,prompt_tokens,completion_tokens,cost_cents,action)
-        values($1,$2,$3,$4,$5,'landing_page_generate')`,[user.id,accountId,Number(data.usage?.prompt_tokens||0),Number(data.usage?.completion_tokens||0),Number(data.usage?.cost||0)*100]);
       return parsed;
       }
-    } catch (error) { lastError = error instanceof Error ? error : new Error(String(error)); }
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if(lastError.message==='AI provider did not return valid cost information')throw lastError;
+    }
   }
   throw lastError;
 }
@@ -294,7 +298,7 @@ async function generatePageEdits(user:PortalUser,accountId:string,prompt:string,
       for(let attempt=0;attempt<3;attempt++){
         const response=await fetch('https://openrouter.ai/api/v1/chat/completions',{
           method:'POST',headers:{authorization:`Bearer ${key}`,'content-type':'application/json'},
-          body:JSON.stringify({model,temperature:0.3,max_tokens:2200,
+          body:JSON.stringify({model,temperature:0.3,max_tokens:2200,usage:{include:true},
             response_format:{type:'json_schema',json_schema:{name:'landing_page_edit',strict:true,schema:aiPatchJsonSchema}},
             messages:[{role:'system',content:'Return only validated patch operations for the requested landing page edit. Preserve all sections and blocks the user did not ask to change. Use existing IDs when editing; give new sections and blocks unique newId values. An afterId of null appends a section. Never invent reviews, ratings, awards, licences, years in business, guarantees, prices, results, or credentials. Never use raw HTML or em dashes. Use only approved client photos. Do not create or edit proof sections.'},
               {role:'user',content:JSON.stringify({brief:prompt,client:clientContext,currentSections,currentTheme,
@@ -305,17 +309,21 @@ async function generatePageEdits(user:PortalUser,accountId:string,prompt:string,
         const data=await response.json() as {choices?:Array<{message?:{content?:string}}>;
           error?:{message?:string};usage?:{prompt_tokens?:number;completion_tokens?:number;cost?:number}};
         if(!response.ok)throw Error(data.error?.message||'AI provider failed');
+        const costCents=aiUsageCostCents(data.usage);
+        await mcpPool.query(`insert into public.ai_requests(user_id,client_account_id,prompt_tokens,completion_tokens,cost_cents,action)
+          values($1,$2,$3,$4,$5,'landing_page_edit')`,[user.id,accountId,Number(data.usage?.prompt_tokens||0),
+            Number(data.usage?.completion_tokens||0),costCents]);
         const parsed=aiPatchResponseSchema.safeParse(JSON.parse(data.choices?.[0]?.message?.content||'{}'));
         if(!parsed.success){feedback=parsed.error.issues.map(issue=>`${issue.path.join('.')}: ${issue.message}`).join('; ');
           if(attempt<2)continue;throw parsed.error;}
         try{applyAiPatches(currentSections,currentTheme,parsed.data.patches,approvedImages)}
         catch(error){feedback=error instanceof Error?error.message:'Invalid page edit';if(attempt<2)continue;throw error;}
-        await mcpPool.query(`insert into public.ai_requests(user_id,client_account_id,prompt_tokens,completion_tokens,cost_cents,action)
-          values($1,$2,$3,$4,$5,'landing_page_edit')`,[user.id,accountId,Number(data.usage?.prompt_tokens||0),
-            Number(data.usage?.completion_tokens||0),Number(data.usage?.cost||0)*100]);
         return {...parsed.data,approvedImages};
       }
-    }catch(error){lastError=error instanceof Error?error:Error(String(error));}
+    }catch(error){
+      lastError=error instanceof Error?error:Error(String(error));
+      if(lastError.message==='AI provider did not return valid cost information')throw lastError;
+    }
   }
   throw lastError;
 }

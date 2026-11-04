@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {PGlite} from '@electric-sql/pglite';
-import {aiPageLimitsSql,assertAiPageLimits} from '../lib/landing-ai-budget.js';
+import {aiPageLimitsSql,assertAiPageLimits,aiUsageCostCents} from '../lib/landing-ai-budget.js';
+
+test('AI usage requires a finite nonnegative provider cost',()=>{
+  assert.equal(aiUsageCostCents({cost:0.25}),25);
+  assert.equal(aiUsageCostCents({cost:0}),0);
+  assert.throws(()=>aiUsageCostCents(undefined),/valid cost/);
+  assert.throws(()=>aiUsageCostCents({cost:NaN}),/valid cost/);
+  assert.throws(()=>aiUsageCostCents({cost:-1}),/valid cost/);
+});
 
 test('AI budget aggregates every account in the organization for the current month',async()=>{
   const db=new PGlite();
