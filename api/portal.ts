@@ -631,6 +631,8 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
   } catch (error) {
     if (error instanceof z.ZodError || error instanceof SyntaxError) return send(res,400,{error:'Invalid request'});
     const message = error instanceof Error ? error.message : 'Portal request failed';
-    return send(res,/Sign in|Session expired/.test(message)?401:/Access denied|unavailable|disabled|verification|read only/.test(message)?403:500,{error:message});
+    return send(res,/Sign in|Session expired/.test(message)?401
+      :/Access denied|unavailable|disabled|verification|read only/.test(message)?403
+      :/Add a Google review link|opted-in lead|Contact opted out/.test(message)?400:500,{error:message});
   }
 }
