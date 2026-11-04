@@ -32,10 +32,18 @@ test('agency staff overview omits MRR and failed payments',async()=>{
         values('10000000-0000-4000-8000-000000000001','Demo Plumbing','demo','active','starter',80,12500,'{}');
       insert into public.invoices(client_account_id,status) values
         ('10000000-0000-4000-8000-000000000001','failed');
+      alter table public.sub_accounts enable row level security;
+      create policy existing_account_access on public.sub_accounts for select to authenticated using (true);
+      grant usage on schema public to authenticated;
+      grant select on public.sub_accounts to authenticated;
     `);
     const migration=readFileSync(new URL('../supabase/migrations/20261107_04_staff_billing_rpc.sql',import.meta.url),'utf8');
     await db.exec(migration);await db.exec(migration);
+    const rootGuard=readFileSync(new URL('../supabase/migrations/20261107_05_staff_account_root_rls.sql',import.meta.url),'utf8');
+    await db.exec(rootGuard);await db.exec(rootGuard);
     await db.exec("set test.role='agency_staff'");
+    await db.exec('set role authenticated');
+    assert.equal((await db.query('select id from public.sub_accounts')).rows.length,0);
     const staffAccounts=await db.query<{accounts:Array<{failed_payments:number|null}>}>(
       'select public.portal_accounts() accounts');
     assert.equal(staffAccounts.rows[0].accounts[0].failed_payments,null);
@@ -43,7 +51,13 @@ test('agency staff overview omits MRR and failed payments',async()=>{
       'select public.portal_agency_overview() overview');
     assert.equal(staffOverview.rows[0].overview[0].mrr_cents,null);
     assert.equal(staffOverview.rows[0].overview[0].failed_payments,null);
+    await db.exec("set test.role='client_staff'");
+    assert.equal((await db.query('select id from public.sub_accounts')).rows.length,0);
+    const clientStaffAccounts=await db.query<{accounts:Array<{failed_payments:number|null}>}>(
+      'select public.portal_accounts() accounts');
+    assert.equal(clientStaffAccounts.rows[0].accounts[0].failed_payments,null);
     await db.exec("set test.role='agency_admin'");
+    assert.equal((await db.query('select id from public.sub_accounts')).rows.length,1);
     const adminAccounts=await db.query<{accounts:Array<{failed_payments:number}>}>(
       'select public.portal_accounts() accounts');
     assert.equal(adminAccounts.rows[0].accounts[0].failed_payments,1);
