@@ -18,6 +18,7 @@ import { newFormSlug } from '../lib/form-slug.js';
 import {pipelineBoardQuerySchema,fetchPipelinePage} from '../lib/pipeline-board.js';
 import {clientInviteUrl} from '../lib/client-invite.js';
 import {clientInviteSignupSchema} from '../lib/client-invite-signup.js';
+import {meetingAppointmentInput,meetingAppointmentUpdate} from '../lib/meeting-appointment-input.js';
 import { z } from 'zod';
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 
@@ -1153,6 +1154,15 @@ async function listResource(config: ResourceConfig, req: VercelRequest, res: Ver
 
 async function createResource(config: ResourceConfig, req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as Record<string, unknown>;
+  let validatedMeeting:Record<string,unknown>|null=null;
+  if(config.table==='meeting_appointments'){
+    const checked=meetingAppointmentInput.safeParse(body);
+    if(!checked.success){sendJson(res,400,{error:'Enter a valid appointment, event type and time range.'});return;}
+    const event=await supabaseRest(`meeting_event_types?id=eq.${checked.data.eventTypeId}&is_active=eq.true&select=id&limit=1`,
+      {method:'GET'},req) as Array<{id:string}>;
+    if(!event[0]){sendJson(res,400,{error:'Choose an active event type.'});return;}
+    validatedMeeting=checked.data;
+  }
   if(['reviews','review_sources'].includes(config.table)&&!selectedAccountCookie(req)?.accountId){
     sendJson(res,400,{error:'Select a client account before managing reputation.'});return;
   }
@@ -1189,7 +1199,7 @@ async function createResource(config: ResourceConfig, req: VercelRequest, res: V
   }
   const payload = stripUndefined({
     ...(config.defaults ?? {}),
-    ...(toSnakeValue(body) as Record<string, unknown>),
+    ...(toSnakeValue(validatedMeeting??body) as Record<string, unknown>),
   });
   if(config.table==='forms'){
     const checked=z.object({name:z.string().trim().min(1).max(180),
@@ -1224,6 +1234,10 @@ async function getResource(config: ResourceConfig, id: string, req: VercelReques
 
 async function updateResource(config: ResourceConfig, id: string, req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as Record<string, unknown>;
+  if(config.table==='meeting_appointments'){
+    const checked=meetingAppointmentUpdate.safeParse(body);
+    if(!checked.success){sendJson(res,400,{error:'Only appointment status and notes can be updated.'});return;}
+  }
   if (config.table === "pipeline_stages") {
     const existing = await supabaseRest(`pipeline_stages?id=eq.${encodeURIComponent(id)}&select=key&limit=1`, { method: "GET" }, req) as Array<{ key: string | null }>;
     if (existing[0]?.key === "meeting_booked" && body.name !== undefined && body.name !== "Meeting Booked") {

@@ -55,7 +55,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | GHL-style client shell | portal layout | partial | `client-portal-layout.spec.ts` desktop/mobile screenshots | Eight synthetic portal pages fit both viewports with no serious axe findings; live data and interaction QA remain. |
 | Launchpad | `/client-portal/launchpad` | partial | `client-launchpad.test.ts`, desktop/mobile browser checks | Account-scoped checklist, repeatable migration and reachable actions verified locally; live Supabase QA pending. |
 | Unified conversations | `social-inbox.tsx` | partial | source review | SMS, email, calls in one thread unverified. |
-| Calendar week/month | `calendar.tsx` | partial | source review | Appointment slide-over QA needed. |
+| Calendar week/month | `meeting-scheduler.tsx` | partial | `meeting-calendar.spec.ts` desktop/mobile; `meeting-appointment-input.test.ts` | Live appointment data and manual booking QA pending. |
 | Contacts smart lists and bulk tools | contact pages | partial | existing unit tests | Browser and data tests needed. |
 | Contact detail three-column layout | contact detail | partial | source review | Activity composer and panels need parity QA. |
 | Opportunity kanban and list | pipeline pages | partial | source review | Counts, values, drag and filters need tests. |
