@@ -76,6 +76,34 @@ test('client dashboard fits the viewport and has no serious accessibility violat
   await page.screenshot({path:testInfo.outputPath('client-dashboard.png'),fullPage:true});
 });
 
+test('client owner manages report recipients on desktop and mobile',async({page},testInfo)=>{
+  const recipients:Array<{id:string;email:string;name:string;active:boolean}>=[];
+  await page.route('**/api/portal**',route=>{
+    const request=route.request(),url=new URL(request.url());
+    if(request.method()==='GET'&&url.searchParams.get('action')==='report_recipients')
+      return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(recipients)});
+    if(request.method()==='POST'&&request.postDataJSON()?.action==='set_report_recipient'){
+      const input=request.postDataJSON() as {email:string;name:string;active:boolean};
+      const existing=recipients.find(item=>item.email===input.email);
+      if(existing)Object.assign(existing,input);
+      else recipients.push({id:'91000000-0000-4000-8000-000000000001',...input});
+      return route.fulfill({status:200,contentType:'application/json',body:'{"id":"91000000-0000-4000-8000-000000000001"}'});
+    }
+    return route.fallback();
+  });
+  await page.goto('/client-portal/reports');
+  await expect(page.getByRole('heading',{name:'Report recipients'})).toBeVisible();
+  await page.getByRole('textbox',{name:'Recipient name'}).fill('Office manager');
+  await page.getByRole('textbox',{name:'Recipient email'}).fill('office@example.test');
+  await page.getByRole('button',{name:'Add recipient'}).click();
+  await expect(page.getByText('office@example.test')).toBeVisible();
+  await page.getByRole('button',{name:'Pause reports'}).click();
+  await expect(page.getByRole('button',{name:'Resume reports'})).toBeVisible();
+  expect(recipients).toMatchObject([{email:'office@example.test',active:false}]);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);
+  await page.screenshot({path:testInfo.outputPath('report-recipients.png'),fullPage:true});
+});
+
 test('launchpad shows only reachable actions to client staff',async({page})=>{
   const staffJwt=`${tokenPart({alg:'HS256',typ:'JWT'})}.${tokenPart({sub:userId,role:'authenticated',
     crm_role:'client_staff',crm_client_account_id:accountId,exp:4102444800})}.test-signature`;

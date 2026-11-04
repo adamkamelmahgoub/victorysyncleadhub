@@ -47,7 +47,7 @@ The manual structured-output check uses ten synthetic home-service prompts and n
 
 ## Operations and reports
 
-The **Accounts overview** table shows package, MRR, health, lead goal, response time, answering minutes, texts, AI tokens, and manager. Agency admins can edit MRR. A nightly database job refreshes health scores. **Failed automations** shows recent failed runs; correct the underlying provider or data issue, then select **Retry**. The delivery worker must be scheduled and `delivery_automation` enabled for jobs to run. Reports are drafted from account data and require a manager to review the narrative before sending.
+The **Accounts overview** table shows package, health, lead goal, response time, answering minutes, texts, AI tokens, and manager. Agency admins also see and can edit MRR. A nightly database job refreshes health scores. **Failed automations** shows recent failed runs; correct the underlying provider or data issue, then select **Retry**. The delivery worker must be scheduled and `delivery_automation` enabled for jobs to run. Reports are drafted from account data and require a manager to review the narrative before sending. On the client **Reports** page, an account owner or assigned agency user can add a recipient email or pause one. Active recipients and the account owner receive the approved report.
 
 Missed-call text-back reserves the caller's number for 24 hours before sending. If MightyCall times out after accepting a message, the reservation remains to prevent a duplicate. Check the failed automation and MightyCall message history before retrying; a new automatic text-back can send after the 24-hour window.
 

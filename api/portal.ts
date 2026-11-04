@@ -40,6 +40,7 @@ const querySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('page_versions'), pageId:uuid }),
   z.object({ action: z.literal('report_file'), reportId:uuid }),
   z.object({ action: z.literal('reports') }),
+  z.object({ action: z.literal('report_recipients') }),
   z.object({ action: z.literal('billing_summary') }),
   z.object({ action: z.literal('branding') }),
   z.object({ action: z.literal('client_settings') }),
@@ -112,6 +113,8 @@ const postSchema = z.discriminatedUnion('action', [
   z.object({action:z.literal('update_call'),callId:uuid,outcome:z.enum(['booked','message_taken','spam','existing_customer','other']),
     summary:z.string().max(5000),booked:z.boolean()}).strict(),
   z.object({action:z.literal('update_report'),reportId:uuid,workDone:z.string().max(5000),whatsNext:z.string().max(5000),send:z.boolean()}).strict(),
+  z.object({action:z.literal('set_report_recipient'),email:z.string().trim().email().max(320),
+    name:z.string().trim().max(200),active:z.boolean()}).strict(),
   z.object({action:z.literal('update_client_settings'),phone:z.string().max(30),website:z.union([z.string().url(),z.literal('')]),
     notifications:z.object({email:z.boolean(),text:z.boolean(),phone:z.union([z.string().regex(/^\+1\d{10}$/),z.literal('')])})
       .strict().refine(value=>!value.text||!!value.phone,{message:'Enter a mobile number for text alerts',path:['phone']})}).strict(),
@@ -391,6 +394,8 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
       }
       if (parsed.action === 'reports') return send(res,200,await rpc(user.token,'portal_reports',
         {p_account:selected.id}));
+      if (parsed.action === 'report_recipients') return send(res,200,await rpc(user.token,'portal_report_recipients',
+        {p_account:selected.id}));
       if (parsed.action === 'billing_summary') return send(res,200,await rpc(user.token,'portal_billing_summary',
         {p_account:selected.id}));
       if (parsed.action === 'branding') return send(res,200,await rpc(user.token,'portal_branding',
@@ -524,6 +529,10 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
       await rpc(user.token,'portal_update_report',{p_account:selected.id,p_report:parsed.reportId,
         p_work_done:parsed.workDone,p_whats_next:parsed.whatsNext,p_send:parsed.send});
       return send(res,200,{ok:true});
+    }
+    if (parsed.action === 'set_report_recipient') {
+      const id=await rpc<string>(user.token,'portal_set_report_recipient',{p_account:selected.id,
+        p_email:parsed.email,p_name:parsed.name,p_active:parsed.active});return send(res,200,{id});
     }
     if (parsed.action === 'update_client_settings') {
       await rpc(user.token,'portal_update_client_settings',{p_account:selected.id,p_phone:parsed.phone,
