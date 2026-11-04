@@ -146,12 +146,12 @@ export function Layout({ children }: { children: ReactNode }) {
   const navigationRole=viewAsClient?'client_owner':role;
   const clientWorkspace = role === "client_owner" || role === "client_staff" || viewAsClient;
   const primary = clientWorkspace ? clientCore : core;
-  const canSeeSegments = !clientWorkspace&&role !== "client" && role !== "agent" && canAccessPath("/segments", pagePermissions, navigationRole);
+  const path = location.replace(/^\/leadgen/, "") || "/";
+  const landingEditor = /^\/landing-pages\/[0-9a-f-]{36}$/i.test(path);
+  const canSeeSegments = !landingEditor&&!clientWorkspace&&role !== "client" && role !== "agent" && canAccessPath("/segments", pagePermissions, navigationRole);
   const { data: segmentResponse } = useQuery<Array<{id:string;name:string;contactCount:number}>>({ queryKey: ["segments"], queryFn: () => apiFetch("/api/segments"), enabled: canSeeSegments, staleTime: 5 * 60_000, refetchOnWindowFocus: false });
   const { data: liveSegmentResponse } = useQuery<Array<{id:string;name:string;contactCount:number}>>({ queryKey: ["segments", "live"], queryFn: () => apiFetch("/api/segments?liveCounts=1"), enabled: canSeeSegments && refreshLiveSegments, staleTime: 5 * 60_000, refetchOnWindowFocus: false });
   const segments = asArray<{id:string;name:string;contactCount:number}>(liveSegmentResponse ?? segmentResponse);
-  const path = location.replace(/^\/leadgen/, "") || "/";
-  const landingEditor = /^\/landing-pages\/[0-9a-f-]{36}$/i.test(path);
   const active = (href: string) =>
     href === "/client-portal"
       ? path === "/client-portal" || path === "/client-portal/dashboard"
@@ -191,6 +191,7 @@ export function Layout({ children }: { children: ReactNode }) {
       active(item.href),
     )?.label ?? (path.startsWith("/client-portal/")
       ? `Client ${path.split("/")[2]}` : "Workspace");
+  if (landingEditor) return <main id="workspace-content" className="h-dvh min-h-0 min-w-0 overflow-y-auto bg-slate-50">{children}</main>;
   function navLink(item: Item) {
     return !canAccessPath(item.href, pagePermissions, navigationRole) ? null : (
       <Link

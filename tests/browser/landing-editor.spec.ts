@@ -244,6 +244,9 @@ test('editor changes sections as one draft and publishes the saved state',async(
   });
   await page.goto(`/landing-pages/${pageId}`);
   await expect(page.getByRole('heading',{name:'Demo service page'})).toBeVisible();
+  await expect(page.getByRole('navigation',{name:'Workspace navigation'})).toHaveCount(0);
+  const editorWidth=await page.locator('main#workspace-content').evaluate(element=>element.getBoundingClientRect().width);
+  expect(editorWidth).toBeGreaterThanOrEqual((page.viewportSize()?.width??0)-1);
   await page.getByRole('button',{name:'Add section'}).click();
   await page.getByRole('button',{name:'Services grid',exact:true}).click();
   await page.getByRole('textbox',{name:'Heading'}).fill('Plumbing services');
