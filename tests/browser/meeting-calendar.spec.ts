@@ -56,6 +56,7 @@ test('calendar shows real appointments in month and week views with an editable 
   await expect.poll(()=>writes).toEqual([{status:'completed'}]);
   await page.getByRole('button',{name:'Month',exact:true}).click();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);
-  await page.evaluate(()=>window.scrollTo(0,0));
+  await page.locator('#workspace-content').evaluate(element=>{element.scrollTop=0});
+  await expect(page.getByRole('heading',{name:'Meeting Scheduler'})).toBeInViewport();
   await page.screenshot({path:testInfo.outputPath('meeting-calendar.png'),fullPage:true});
 });
