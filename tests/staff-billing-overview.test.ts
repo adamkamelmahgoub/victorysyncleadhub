@@ -15,6 +15,10 @@ test('agency staff overview omits MRR and failed payments',async()=>{
       create table public.leads(id uuid primary key,client_account_id uuid,created_at timestamptz);
       create table public.company_tasks(client_account_id uuid,status text,due_at timestamptz);
       create table public.invoices(client_account_id uuid,status text);
+      create table public.billing_records(id integer primary key);
+      create table public.org_subscriptions(id integer primary key);
+      create table public.usage_charges(id integer primary key);
+      create table public.org_billing_locks(id integer primary key);
       create table public.team_members(user_id uuid,name text,email text,is_active boolean);
       create table public.client_automation_jobs(client_account_id uuid,lead_id uuid,kind text,status text,sent_at timestamptz);
       create table public.client_call_details(client_account_id uuid,status text,duration_seconds integer,occurred_at timestamptz);
@@ -32,18 +36,30 @@ test('agency staff overview omits MRR and failed payments',async()=>{
         values('10000000-0000-4000-8000-000000000001','Demo Plumbing','demo','active','starter',80,12500,'{}');
       insert into public.invoices(client_account_id,status) values
         ('10000000-0000-4000-8000-000000000001','failed');
+      insert into public.billing_records values(1);
+      insert into public.org_subscriptions values(1);
+      insert into public.usage_charges values(1);
+      insert into public.org_billing_locks values(1);
       alter table public.sub_accounts enable row level security;
       create policy existing_account_access on public.sub_accounts for select to authenticated using (true);
       grant usage on schema public to authenticated;
       grant select on public.sub_accounts to authenticated;
     `);
+    const billingTables=['billing_records','org_subscriptions','usage_charges','org_billing_locks'];
+    for(const table of billingTables)await db.exec(`alter table public.${table} enable row level security;
+      create policy existing_billing_access on public.${table} for all to authenticated
+        using (true) with check (true);
+      grant select,insert on public.${table} to authenticated;`);
     const migration=readFileSync(new URL('../supabase/migrations/20261107_04_staff_billing_rpc.sql',import.meta.url),'utf8');
     await db.exec(migration);await db.exec(migration);
     const rootGuard=readFileSync(new URL('../supabase/migrations/20261107_05_staff_account_root_rls.sql',import.meta.url),'utf8');
     await db.exec(rootGuard);await db.exec(rootGuard);
+    const orgBillingGuard=readFileSync(new URL('../supabase/migrations/20261107_06_org_billing_rls.sql',import.meta.url),'utf8');
+    await db.exec(orgBillingGuard);await db.exec(orgBillingGuard);
     await db.exec("set test.role='agency_staff'");
     await db.exec('set role authenticated');
     assert.equal((await db.query('select id from public.sub_accounts')).rows.length,0);
+    for(const table of billingTables)assert.equal((await db.query(`select id from public.${table}`)).rows.length,0);
     const staffAccounts=await db.query<{accounts:Array<{failed_payments:number|null}>}>(
       'select public.portal_accounts() accounts');
     assert.equal(staffAccounts.rows[0].accounts[0].failed_payments,null);
@@ -53,11 +69,16 @@ test('agency staff overview omits MRR and failed payments',async()=>{
     assert.equal(staffOverview.rows[0].overview[0].failed_payments,null);
     await db.exec("set test.role='client_staff'");
     assert.equal((await db.query('select id from public.sub_accounts')).rows.length,0);
+    for(const table of billingTables)assert.equal((await db.query(`select id from public.${table}`)).rows.length,0);
     const clientStaffAccounts=await db.query<{accounts:Array<{failed_payments:number|null}>}>(
       'select public.portal_accounts() accounts');
     assert.equal(clientStaffAccounts.rows[0].accounts[0].failed_payments,null);
+    await db.exec("set test.role='client_owner'");
+    for(const table of billingTables)assert.equal((await db.query(`select id from public.${table}`)).rows.length,0);
+    assert.equal((await db.query('select id from public.sub_accounts')).rows.length,1);
     await db.exec("set test.role='agency_admin'");
     assert.equal((await db.query('select id from public.sub_accounts')).rows.length,1);
+    for(const table of billingTables)assert.equal((await db.query(`select id from public.${table}`)).rows.length,1);
     const adminAccounts=await db.query<{accounts:Array<{failed_payments:number}>}>(
       'select public.portal_accounts() accounts');
     assert.equal(adminAccounts.rows[0].accounts[0].failed_payments,1);
