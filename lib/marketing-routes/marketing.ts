@@ -22,6 +22,9 @@ export function leadDedupeLockKeys(accountId:string|null,phone:string,email:stri
     ...(email?[`form-lead:${scope}:email:${email.trim().toLowerCase()}`]:[])];
   return [...new Set(keys)].sort();
 }
+export function formSubmissionLockKey(formId:string,submissionKey:string){
+  return `form-submission:${formId}:${submissionKey}`;
+}
 export const pageDailyStatsSql=`select created_at::date AS day,count(*) filter(where event_type='view')::integer views,
         count(*) filter(where event_type='form_submit')::integer submissions from public.landing_page_events
         where landing_page_id=$1 and organization_id=$2 and created_at>=now()-interval '30 days' group by 1 order by 1`;
@@ -209,6 +212,8 @@ async function publicForm(req:IncomingMessage,res:ServerResponse,slug:string,sub
       values($1,$2,$3,1) on conflict(form_id,ip_hash,window_started_at) do update set attempts=public.form_rate_limits.attempts+1
       returning attempts`,[form.id,hash,bucket]);
     if(attempts.rows[0].attempts>8)throw new Error('Too many submissions. Please try again later');
+    await db.query('select pg_advisory_xact_lock(hashtextextended($1,0))',
+      [formSubmissionLockKey(form.id,key)]);
     const duplicate=await db.query<{id:string}>(`select id from public.form_submissions where form_id=$1 and submission_key=$2 limit 1`,[form.id,key]);
     if(duplicate.rows[0]){submissionId=duplicate.rows[0].id;await db.query('commit');}
     else{
