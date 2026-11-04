@@ -12,6 +12,7 @@ import {portalBillingReturnUrl} from '../lib/portal-billing-url.js';
 import {requiresAgencyMfa} from '../lib/portal-roles.js';
 import {providerReadiness} from '../lib/provider-readiness.js';
 import {approvedAiImageUrls} from '../lib/landing-ai-approved-images.js';
+import {aiPageLimitsSql,assertAiPageLimits} from '../lib/landing-ai-budget.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const ORG = 'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
@@ -234,15 +235,8 @@ export const aiJsonSchema = {
 } as const;
 export const aiPageSystemPrompt='Create or edit a mobile-first landing page as structured JSON. Use plain words, short sentences, a service-and-city headline, one clear call to action, and the provided phone number. Use ordered blocks for services, benefits, steps, and FAQ where helpful. Never invent reviews, ratings, awards, licences, years in business, guarantees, prices, results, or business credentials. Use [Add a real customer review] and similar placeholders when facts are missing. Use only the uploaded photos provided. Never use em dashes or raw HTML. Keep forms unlinked unless a form ID was supplied.';
 async function pageAiSetup(user:PortalUser,accountId:string){
-  const limits=await mcpPool.query<{requests:number;spent:number;budget:number|null}>(`select
-    (select count(*)::integer from public.ai_requests where user_id=$1 and created_at>now()-interval '1 hour') requests,
-    (select coalesce(sum(r.cost_cents),0)::float from public.ai_requests r
-      join public.sub_accounts a on a.id=r.client_account_id
-      where r.created_at>=date_trunc('month',now()) and a.organization_id=$2) spent,
-    nullif(o.settings->>'ai_monthly_budget_cents','')::float budget
-    from public.organizations o where o.id=$2`,[user.id,ORG]);
-  if(Number(limits.rows[0]?.requests||0)>=30)throw new Error('AI request limit reached. Try again in an hour');
-  if(limits.rows[0]?.budget!=null&&Number(limits.rows[0].spent)>=Number(limits.rows[0].budget))throw new Error('Monthly AI budget reached');
+  const limits=await mcpPool.query<{requests:number;spent:number;budget:number|null}>(aiPageLimitsSql,[user.id,ORG]);
+  assertAiPageLimits(limits.rows[0]);
   const context = await rpc<Record<string,unknown>>(user.token,'portal_ai_context',{p_account:accountId});
   const approvedImages=approvedAiImageUrls(context,String(process.env.SUPABASE_URL||''));
   const clientContext={...context,photos:approvedImages.filter(url=>url.includes('/storage/v1/object/public/landing-media/'))};
