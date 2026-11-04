@@ -91,6 +91,8 @@ test('draft iframe renders its hero without horizontal clipping',async({page},te
   const dimensions=await preview.locator('html').evaluate(element=>({
     scrollWidth:element.scrollWidth,clientWidth:element.clientWidth}));
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth+1);
+  await expect.poll(async()=>page.locator('iframe[title="Draft landing page preview"]').evaluate(
+    element=>element.getBoundingClientRect().height)).toBeLessThanOrEqual(350);
 });
 
 test('direct page link is read only when editing is disabled',async({page})=>{
