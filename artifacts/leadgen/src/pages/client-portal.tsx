@@ -11,6 +11,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import type {SectionType} from '../../../../lib/landing-section-registry';
+import {portalDateRange,type PortalDateRange} from '../../../../lib/portal-date-range';
 
 type Page = {id:string;name:string;slug:string;public_slug?:string|null;status:'draft'|'published';seo_description:string;
   sections:Section[];theme:Theme;created_at:string};
@@ -121,16 +122,10 @@ type Metrics = {account:{name:string;goal_metric:string|null;goal_value:number|n
   answeredCalls:number;missedCallsRecovered:number;reviewsReceived:number;averageRating:number|null;
   adSpendCents:number;sourceBreakdown:Record<string,number>};
 function Dashboard({canManageSpend}:{canManageSpend:boolean}) {
-  const [range,setRange]=useState('this_week');
+  const [range,setRange]=useState<PortalDateRange>('this_week');
   const [customFrom,setCustomFrom]=useState('');
   const [customTo,setCustomTo]=useState('');
-  const now=new Date();const start=new Date(now);const end=new Date(now);
-  if(range==='this_week'){start.setDate(now.getDate()-((now.getDay()+6)%7));start.setHours(0,0,0,0);end.setDate(start.getDate()+7);end.setHours(0,0,0,0)}
-  else if(range==='this_month'){start.setDate(1);start.setHours(0,0,0,0);end.setMonth(start.getMonth()+1,1);end.setHours(0,0,0,0)}
-  else if(range==='last_month'){start.setMonth(now.getMonth()-1,1);start.setHours(0,0,0,0);end.setDate(1);end.setHours(0,0,0,0)}
-  else {start.setTime(customFrom?new Date(`${customFrom}T00:00:00`).getTime():NaN);end.setTime(customTo?new Date(`${customTo}T00:00:00`).getTime():NaN);if(!Number.isNaN(end.getTime()))end.setDate(end.getDate()+1)}
-  const valid=!Number.isNaN(start.getTime())&&!Number.isNaN(end.getTime())&&start<end;
-  const from=valid?start.toISOString():'';const to=valid?end.toISOString():'';
+  const {valid,from,to}=portalDateRange(range,new Date(),customFrom,customTo);
   const {data,error,isLoading}=useQuery<Metrics>({queryKey:['portal-metrics',from,to],
     queryFn:()=>apiFetch(`/api/portal?action=metrics&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),enabled:valid,retry:false});
   const {data:spend}=useQuery<Array<{platform:string;month:string;amount_cents:number}>>({queryKey:['portal-ad-spend'],
@@ -145,7 +140,7 @@ function Dashboard({canManageSpend}:{canManageSpend:boolean}) {
   const goalKey:Record<string,keyof Metrics>={new_leads:'newLeads',booked_jobs:'bookedJobs',answered_calls:'answeredCalls',missed_calls_recovered:'missedCallsRecovered',reviews_received:'reviewsReceived'};
   const goalMetric=data?.account.goal_metric||'';
   const goal=data?.account.goal_value?Number(data[(goalKey[goalMetric]||goalMetric) as keyof Metrics]||0):0;
-  return <div className="space-y-5"><div className="flex flex-wrap gap-2"><select aria-label="Dashboard date range" className="rounded border bg-white px-3 py-2 text-sm" value={range} onChange={event=>setRange(event.target.value)}>
+  return <div className="space-y-5"><div className="flex flex-wrap gap-2"><select aria-label="Dashboard date range" className="rounded border bg-white px-3 py-2 text-sm" value={range} onChange={event=>setRange(event.target.value as PortalDateRange)}>
     <option value="this_week">This week</option><option value="this_month">This month</option><option value="last_month">Last month</option><option value="custom">Custom</option></select>
     {range==='custom'&&<><input aria-label="Start date" type="date" className="rounded border px-2" value={customFrom} onChange={e=>setCustomFrom(e.target.value)}/><input aria-label="End date" type="date" className="rounded border px-2" value={customTo} onChange={e=>setCustomTo(e.target.value)}/></>}</div>
     {isLoading?<p>Loading dashboard...</p>:error?<p role="alert" className="text-red-600">{String(error)}</p>:values&&<><div className="grid grid-cols-2 gap-3 md:grid-cols-4">{Object.entries(values).map(([key,value])=><Card key={key} className="p-4"><p className="text-xs text-muted-foreground">{nice(key)}</p><p className="mt-2 text-2xl font-semibold">{value??'-'}</p></Card>)}</div>
