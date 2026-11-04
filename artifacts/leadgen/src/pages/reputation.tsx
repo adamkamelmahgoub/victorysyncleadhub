@@ -263,9 +263,9 @@ export default function Reputation() {
           </div>
         </div>
 
-        <div className="flex gap-1 overflow-x-auto border-b border-border">
+        <div className="grid grid-cols-2 gap-1 border-b border-border sm:flex" aria-label="Reputation sections">
           {TABS.map((t) => (
-            <button key={t.id} onClick={() => setTab(t.id)} className={`shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === t.id ? "border-primary text-primary" : "border-transparent text-slate-600 hover:text-foreground"}`}>
+            <button key={t.id} type="button" aria-current={tab === t.id ? 'page' : undefined} onClick={() => setTab(t.id)} className={`min-w-0 px-2 py-2.5 text-center text-sm font-medium border-b-2 transition-colors sm:shrink-0 sm:px-4 ${tab === t.id ? "border-primary text-primary" : "border-transparent text-slate-600 hover:text-foreground"}`}>
               {t.label}
             </button>
           ))}

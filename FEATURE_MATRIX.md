@@ -61,7 +61,7 @@ Status reflects the code and existing tests as of 2026-10-30. `done` requires a 
 | Opportunity kanban and list | pipeline pages | partial | source review | Counts, values, drag and filters need tests. |
 | Payments | billing pages | partial | source review | Stripe sandbox and status flows needed. |
 | Marketing planner and DM | marketing pages | partial | existing source | Agency/client placement and visual QA pending. |
-| Reputation | reputation pages | partial | `reputation-db.test.mjs`, `reputation.spec.ts` | Desktop/mobile browser checks cover review display, source refresh, attestation, load retry, account selection and accessibility; live provider and production database QA remain. |
+| Reputation | reputation pages | partial | `reputation-db.test.mjs`, `reputation.spec.ts`, desktop/mobile screenshots | Review display, source refresh, attestation, load retry, account selection, accessibility and four visible mobile destinations pass locally; live provider and production database QA remain. |
 | Reporting | reporting pages | partial | existing source | Unified report metrics QA needed. |
 | Call Center | call pages | partial | existing source | Account-scoped usage and agent QA needed. |
 | Settings secondary navigation | settings pages | partial | source review | GHL pattern and mobile QA pending. |
