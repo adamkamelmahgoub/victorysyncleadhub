@@ -62,11 +62,17 @@ async function sendText(account:Account,to:string,message:string,job:Job) {
   if(await rest<boolean>('rpc/client_phone_dnc','POST',{p_account:account.id,p_phone:recipient}))return false;
   const logged=await rest<Array<{id:string}>>(`mightycall_sms_messages?client_account_id=eq.${account.id}&metadata->>automation_job_id=eq.${job.id}&select=id&limit=1`);
   if(logged.length)return true;
+  await mightyAuth();
+  const claimed=await rest<boolean>('rpc/client_claim_sms_send','POST',
+    {p_account:account.id,p_phone:recipient,p_job:job.id});
+  if(!claimed)throw Error('SMS send outcome is uncertain. Check MightyCall history before retrying');
   const text=message.includes('Reply STOP to opt out')?message:`${message} Reply STOP to opt out`;
   const sent=await mighty('messages/send','POST',{from,to:[recipient],message:text});
   await rest('mightycall_sms_messages','POST',{org_id:'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1',
     client_account_id:account.id,from_number:from,to_number:recipient,direction:'outbound',
     message_text:text,status:'sent',external_sms_id:sent?.id||null,metadata:{automation_job_id:job.id,automation_kind:job.kind}});
+  await rest('rpc/client_mark_sms_send_sent','POST',
+    {p_account:account.id,p_phone:recipient,p_job:job.id});
   return true;
 }
 async function sendEmail(to:string,subject:string,body:string,job:Job) {

@@ -51,6 +51,8 @@ The **Accounts overview** table shows package, health, lead goal, response time,
 
 Missed-call text-back reserves the caller's number for 24 hours before sending. If MightyCall times out after accepting a message, the reservation remains to prevent a duplicate. Check the failed automation and MightyCall message history before retrying; a new automatic text-back can send after the 24-hour window.
 
+Other automated SMS jobs also reserve their job ID before contacting MightyCall. If the provider result is uncertain, the reservation prevents another automatic send for that job. Check MightyCall message history and the claim in `client_sms_send_claims` before resolving the failed automation. Do not clear a claim until the send outcome is known.
+
 ## Secrets and provider activation
 
 In Vercel, open the **victorysyncplatform** project, then **Settings → Environment Variables**. Add each variable to the **Production** environment and save it. Use server-only names exactly as written here, with no `NEXT_PUBLIC_` prefix. Redeploy the production deployment after saving. The main variables are `SUPABASE_SERVICE_ROLE_KEY`, `PORTAL_BASE_URL`, `PUBLIC_PAGES_BASE_URL`, `MIGHTYCALL_API_KEY`, `MIGHTYCALL_SECRET_KEY` (or `MIGHTYCALL_USER_KEY`), `MIGHTYCALL_WEBHOOK_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`, `INVITE_FROM_EMAIL`, `REPORT_FROM_EMAIL`, `SLACK_WEBHOOK_URL`, and `CLIENT_DELIVERY_WORKER_SECRET`. The app also uses its existing OpenRouter variables. Check the specific integration handlers before changing a provider secret name. Keep all secret values in Vercel; do not paste them into a chat or commit them.

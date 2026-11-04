@@ -6,7 +6,7 @@ const leadId='20000000-0000-4000-8000-000000000001';
 const requestId='30000000-0000-4000-8000-000000000001';
 const jobId='40000000-0000-4000-8000-000000000001';
 type Scenario={kind:'review_request'|'review_reminder';leadPhone:string;dnc?:boolean;clicked?:boolean;
-  source?:'lead'|'request';optInSource?:string;requestStatus?:string};
+  source?:'lead'|'request';optInSource?:string;requestStatus?:string;smsClaimDenied?:boolean};
 
 async function runScenario(scenario:Scenario){
   const envKeys=['VERCEL_ENV','CLIENT_DELIVERY_SANDBOX','CLIENT_DELIVERY_WORKER_SECRET','SUPABASE_URL',
@@ -40,6 +40,8 @@ async function runScenario(scenario:Scenario){
     }
     if(url.pathname==='/rest/v1/rpc/client_delivery_enabled')return Response.json(true);
     if(url.pathname==='/rest/v1/rpc/client_phone_dnc')return Response.json(false);
+    if(url.pathname==='/rest/v1/rpc/client_claim_sms_send')return Response.json(!scenario.smsClaimDenied);
+    if(url.pathname==='/rest/v1/rpc/client_mark_sms_send_sent')return Response.json(null);
     if(url.pathname==='/rest/v1/review_requests'&&method==='GET')return Response.json(scenario.source==='lead'&&!scenario.requestStatus?[]:[{
       id:requestId,lead_id:leadId,contact_name:'Alex Customer',contact_phone:'+15125550101',
       contact_email:'wrong@example.test',click_token:'60000000-0000-4000-8000-000000000001',
@@ -133,4 +135,12 @@ test('Won review job skips an already sent request',async()=>{
   assert.equal(result.requestsCreated,0);
   assert.deepEqual(result.sms,[]);
   assert.deepEqual(result.jobStatuses,['cancelled']);
+});
+
+test('uncertain SMS claim blocks an automatic duplicate',async()=>{
+  const result=await runScenario({kind:'review_request',leadPhone:'+15125550101',smsClaimDenied:true});
+  assert.deepEqual(result.sms,[]);
+  assert.deepEqual(result.emails,[]);
+  assert.deepEqual(result.jobStatuses,['failed']);
+  assert.match(result.errors[0],/outcome is uncertain/);
 });
