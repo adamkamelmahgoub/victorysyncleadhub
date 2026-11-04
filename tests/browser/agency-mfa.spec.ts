@@ -26,6 +26,8 @@ for(const role of ['admin','member','agency_admin','agency_staff']){
       await page.getByRole('button',{name:'Continue'}).click();
       await expect(page.getByRole('alert')).toContainText('Authenticator setup is unavailable');
       await expect(page.getByRole('alert')).not.toContainText('{}');
+      await page.getByRole('button',{name:'Sign out'}).click();
+      await expect(page).toHaveURL(/\/login$/);
     }
   });
 }

@@ -59,12 +59,14 @@ export function MfaGate({children,required}:{children:ReactNode;required:boolean
   if(level==='loading')return <main className="p-8 text-sm">Checking two-step verification…</main>;
   return <main className="flex min-h-screen items-center justify-center bg-slate-50 p-4"><Card className="w-full max-w-md space-y-4 p-6">
     <h1 className="text-xl font-semibold">Two-step verification required</h1>
-    <p className="text-sm text-muted-foreground">Agency access requires an authenticator code.</p>
+    <p className="text-sm text-muted-foreground">Agency access requires an authenticator code. Continue to set up an app or enter a code from an app you already use.</p>
     {!factor?<Button disabled={busy} onClick={()=>void prepare()}>Continue</Button>:<>
       {factor.totp&&<div className="space-y-2"><img src={`data:image/svg+xml;base64,${btoa(factor.totp.qr_code)}`} alt="Authenticator QR code" className="h-48 w-48"/><p className="text-xs">Or enter this secret in your authenticator app: <code>{factor.totp.secret}</code></p></div>}
       <Input aria-label="Authenticator code" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={event=>setCode(event.target.value)} maxLength={8}/>
       <Button disabled={busy||code.trim().length<6} onClick={()=>void verify()}>Verify code</Button>
     </>}
     {error&&<p role="alert" className="text-sm text-red-600">{error}</p>}
+    <div className="border-t pt-4"><Button type="button" variant="outline" disabled={busy}
+      onClick={()=>void supabase.auth.signOut().finally(()=>window.location.assign('/login'))}>Sign out</Button></div>
   </Card></main>;
 }
