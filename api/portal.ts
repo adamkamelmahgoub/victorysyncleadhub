@@ -12,7 +12,7 @@ import {portalBillingReturnUrl} from '../lib/portal-billing-url.js';
 import {requiresAgencyMfa} from '../lib/portal-roles.js';
 import {providerReadiness} from '../lib/provider-readiness.js';
 import {approvedAiImageUrls} from '../lib/landing-ai-approved-images.js';
-import {aiPageLimitsSql,assertAiPageLimits,aiUsageCostCents} from '../lib/landing-ai-budget.js';
+import {aiPageLimitsSql,assertAiPageLimits,aiUsageCostCents,AiUsageRecordingError} from '../lib/landing-ai-budget.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const ORG = 'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
@@ -265,8 +265,10 @@ async function generatePage(user: PortalUser, accountId: string, prompt: string,
       const data = await response.json() as {choices?:Array<{message?:{content?:string}}> ;error?:{message?:string};usage?:{prompt_tokens?:number;completion_tokens?:number;cost?:number}};
       if (!response.ok) throw new Error(data.error?.message || 'AI provider failed');
       const costCents=aiUsageCostCents(data.usage);
-      await mcpPool.query(`insert into public.ai_requests(user_id,client_account_id,prompt_tokens,completion_tokens,cost_cents,action)
-        values($1,$2,$3,$4,$5,'landing_page_generate')`,[user.id,accountId,Number(data.usage?.prompt_tokens||0),Number(data.usage?.completion_tokens||0),costCents]);
+      try {
+        await mcpPool.query(`insert into public.ai_requests(user_id,client_account_id,prompt_tokens,completion_tokens,cost_cents,action)
+          values($1,$2,$3,$4,$5,'landing_page_generate')`,[user.id,accountId,Number(data.usage?.prompt_tokens||0),Number(data.usage?.completion_tokens||0),costCents]);
+      } catch(error) { throw new AiUsageRecordingError(error); }
       const parsedResult=aiResponseSchema.safeParse(JSON.parse(data.choices?.[0]?.message?.content || '{}'));
       if(!parsedResult.success){feedback=parsedResult.error.issues.map(issue=>`${issue.path.join('.')}: ${issue.message}`).join('; ');if(attempt<2)continue;throw parsedResult.error}
       const parsed=parsedResult.data;
@@ -282,7 +284,7 @@ async function generatePage(user: PortalUser, accountId: string, prompt: string,
       }
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      if(lastError.message==='AI provider did not return valid cost information')throw lastError;
+      if(lastError.message==='AI provider did not return valid cost information'||lastError instanceof AiUsageRecordingError)throw lastError;
     }
   }
   throw lastError;
@@ -310,9 +312,11 @@ async function generatePageEdits(user:PortalUser,accountId:string,prompt:string,
           error?:{message?:string};usage?:{prompt_tokens?:number;completion_tokens?:number;cost?:number}};
         if(!response.ok)throw Error(data.error?.message||'AI provider failed');
         const costCents=aiUsageCostCents(data.usage);
-        await mcpPool.query(`insert into public.ai_requests(user_id,client_account_id,prompt_tokens,completion_tokens,cost_cents,action)
-          values($1,$2,$3,$4,$5,'landing_page_edit')`,[user.id,accountId,Number(data.usage?.prompt_tokens||0),
-            Number(data.usage?.completion_tokens||0),costCents]);
+        try {
+          await mcpPool.query(`insert into public.ai_requests(user_id,client_account_id,prompt_tokens,completion_tokens,cost_cents,action)
+            values($1,$2,$3,$4,$5,'landing_page_edit')`,[user.id,accountId,Number(data.usage?.prompt_tokens||0),
+              Number(data.usage?.completion_tokens||0),costCents]);
+        } catch(error) { throw new AiUsageRecordingError(error); }
         const parsed=aiPatchResponseSchema.safeParse(JSON.parse(data.choices?.[0]?.message?.content||'{}'));
         if(!parsed.success){feedback=parsed.error.issues.map(issue=>`${issue.path.join('.')}: ${issue.message}`).join('; ');
           if(attempt<2)continue;throw parsed.error;}
@@ -322,7 +326,7 @@ async function generatePageEdits(user:PortalUser,accountId:string,prompt:string,
       }
     }catch(error){
       lastError=error instanceof Error?error:Error(String(error));
-      if(lastError.message==='AI provider did not return valid cost information')throw lastError;
+      if(lastError.message==='AI provider did not return valid cost information'||lastError instanceof AiUsageRecordingError)throw lastError;
     }
   }
   throw lastError;

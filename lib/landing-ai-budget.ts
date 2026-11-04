@@ -17,3 +17,10 @@ export function aiUsageCostCents(usage:{cost?:number}|undefined){
     throw Error('AI provider did not return valid cost information');
   return usage.cost*100;
 }
+
+export class AiUsageRecordingError extends Error {
+  constructor(cause:unknown){
+    super('AI usage could not be recorded', {cause});
+    this.name='AiUsageRecordingError';
+  }
+}
