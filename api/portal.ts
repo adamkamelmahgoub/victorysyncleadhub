@@ -113,7 +113,8 @@ const postSchema = z.discriminatedUnion('action', [
     summary:z.string().max(5000),booked:z.boolean()}).strict(),
   z.object({action:z.literal('update_report'),reportId:uuid,workDone:z.string().max(5000),whatsNext:z.string().max(5000),send:z.boolean()}).strict(),
   z.object({action:z.literal('update_client_settings'),phone:z.string().max(30),website:z.union([z.string().url(),z.literal('')]),
-    notifications:z.object({email:z.boolean(),text:z.boolean(),phone:z.union([z.string().regex(/^\+1\d{10}$/),z.literal('')])}).strict()}).strict(),
+    notifications:z.object({email:z.boolean(),text:z.boolean(),phone:z.union([z.string().regex(/^\+1\d{10}$/),z.literal('')])})
+      .strict().refine(value=>!value.text||!!value.phone,{message:'Enter a mobile number for text alerts',path:['phone']})}).strict(),
   z.object({action:z.literal('set_usage_limit'),minutes:z.number().int().min(0).max(1_000_000)}).strict(),
   z.object({action:z.literal('set_review_delay'),hours:z.number().int().min(0).max(168)}).strict(),
   z.object({action:z.literal('set_feature'),feature:z.enum(['client_portal','client_accounts','landing_page_builder','landing_page_ai','delivery_automation','client_page_editing']),

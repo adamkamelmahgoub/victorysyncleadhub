@@ -199,6 +199,34 @@ test('client owner can move a lead to Won, save a note, and record job value',as
   expect(writes.filter(x=>x.action==='change_lead').map(x=>x.leadId)).toEqual([lead.id,lead.id]);
 });
 
+test('client owner must enter an alert phone before enabling text notifications',async({page})=>{
+  let saved:Record<string,unknown>|null=null;
+  await page.route('**/api/portal*',route=>{
+    const request=route.request();
+    const url=new URL(request.url());
+    if(url.searchParams.get('action')==='client_settings')return route.fulfill({status:200,
+      contentType:'application/json',body:JSON.stringify({name:'Demo Plumbing',phone:'',website:'',
+        notifications:{email:true,text:false,phone:''}})});
+    if(request.method()==='POST'){
+      const body=request.postDataJSON() as Record<string,unknown>;
+      if(body.action==='update_client_settings'){
+        saved=body;
+        return route.fulfill({status:200,contentType:'application/json',body:'{}'});
+      }
+    }
+    return route.fallback();
+  });
+  await page.goto('/client-portal/settings');
+  await page.getByRole('checkbox',{name:'Text new lead and missed-call alerts'}).check();
+  await expect(page.getByRole('alert').filter({hasText:'Enter a mobile number'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Save settings'})).toBeDisabled();
+  await page.getByRole('textbox',{name:'Alert mobile number'}).fill('+15125550123');
+  await page.getByRole('button',{name:'Save settings'}).click();
+  await expect.poll(()=>saved).toMatchObject({action:'update_client_settings',
+    notifications:{email:true,text:true,phone:'+15125550123'}});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);
+});
+
 test('client lead list and board load older account leads',async({page})=>{
   const older={...lead,id:'30000000-0000-4000-8000-000000000002',first_name:'Jordan',
     last_name:'Older',created_at:'2026-10-14T12:00:00Z'};
