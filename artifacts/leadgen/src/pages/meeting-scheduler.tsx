@@ -31,6 +31,8 @@ export default function MeetingScheduler() {
   const [calendarDate,setCalendarDate]=useState(new Date());
   const [selectedDay,setSelectedDay]=useState(new Date());
   const [selectedAppointment,setSelectedAppointment]=useState<Appointment|null>(null);
+  const [showBooking,setShowBooking]=useState(false);
+  const [booking,setBooking]=useState({eventTypeId:'',guestName:'',guestEmail:'',guestPhone:'',startAt:'',notes:''});
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ title: "", description: "", durationMinutes: 30, color: "#f97316", location: "", isActive: true, requiresConfirmation: false, bufferAfter: 15, availableDays: ["mon", "tue", "wed", "thu", "fri"], availableStart: "09:00", availableEnd: "17:00", timezone: "America/New_York" });
 
@@ -52,6 +54,24 @@ export default function MeetingScheduler() {
   const updateAppt = useMutation({
     mutationFn: ({ id, status }: { id: string; status: 'confirmed'|'completed'|'cancelled' }) => apiFetch(`/meeting/appointments/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["appointments"] }); setSelectedAppointment(null); toast({ title: "Appointment updated" }); },
+  });
+
+  const createAppointment=useMutation({
+    mutationFn:async()=>{
+      const eventType=eventTypes.find(type=>type.id===booking.eventTypeId);
+      if(!eventType||!booking.startAt)throw new Error('Choose an event type and start time.');
+      const start=new Date(booking.startAt);
+      if(Number.isNaN(start.getTime()))throw new Error('Enter a valid start time.');
+      return apiFetch('/meeting/appointments',{method:'POST',body:JSON.stringify({
+        eventTypeId:eventType.id,guestName:booking.guestName.trim(),guestEmail:booking.guestEmail.trim(),
+        guestPhone:booking.guestPhone.trim()||undefined,notes:booking.notes.trim()||undefined,
+        startAt:start.toISOString(),endAt:new Date(start.getTime()+eventType.durationMinutes*60_000).toISOString(),
+        timezone:Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC',
+      })});
+    },
+    onSuccess:()=>{qc.invalidateQueries({queryKey:['appointments']});setShowBooking(false);
+      setBooking({eventTypeId:'',guestName:'',guestEmail:'',guestPhone:'',startAt:'',notes:''});
+      toast({title:'Appointment created'});},
   });
 
   const toggleDay = (day: string) => setForm(f => ({ ...f, availableDays: f.availableDays.includes(day) ? f.availableDays.filter(d => d !== day) : [...f.availableDays, day] }));
@@ -79,7 +99,10 @@ export default function MeetingScheduler() {
           <PageTitle>Meeting Scheduler</PageTitle>
           <PageDescription>Create booking pages and manage appointments</PageDescription>
         </div>
-        <Button className="bg-primary text-white" onClick={() => setShowAdd(true)}><Plus className="w-4 h-4 mr-2" /> New Event Type</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={()=>setShowBooking(true)} disabled={!eventTypes.some(type=>type.isActive)}><Plus className="mr-2 h-4 w-4"/>New Appointment</Button>
+          <Button className="bg-primary text-white" onClick={() => setShowAdd(true)}><Plus className="w-4 h-4 mr-2" /> New Event Type</Button>
+        </div>
       </div>
 
       <div className="flex gap-1 overflow-x-auto border-b">
@@ -219,6 +242,27 @@ export default function MeetingScheduler() {
                 <Button size="sm" variant="outline" onClick={()=>updateAppt.mutate({id:selectedAppointment.id,status:'cancelled'})} disabled={updateAppt.isPending}>Cancel appointment</Button></>}
             </div>
           </div>}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showBooking} onOpenChange={setShowBooking}>
+        <DialogContent className="max-h-[90dvh] max-w-md overflow-y-auto">
+          <DialogHeader><DialogTitle>New Appointment</DialogTitle></DialogHeader>
+          <form className="space-y-4" onSubmit={event=>{event.preventDefault();createAppointment.mutate()}}>
+            <div className="space-y-1"><Label htmlFor="booking-event">Event type</Label>
+              <Select value={booking.eventTypeId} onValueChange={value=>setBooking(current=>({...current,eventTypeId:value}))}>
+                <SelectTrigger id="booking-event"><SelectValue placeholder="Choose an event type"/></SelectTrigger>
+                <SelectContent>{eventTypes.filter(type=>type.isActive).map(type=><SelectItem key={type.id} value={type.id}>{type.title} ({type.durationMinutes} min)</SelectItem>)}</SelectContent>
+              </Select></div>
+            <div className="space-y-1"><Label htmlFor="booking-name">Guest name</Label><Input id="booking-name" required maxLength={200} value={booking.guestName} onChange={event=>setBooking(current=>({...current,guestName:event.target.value}))}/></div>
+            <div className="space-y-1"><Label htmlFor="booking-email">Guest email</Label><Input id="booking-email" type="email" required maxLength={320} value={booking.guestEmail} onChange={event=>setBooking(current=>({...current,guestEmail:event.target.value}))}/></div>
+            <div className="space-y-1"><Label htmlFor="booking-phone">Guest phone</Label><Input id="booking-phone" type="tel" maxLength={40} value={booking.guestPhone} onChange={event=>setBooking(current=>({...current,guestPhone:event.target.value}))}/></div>
+            <div className="space-y-1"><Label htmlFor="booking-start">Start time</Label><Input id="booking-start" type="datetime-local" required value={booking.startAt} onChange={event=>setBooking(current=>({...current,startAt:event.target.value}))}/></div>
+            <div className="space-y-1"><Label htmlFor="booking-notes">Notes</Label><Textarea id="booking-notes" maxLength={5000} value={booking.notes} onChange={event=>setBooking(current=>({...current,notes:event.target.value}))}/></div>
+            {createAppointment.error&&<p role="alert" className="text-sm text-red-600">{String(createAppointment.error)}</p>}
+            <DialogFooter><Button type="button" variant="outline" onClick={()=>setShowBooking(false)}>Cancel</Button>
+              <Button type="submit" disabled={!booking.eventTypeId||createAppointment.isPending}>{createAppointment.isPending?'Creating...':'Create appointment'}</Button></DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
