@@ -100,9 +100,11 @@ test('the tenancy migrations restrict every client table for clients and assigne
     const foundation=readFileSync(new URL('../supabase/migrations/20261026_01_client_tenancy_foundation.sql',import.meta.url),'utf8');
     const accountGuard=readFileSync(new URL('../supabase/migrations/20261102_02_sub_account_rls.sql',import.meta.url),'utf8');
     const mfaGuard=readFileSync(new URL('../supabase/migrations/20261102_09_agency_mfa_rls.sql',import.meta.url),'utf8');
+    const billingGuard=readFileSync(new URL('../supabase/migrations/20261107_03_staff_billing_rls.sql',import.meta.url),'utf8');
     await db.exec(foundation);await db.exec(foundation);
     await db.exec(accountGuard);await db.exec(accountGuard);
     await db.exec(mfaGuard);await db.exec(mfaGuard);
+    await db.exec(billingGuard);await db.exec(billingGuard);
     await db.exec(`insert into public.sub_account_assignments(sub_account_id,user_id,role_in_account)
       values('${accountA}','${staff}','marketing');`);
     for(const [index,table] of scopedTables.entries()){
@@ -140,7 +142,9 @@ test('the tenancy migrations restrict every client table for clients and assigne
       for(const table of scopedTables){
         const rows=await db.query<{client_account_id:string|null}>(
           `select client_account_id from public.${table} order by client_account_id nulls last`);
-        assert.deepEqual(rows.rows.map(row=>row.client_account_id),expected,`${table} for ${user}`);
+        const visible=[staff,clientStaff,unassignedStaff].includes(user)
+          &&['invoices','invoice_items'].includes(table)?[]:expected;
+        assert.deepEqual(rows.rows.map(row=>row.client_account_id),visible,`${table} for ${user}`);
         if(user===clientA){
           const changed=await db.query(`update public.${table} set client_account_id=$1
             where client_account_id=$2 returning id`,[accountA,accountB]);

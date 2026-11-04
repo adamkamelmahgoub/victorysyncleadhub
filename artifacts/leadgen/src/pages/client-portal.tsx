@@ -19,12 +19,12 @@ type Section = {id:string;type:SectionType;heading?:string;body?:string;eyebrow?
   items?:string[];hidden?:boolean;blocks?:Array<{id:string;type:string;heading?:string;body?:string;
     imageUrl?:string;hidden?:boolean;attested?:boolean}>};
 type Theme = {background:string;foreground:string;accent:string;font:'sans'|'serif'};
-type Account = {id:string;name:string;health_score:number;leads_this_week:number;overdue_tasks:number;failed_payments:number;last_active_at:string|null};
+type Account = {id:string;name:string;health_score:number;leads_this_week:number;overdue_tasks:number;failed_payments:number|null;last_active_at:string|null};
 type ClosedCompany = {id:string;name:string;email:string|null;contact_name:string|null};
 type Accounts = {accounts:Account[];selected:{accountId:string|null;viewAsClient:boolean}|null};
 type AgencyAccount = {id:string;name:string;package:string|null;launch_date:string|null;health_score:number;
-  mrr_cents:number;account_manager:string;leads_month:number;goal_value:number|null;overdue_tasks:number;
-  failed_payments:number;last_active_at:string|null;response_seconds:number|null;answered_minutes:number;
+  mrr_cents:number|null;account_manager:string;leads_month:number;goal_value:number|null;overdue_tasks:number;
+  failed_payments:number|null;last_active_at:string|null;response_seconds:number|null;answered_minutes:number;
   answering_hours_limit:number;texts_sent:number;ai_tokens:number};
 type FailedRun = {id:string;account_name:string;step:string;error:string|null;started_at:string;kind:string|null;attempts:number|null};
 type Feature = {feature_key:string;user_id:string|null;enabled:boolean};
@@ -103,12 +103,12 @@ function AgencyOperations({admin,onOpen,onViewAs}:{admin:boolean;onOpen:(id:stri
   if(error) return <Card role="alert" className="p-5 text-sm text-red-600">{String(error)}</Card>;
   return <div className="space-y-5">
     {admin&&<ProviderReadinessPanel/>}
-    <Card className="overflow-hidden"><div className="border-b p-5"><h2 className="font-semibold">Accounts overview</h2><p className="mt-1 text-sm text-muted-foreground">Health, revenue, usage, and account ownership.</p></div>
-      <div className="overflow-x-auto"><table className="w-full min-w-[1120px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr>{['Account','Package and launch','Health','MRR','Leads / goal','Answering','Texts / AI','Account manager','Actions'].map(x=><th key={x} className="px-4 py-3 font-medium">{x}</th>)}</tr></thead>
-      <tbody>{(accounts||[]).map(a=><tr key={a.id} className="border-t align-top"><td className="px-4 py-4"><p className="font-medium">{a.name}</p><p className="mt-1 text-xs text-muted-foreground">{a.overdue_tasks} overdue tasks · {a.failed_payments} failed payments</p><p className="text-xs text-muted-foreground">Last login: {a.last_active_at?new Date(a.last_active_at).toLocaleDateString():'Never'}</p></td>
+    <Card className="overflow-hidden"><div className="border-b p-5"><h2 className="font-semibold">Accounts overview</h2><p className="mt-1 text-sm text-muted-foreground">{admin?'Health, revenue, usage, and account ownership.':'Health, usage, and account ownership.'}</p></div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[1120px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr>{['Account','Package and launch','Health',...(admin?['MRR']:[]),'Leads / goal','Answering','Texts / AI','Account manager','Actions'].map(x=><th key={x} className="px-4 py-3 font-medium">{x}</th>)}</tr></thead>
+      <tbody>{(accounts||[]).map(a=><tr key={a.id} className="border-t align-top"><td className="px-4 py-4"><p className="font-medium">{a.name}</p><p className="mt-1 text-xs text-muted-foreground">{a.overdue_tasks} overdue tasks{admin&&<> · {a.failed_payments} failed payments</>}</p><p className="text-xs text-muted-foreground">Last login: {a.last_active_at?new Date(a.last_active_at).toLocaleDateString():'Never'}</p></td>
         <td className="px-4 py-4">{nice(a.package||'starter')}<p className="text-xs text-muted-foreground">{a.launch_date||'Launch not set'}</p></td>
         <td className="px-4 py-4"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${a.health_score>=75?'bg-green-100 text-green-700':a.health_score>=50?'bg-amber-100 text-amber-700':'bg-red-100 text-red-700'}`}>{a.health_score}/100</span><p className="mt-2 text-xs text-muted-foreground">Response: {a.response_seconds===null?'No data':`${a.response_seconds}s`}</p></td>
-        <td className="px-4 py-4">${(a.mrr_cents/100).toFixed(2)}{admin&&<div className="mt-2 flex gap-1"><Input aria-label={`MRR for ${a.name}`} className="h-8 w-20" type="number" min="0" step="0.01" value={mrr[a.id]??String(a.mrr_cents/100)} onChange={e=>setMrr(old=>({...old,[a.id]:e.target.value}))}/><Button size="sm" variant="outline" disabled={action.isPending} onClick={()=>action.mutate({action:'set_account_mrr',accountId:a.id,mrrCents:Math.round(Number(mrr[a.id]??a.mrr_cents/100)*100)})}>Save</Button></div>}</td>
+        {admin&&<td className="px-4 py-4">${((a.mrr_cents??0)/100).toFixed(2)}<div className="mt-2 flex gap-1"><Input aria-label={`MRR for ${a.name}`} className="h-8 w-20" type="number" min="0" step="0.01" value={mrr[a.id]??String((a.mrr_cents??0)/100)} onChange={e=>setMrr(old=>({...old,[a.id]:e.target.value}))}/><Button size="sm" variant="outline" disabled={action.isPending} onClick={()=>action.mutate({action:'set_account_mrr',accountId:a.id,mrrCents:Math.round(Number(mrr[a.id]??(a.mrr_cents??0)/100)*100)})}>Save</Button></div></td>}
         <td className="px-4 py-4">{a.leads_month} / {a.goal_value??'No goal'}</td><td className="px-4 py-4">{(a.answered_minutes/60).toFixed(1)} / {a.answering_hours_limit||'No limit'} hours</td><td className="px-4 py-4">{a.texts_sent} texts<p className="text-xs text-muted-foreground">{a.ai_tokens} tokens</p></td><td className="px-4 py-4">{a.account_manager}</td>
         <td className="space-y-1 px-4 py-4"><Button size="sm" onClick={()=>onOpen(a.id)}>Open</Button>{admin&&<><Button size="sm" variant="outline" onClick={()=>onViewAs(a.id)}>View as client</Button><Button size="sm" variant="outline" disabled={action.isPending} onClick={()=>action.mutate({action:'apply_template',accountId:a.id,template:a.package||'starter'})}>Apply template</Button></>}</td></tr>)}</tbody></table></div>
       {!accounts?.length&&<p className="p-5 text-sm text-muted-foreground">No assigned accounts yet.</p>}</Card>
