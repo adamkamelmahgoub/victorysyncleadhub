@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {PGlite} from '@electric-sql/pglite';
-import {formLandingLookupSql,leadDedupeLockKeys,pageDailyStatsSql,safeHref,validatedFields,validatedSections,validateSubmission} from '../lib/marketing-routes/marketing.js';
+import {formLandingLookupSql,formSubmissionLockKey,leadDedupeLockKeys,pageDailyStatsSql,safeHref,validatedFields,validatedSections,validateSubmission} from '../lib/marketing-routes/marketing.js';
 
 test('lead dedupe locks use account, normalized phone and email in a stable order',()=>{
   const account='10000000-0000-4000-8000-000000000001';
@@ -10,6 +10,23 @@ test('lead dedupe locks use account, normalized phone and email in a stable orde
     `form-lead:${account}:phone:5125550101`]);
   assert.deepEqual(leadDedupeLockKeys(account,'5125550101','person@example.com'),keys);
   assert.notDeepEqual(leadDedupeLockKeys(null,'5125550101','person@example.com'),keys);
+});
+
+test('submission retries serialize by form and key before checking the unique row',async()=>{
+  const formA='10000000-0000-4000-8000-000000000001';
+  const formB='10000000-0000-4000-8000-000000000002';
+  const first=formSubmissionLockKey(formA,'browser-retry');
+  assert.equal(first,formSubmissionLockKey(formA,'browser-retry'));
+  assert.notEqual(first,formSubmissionLockKey(formB,'browser-retry'));
+  assert.notEqual(first,formSubmissionLockKey(formA,'new-submit'));
+  const db=new PGlite();
+  try{
+    await db.exec('begin');
+    const locked=await db.query<{locked:boolean}>(
+      'select pg_try_advisory_xact_lock(hashtextextended($1,0)) locked',[first]);
+    assert.equal(locked.rows[0].locked,true);
+    await db.exec('rollback');
+  }finally{await db.close();}
 });
 
 test('form fields validate types, select choices, and lead mappings',()=>{

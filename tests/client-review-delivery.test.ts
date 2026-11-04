@@ -5,7 +5,8 @@ const accountId='10000000-0000-4000-8000-000000000001';
 const leadId='20000000-0000-4000-8000-000000000001';
 const requestId='30000000-0000-4000-8000-000000000001';
 const jobId='40000000-0000-4000-8000-000000000001';
-type Scenario={kind:'review_request'|'review_reminder';leadPhone:string;dnc?:boolean;clicked?:boolean};
+type Scenario={kind:'review_request'|'review_reminder';leadPhone:string;dnc?:boolean;clicked?:boolean;
+  source?:'lead'|'request';optInSource?:string;requestStatus?:string;smsClaimDenied?:boolean};
 
 async function runScenario(scenario:Scenario){
   const envKeys=['VERCEL_ENV','CLIENT_DELIVERY_SANDBOX','CLIENT_DELIVERY_WORKER_SECRET','SUPABASE_URL',
@@ -18,8 +19,8 @@ async function runScenario(scenario:Scenario){
     MIGHTYCALL_SECRET_KEY:'test-user-key',RESEND_API_KEY:'test-resend-key',
     REPORT_FROM_EMAIL:'reports@example.test'});
   const originalFetch=globalThis.fetch;
-  const sent:{sms:string[];emails:string[];reminders:number;requestStatuses:string[];jobStatuses:string[];errors:string[]}={
-    sms:[],emails:[],reminders:0,requestStatuses:[],jobStatuses:[],errors:[]};
+  const sent:{sms:string[];emails:string[];reminders:number;requestsCreated:number;requestStatuses:string[];jobStatuses:string[];errors:string[]}={
+    sms:[],emails:[],reminders:0,requestsCreated:0,requestStatuses:[],jobStatuses:[],errors:[]};
   let claimed=false;
   globalThis.fetch=async(input,init)=>{
     const url=new URL(String(input));
@@ -35,20 +36,27 @@ async function runScenario(scenario:Scenario){
       claimed=true;
       return Response.json([{id:jobId,client_account_id:accountId,lead_id:leadId,
         workflow_id:'50000000-0000-4000-8000-000000000001',kind:scenario.kind,
-        source_id:`request:${requestId}`,attempts:1,payload:{}}]);
+        source_id:scenario.source==='lead'?`lead:${leadId}`:`request:${requestId}`,attempts:1,payload:{}}]);
     }
     if(url.pathname==='/rest/v1/rpc/client_delivery_enabled')return Response.json(true);
     if(url.pathname==='/rest/v1/rpc/client_phone_dnc')return Response.json(false);
-    if(url.pathname==='/rest/v1/review_requests'&&method==='GET')return Response.json([{
+    if(url.pathname==='/rest/v1/rpc/client_claim_sms_send')return Response.json(!scenario.smsClaimDenied);
+    if(url.pathname==='/rest/v1/rpc/client_mark_sms_send_sent')return Response.json(null);
+    if(url.pathname==='/rest/v1/review_requests'&&method==='GET')return Response.json(scenario.source==='lead'&&!scenario.requestStatus?[]:[{
       id:requestId,lead_id:leadId,contact_name:'Alex Customer',contact_phone:'+15125550101',
       contact_email:'wrong@example.test',click_token:'60000000-0000-4000-8000-000000000001',
-      clicked_at:scenario.clicked?'2026-10-16T00:00:00Z':null}]);
+      clicked_at:scenario.clicked?'2026-10-16T00:00:00Z':null,status:scenario.requestStatus||'pending'}]);
+    if(url.pathname==='/rest/v1/review_requests'&&method==='POST'){
+      sent.requestsCreated++;return Response.json([{id:requestId,lead_id:leadId,
+        contact_name:'Alex Customer',contact_phone:'+15125550101',contact_email:'alex@example.test',
+        click_token:'60000000-0000-4000-8000-000000000001',clicked_at:null,status:'pending'}]);
+    }
     if(url.pathname==='/rest/v1/review_requests'&&method==='PATCH'){
       sent.requestStatuses.push(String(body.status||'reminder'));return Response.json([]);
     }
     if(url.pathname==='/rest/v1/leads')return Response.json([{
       id:leadId,phone:scenario.leadPhone,email:'alex@example.test',first_name:'Alex',
-      dnc:!!scenario.dnc,source:'form',opt_in_source:'form'}]);
+      dnc:!!scenario.dnc,source:scenario.optInSource||'form',opt_in_source:scenario.optInSource||'form'}]);
     if(url.pathname==='/rest/v1/mightycall_sms_messages'&&method==='GET')return Response.json([]);
     if(url.pathname==='/rest/v1/mightycall_sms_messages'&&method==='POST')return Response.json([]);
     if(url.pathname==='/v4/auth/token')return Response.json({access_token:'test-mighty-token',expires_in:3600});
@@ -113,4 +121,26 @@ test('unclicked review request gets one reminder without another email',async()=
   assert.equal(result.reminders,0);
   assert.deepEqual(result.requestStatuses,['reminder']);
   assert.deepEqual(result.jobStatuses,['sent']);
+});
+
+test('Won review job does not create a request for an unconsented lead',async()=>{
+  const result=await runScenario({kind:'review_request',source:'lead',leadPhone:'+15125550101',optInSource:'import'});
+  assert.equal(result.requestsCreated,0);
+  assert.deepEqual(result.sms,[]);
+  assert.deepEqual(result.jobStatuses,['cancelled']);
+});
+
+test('Won review job skips an already sent request',async()=>{
+  const result=await runScenario({kind:'review_request',source:'lead',leadPhone:'+15125550101',requestStatus:'sent'});
+  assert.equal(result.requestsCreated,0);
+  assert.deepEqual(result.sms,[]);
+  assert.deepEqual(result.jobStatuses,['cancelled']);
+});
+
+test('uncertain SMS claim blocks an automatic duplicate',async()=>{
+  const result=await runScenario({kind:'review_request',leadPhone:'+15125550101',smsClaimDenied:true});
+  assert.deepEqual(result.sms,[]);
+  assert.deepEqual(result.emails,[]);
+  assert.deepEqual(result.jobStatuses,['failed']);
+  assert.match(result.errors[0],/outcome is uncertain/);
 });

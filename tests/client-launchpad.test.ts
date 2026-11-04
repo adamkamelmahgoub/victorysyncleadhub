@@ -21,11 +21,15 @@ test('client launchpad is account-scoped, reflects setup state, and is idempoten
     const sql=readFileSync(new URL('../supabase/migrations/20261031_06_client_launchpad.sql',import.meta.url),'utf8');
     await db.exec(sql);
     await db.exec(sql);
+    const update=readFileSync(new URL('../supabase/migrations/20261103_03_client_launchpad_navigation.sql',import.meta.url),'utf8');
+    await db.exec(update);
+    await db.exec(update);
     const result=(await db.query<{portal_launchpad:{accountName:string;steps:Array<{key:string;done:boolean}>}}>(
       "select public.portal_launchpad('10000000-0000-4000-8000-000000000001')")).rows[0].portal_launchpad;
     assert.equal(result.accountName,'Demo Plumbing');
     assert.deepEqual(Object.fromEntries(result.steps.map(step=>[step.key,step.done])),
       {phone:true,google:false,meta:false,reviews:true,page:false,workflow:true});
+    assert.equal(result.steps.find(step=>step.key==='workflow')?.path,'/automation');
     await db.exec(`create or replace function public.can_access_account(uuid) returns boolean language sql stable as $$ select false $$;`);
     await assert.rejects(()=>db.query("select public.portal_launchpad('10000000-0000-4000-8000-000000000001')"),/Access denied/);
   }finally{await db.close();}

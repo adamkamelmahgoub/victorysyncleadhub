@@ -29,3 +29,12 @@ export function readPortalSelection(cookieHeader:string|undefined,userId:string)
     return value;
   }catch{return null}
 }
+export function readSignedPortalSelection(cookieHeader:string|undefined):PortalSelection|null{
+  const raw=cookieHeader?.split(';').map(value=>value.trim()).find(value=>value.startsWith('vs_portal='))?.slice(10);
+  const body=raw?.split('.')[0];
+  if(!body)return null;
+  try{
+    const candidate=JSON.parse(Buffer.from(body,'base64url').toString()) as {userId?:unknown};
+    return typeof candidate.userId==='string'?readPortalSelection(cookieHeader,candidate.userId):null;
+  }catch{return null}
+}

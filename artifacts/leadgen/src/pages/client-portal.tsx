@@ -10,18 +10,22 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import type {SectionType} from '../../../../lib/landing-section-registry';
+import {portalDateRange,type PortalDateRange} from '../../../../lib/portal-date-range';
 
 type Page = {id:string;name:string;slug:string;public_slug?:string|null;status:'draft'|'published';seo_description:string;
   sections:Section[];theme:Theme;created_at:string};
-type Section = {id:string;type:'hero'|'text'|'features'|'image'|'cta'|'form';heading?:string;body?:string;
-  buttonText?:string;buttonUrl?:string;imageUrl?:string;formId?:string;items?:string[];hidden?:boolean};
+type Section = {id:string;type:SectionType;heading?:string;body?:string;eyebrow?:string;imageAlt?:string;
+  quote?:string;author?:string;buttonText?:string;buttonUrl?:string;imageUrl?:string;formId?:string;
+  items?:string[];hidden?:boolean;blocks?:Array<{id:string;type:string;heading?:string;body?:string;
+    imageUrl?:string;hidden?:boolean;attested?:boolean}>};
 type Theme = {background:string;foreground:string;accent:string;font:'sans'|'serif'};
-type Account = {id:string;name:string;health_score:number;leads_this_week:number;overdue_tasks:number;failed_payments:number;last_active_at:string|null};
+type Account = {id:string;name:string;health_score:number;leads_this_week:number;overdue_tasks:number;failed_payments:number|null;last_active_at:string|null};
 type ClosedCompany = {id:string;name:string;email:string|null;contact_name:string|null};
 type Accounts = {accounts:Account[];selected:{accountId:string|null;viewAsClient:boolean}|null};
 type AgencyAccount = {id:string;name:string;package:string|null;launch_date:string|null;health_score:number;
-  mrr_cents:number;account_manager:string;leads_month:number;goal_value:number|null;overdue_tasks:number;
-  failed_payments:number;last_active_at:string|null;response_seconds:number|null;answered_minutes:number;
+  mrr_cents:number|null;account_manager:string;leads_month:number;goal_value:number|null;overdue_tasks:number;
+  failed_payments:number|null;last_active_at:string|null;response_seconds:number|null;answered_minutes:number;
   answering_hours_limit:number;texts_sent:number;ai_tokens:number};
 type FailedRun = {id:string;account_name:string;step:string;error:string|null;started_at:string;kind:string|null;attempts:number|null};
 type Feature = {feature_key:string;user_id:string|null;enabled:boolean};
@@ -37,7 +41,7 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/,'');
 
 function nice(value:string) { return value.replace(/([a-z0-9])([A-Z])/g,'$1 $2').replace(/_/g,' ').replace(/\b\w/g,c => c.toUpperCase()); }
 type LaunchpadStep = {key:string;label:string;done:boolean;path:string};
-function Launchpad({accountId}:{accountId:string|null}) {
+function Launchpad({accountId,role,pagePermissions}:{accountId:string|null;role:string;pagePermissions:string[]|null}) {
   const {data,error,isLoading}=useQuery<{accountName:string;steps:LaunchpadStep[]}>({queryKey:['portal-launchpad',accountId],
     queryFn:()=>apiFetch('/api/portal?action=launchpad'),enabled:!!accountId,retry:false});
   if(!accountId)return <Card className="p-6">Select a client account to view the setup checklist.</Card>;
@@ -52,7 +56,7 @@ function Launchpad({accountId}:{accountId:string|null}) {
     <div className="grid gap-3 sm:grid-cols-2">{steps.map(step=><Card key={step.key} className="flex items-center gap-4 p-4 sm:p-5">
       {step.done?<CheckCircle2 className="h-6 w-6 shrink-0 text-emerald-600"/>:<Circle className="h-6 w-6 shrink-0 text-slate-400"/>}
       <div className="min-w-0 flex-1"><h3 className="font-medium">{step.label}</h3><p className="mt-1 text-xs text-muted-foreground">{step.done?'Complete':'Needs attention'}</p></div>
-      <Link href={step.path} className="shrink-0 text-sm font-medium text-blue-600 hover:underline">Open</Link>
+      {canAccessPath(step.path,pagePermissions,role)?<Link href={step.path} className="shrink-0 text-sm font-medium text-blue-600 hover:underline">Open</Link>:<span className="shrink-0 text-xs text-muted-foreground">Ask your account owner</span>}
     </Card>)}</div></div>;
 }
 function show(value:unknown) {
@@ -100,12 +104,12 @@ function AgencyOperations({admin,onOpen,onViewAs}:{admin:boolean;onOpen:(id:stri
   if(error) return <Card role="alert" className="p-5 text-sm text-red-600">{String(error)}</Card>;
   return <div className="space-y-5">
     {admin&&<ProviderReadinessPanel/>}
-    <Card className="overflow-hidden"><div className="border-b p-5"><h2 className="font-semibold">Accounts overview</h2><p className="mt-1 text-sm text-muted-foreground">Health, revenue, usage, and account ownership.</p></div>
-      <div className="overflow-x-auto"><table className="w-full min-w-[1120px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr>{['Account','Package and launch','Health','MRR','Leads / goal','Answering','Texts / AI','Account manager','Actions'].map(x=><th key={x} className="px-4 py-3 font-medium">{x}</th>)}</tr></thead>
-      <tbody>{(accounts||[]).map(a=><tr key={a.id} className="border-t align-top"><td className="px-4 py-4"><p className="font-medium">{a.name}</p><p className="mt-1 text-xs text-muted-foreground">{a.overdue_tasks} overdue tasks · {a.failed_payments} failed payments</p><p className="text-xs text-muted-foreground">Last login: {a.last_active_at?new Date(a.last_active_at).toLocaleDateString():'Never'}</p></td>
+    <Card className="overflow-hidden"><div className="border-b p-5"><h2 className="font-semibold">Accounts overview</h2><p className="mt-1 text-sm text-muted-foreground">{admin?'Health, revenue, usage, and account ownership.':'Health, usage, and account ownership.'}</p></div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[1120px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr>{['Account','Package and launch','Health',...(admin?['MRR']:[]),'Leads / goal','Answering','Texts / AI','Account manager','Actions'].map(x=><th key={x} className="px-4 py-3 font-medium">{x}</th>)}</tr></thead>
+      <tbody>{(accounts||[]).map(a=><tr key={a.id} className="border-t align-top"><td className="px-4 py-4"><p className="font-medium">{a.name}</p><p className="mt-1 text-xs text-muted-foreground">{a.overdue_tasks} overdue tasks{admin&&<> · {a.failed_payments} failed payments</>}</p><p className="text-xs text-muted-foreground">Last login: {a.last_active_at?new Date(a.last_active_at).toLocaleDateString():'Never'}</p></td>
         <td className="px-4 py-4">{nice(a.package||'starter')}<p className="text-xs text-muted-foreground">{a.launch_date||'Launch not set'}</p></td>
         <td className="px-4 py-4"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${a.health_score>=75?'bg-green-100 text-green-700':a.health_score>=50?'bg-amber-100 text-amber-700':'bg-red-100 text-red-700'}`}>{a.health_score}/100</span><p className="mt-2 text-xs text-muted-foreground">Response: {a.response_seconds===null?'No data':`${a.response_seconds}s`}</p></td>
-        <td className="px-4 py-4">${(a.mrr_cents/100).toFixed(2)}{admin&&<div className="mt-2 flex gap-1"><Input aria-label={`MRR for ${a.name}`} className="h-8 w-20" type="number" min="0" step="0.01" value={mrr[a.id]??String(a.mrr_cents/100)} onChange={e=>setMrr(old=>({...old,[a.id]:e.target.value}))}/><Button size="sm" variant="outline" disabled={action.isPending} onClick={()=>action.mutate({action:'set_account_mrr',accountId:a.id,mrrCents:Math.round(Number(mrr[a.id]??a.mrr_cents/100)*100)})}>Save</Button></div>}</td>
+        {admin&&<td className="px-4 py-4">${((a.mrr_cents??0)/100).toFixed(2)}<div className="mt-2 flex gap-1"><Input aria-label={`MRR for ${a.name}`} className="h-8 w-20" type="number" min="0" step="0.01" value={mrr[a.id]??String((a.mrr_cents??0)/100)} onChange={e=>setMrr(old=>({...old,[a.id]:e.target.value}))}/><Button size="sm" variant="outline" disabled={action.isPending} onClick={()=>action.mutate({action:'set_account_mrr',accountId:a.id,mrrCents:Math.round(Number(mrr[a.id]??(a.mrr_cents??0)/100)*100)})}>Save</Button></div></td>}
         <td className="px-4 py-4">{a.leads_month} / {a.goal_value??'No goal'}</td><td className="px-4 py-4">{(a.answered_minutes/60).toFixed(1)} / {a.answering_hours_limit||'No limit'} hours</td><td className="px-4 py-4">{a.texts_sent} texts<p className="text-xs text-muted-foreground">{a.ai_tokens} tokens</p></td><td className="px-4 py-4">{a.account_manager}</td>
         <td className="space-y-1 px-4 py-4"><Button size="sm" onClick={()=>onOpen(a.id)}>Open</Button>{admin&&<><Button size="sm" variant="outline" onClick={()=>onViewAs(a.id)}>View as client</Button><Button size="sm" variant="outline" disabled={action.isPending} onClick={()=>action.mutate({action:'apply_template',accountId:a.id,template:a.package||'starter'})}>Apply template</Button></>}</td></tr>)}</tbody></table></div>
       {!accounts?.length&&<p className="p-5 text-sm text-muted-foreground">No assigned accounts yet.</p>}</Card>
@@ -117,21 +121,15 @@ function AgencyOperations({admin,onOpen,onViewAs}:{admin:boolean;onOpen:(id:stri
 type Metrics = {account:{name:string;goal_metric:string|null;goal_value:number|null};newLeads:number;bookedJobs:number;
   answeredCalls:number;missedCallsRecovered:number;reviewsReceived:number;averageRating:number|null;
   adSpendCents:number;sourceBreakdown:Record<string,number>};
-function Dashboard({admin}:{admin:boolean}) {
-  const [range,setRange]=useState('this_week');
+function Dashboard({canManageSpend}:{canManageSpend:boolean}) {
+  const [range,setRange]=useState<PortalDateRange>('this_week');
   const [customFrom,setCustomFrom]=useState('');
   const [customTo,setCustomTo]=useState('');
-  const now=new Date();const start=new Date(now);const end=new Date(now);
-  if(range==='this_week'){start.setDate(now.getDate()-((now.getDay()+6)%7));start.setHours(0,0,0,0);end.setDate(start.getDate()+7);end.setHours(0,0,0,0)}
-  else if(range==='this_month'){start.setDate(1);start.setHours(0,0,0,0);end.setMonth(start.getMonth()+1,1);end.setHours(0,0,0,0)}
-  else if(range==='last_month'){start.setMonth(now.getMonth()-1,1);start.setHours(0,0,0,0);end.setDate(1);end.setHours(0,0,0,0)}
-  else {start.setTime(customFrom?new Date(`${customFrom}T00:00:00`).getTime():NaN);end.setTime(customTo?new Date(`${customTo}T00:00:00`).getTime():NaN);if(!Number.isNaN(end.getTime()))end.setDate(end.getDate()+1)}
-  const valid=!Number.isNaN(start.getTime())&&!Number.isNaN(end.getTime())&&start<end;
-  const from=valid?start.toISOString():'';const to=valid?end.toISOString():'';
+  const {valid,from,to}=portalDateRange(range,new Date(),customFrom,customTo);
   const {data,error,isLoading}=useQuery<Metrics>({queryKey:['portal-metrics',from,to],
     queryFn:()=>apiFetch(`/api/portal?action=metrics&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),enabled:valid,retry:false});
   const {data:spend}=useQuery<Array<{platform:string;month:string;amount_cents:number}>>({queryKey:['portal-ad-spend'],
-    queryFn:()=>apiFetch('/api/portal?action=ad_spend'),enabled:admin,retry:false});
+    queryFn:()=>apiFetch('/api/portal?action=ad_spend'),enabled:canManageSpend,retry:false});
   const [platform,setPlatform]=useState('google_ads');const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
   const [amount,setAmount]=useState('');const queryClient=useQueryClient();
   const saveSpend=useMutation({mutationFn:()=>apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'set_ad_spend',platform,month:`${month}-01`,amountCents:Math.round(Number(amount)*100)})}),
@@ -142,16 +140,34 @@ function Dashboard({admin}:{admin:boolean}) {
   const goalKey:Record<string,keyof Metrics>={new_leads:'newLeads',booked_jobs:'bookedJobs',answered_calls:'answeredCalls',missed_calls_recovered:'missedCallsRecovered',reviews_received:'reviewsReceived'};
   const goalMetric=data?.account.goal_metric||'';
   const goal=data?.account.goal_value?Number(data[(goalKey[goalMetric]||goalMetric) as keyof Metrics]||0):0;
-  return <div className="space-y-5"><div className="flex flex-wrap gap-2"><select aria-label="Dashboard date range" className="rounded border bg-white px-3 py-2 text-sm" value={range} onChange={event=>setRange(event.target.value)}>
+  return <div className="space-y-5"><div className="flex flex-wrap gap-2"><select aria-label="Dashboard date range" className="rounded border bg-white px-3 py-2 text-sm" value={range} onChange={event=>setRange(event.target.value as PortalDateRange)}>
     <option value="this_week">This week</option><option value="this_month">This month</option><option value="last_month">Last month</option><option value="custom">Custom</option></select>
     {range==='custom'&&<><input aria-label="Start date" type="date" className="rounded border px-2" value={customFrom} onChange={e=>setCustomFrom(e.target.value)}/><input aria-label="End date" type="date" className="rounded border px-2" value={customTo} onChange={e=>setCustomTo(e.target.value)}/></>}</div>
     {isLoading?<p>Loading dashboard...</p>:error?<p role="alert" className="text-red-600">{String(error)}</p>:values&&<><div className="grid grid-cols-2 gap-3 md:grid-cols-4">{Object.entries(values).map(([key,value])=><Card key={key} className="p-4"><p className="text-xs text-muted-foreground">{nice(key)}</p><p className="mt-2 text-2xl font-semibold">{value??'-'}</p></Card>)}</div>
+      {(data?.adSpendCents??0)>0&&<p className="text-xs text-slate-600">For partial months, monthly ad spend is spread evenly across the days in this range.</p>}
       {data?.account.goal_metric&&data.account.goal_value&&<Card className="p-4"><p className="text-sm">{nice(data.account.goal_metric)} goal: {goal} of {data.account.goal_value}</p><div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-200"><div className="h-full bg-blue-600" style={{width:`${Math.min(100,goal/data.account.goal_value*100)}%`}}/></div></Card>}
       <Card className="p-4"><h2 className="font-semibold">Lead sources</h2><div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">{Object.entries(data?.sourceBreakdown||{}).map(([source,count])=><p key={source} className="text-sm">{nice(source)}: {count}</p>)}</div></Card></>}
-    {admin&&<Card className="space-y-3 p-4"><h2 className="font-semibold">Monthly ad spend</h2><div className="flex flex-wrap gap-2"><select aria-label="Ad platform" className="rounded border px-2" value={platform} onChange={e=>setPlatform(e.target.value)}>{['google_ads','meta_ads','local_services','other'].map(x=><option key={x} value={x}>{nice(x)}</option>)}</select><input aria-label="Spend month" type="month" className="rounded border px-2" value={month} onChange={e=>setMonth(e.target.value)}/><Input aria-label="Spend in dollars" type="number" min="0" step="0.01" className="w-36" placeholder="USD" value={amount} onChange={e=>setAmount(e.target.value)}/><Button disabled={!amount||saveSpend.isPending} onClick={()=>saveSpend.mutate()}>Save spend</Button></div>{saveSpend.error&&<p role="alert" className="text-red-600">{String(saveSpend.error)}</p>}<p className="text-xs text-muted-foreground">{spend?.slice(0,4).map(x=>`${nice(x.platform)} ${x.month}: $${(x.amount_cents/100).toFixed(2)}`).join(' · ')}</p></Card>}
+    {canManageSpend&&<Card className="space-y-3 p-4"><h2 className="font-semibold">Monthly ad spend</h2><div className="flex flex-wrap gap-2"><select aria-label="Ad platform" className="rounded border px-2" value={platform} onChange={e=>setPlatform(e.target.value)}>{['google_ads','meta_ads','local_services','other'].map(x=><option key={x} value={x}>{nice(x)}</option>)}</select><input aria-label="Spend month" type="month" className="rounded border px-2" value={month} onChange={e=>setMonth(e.target.value)}/><Input aria-label="Spend in dollars" type="number" min="0" step="0.01" className="w-36" placeholder="USD" value={amount} onChange={e=>setAmount(e.target.value)}/><Button disabled={!amount||saveSpend.isPending} onClick={()=>saveSpend.mutate()}>Save spend</Button></div>{saveSpend.error&&<p role="alert" className="text-red-600">{String(saveSpend.error)}</p>}<p className="text-xs text-muted-foreground">{spend?.slice(0,4).map(x=>`${nice(x.platform)} ${x.month}: $${(x.amount_cents/100).toFixed(2)}`).join(' · ')}</p></Card>}
   </div>;
 }
 type LeadPage = {rows:Lead[];stages:{id:string;name:string}[];nextCursor?:{createdAt:string;id:string}|null};
+type TimelineEvent={event_type:string;body:string|null;metadata:Record<string,unknown>|null;created_at:string};
+function LeadTimelineEvent({event}:{event:TimelineEvent}){
+  const meta=event.metadata??{};
+  const fields=event.event_type==='form'&&meta.data&&typeof meta.data==='object'&&!Array.isArray(meta.data)
+    ?Object.entries(meta.data as Record<string,unknown>).filter(([,value])=>
+      ['string','number','boolean'].includes(typeof value)&&String(value).trim()).slice(0,20):[];
+  const details=[event.event_type==='text'&&typeof meta.direction==='string'?nice(meta.direction):null,
+    event.event_type==='call'&&typeof meta.outcome==='string'?nice(meta.outcome):null,
+    event.event_type==='call'&&typeof meta.duration_seconds==='number'?`${meta.duration_seconds}s`:null,
+    event.event_type==='email'&&typeof meta.subject==='string'?meta.subject:null].filter(Boolean);
+  return <div className="min-w-0 border-t py-3 text-sm"><p className="font-medium">{nice(event.event_type)} <span className="font-normal text-muted-foreground">{new Date(event.created_at).toLocaleString()}</span></p>
+    {details.length>0&&<p className="mt-1 text-xs text-muted-foreground">{details.join(' · ')}</p>}
+    {event.body&&<p className="mt-1 whitespace-pre-wrap break-words">{event.body}</p>}
+    {fields.length>0&&<dl className="mt-2 grid gap-x-3 gap-y-1 rounded-lg bg-slate-50 p-3 sm:grid-cols-2">{fields.map(([key,value])=><div key={key} className="min-w-0"><dt className="text-xs text-muted-foreground">{nice(key)}</dt><dd className="break-words">{String(value)}</dd></div>)}</dl>}
+    {typeof meta.recording_url==='string'&&<audio controls src={meta.recording_url} className="mt-2 w-full"/>}
+  </div>;
+}
 function LeadTable({data,readOnly}:{data:LeadPage;readOnly:boolean}) {
   const queryClient = useQueryClient();
   const [olderRows,setOlderRows]=useState<Lead[]>([]);
@@ -171,7 +187,7 @@ function LeadTable({data,readOnly}:{data:LeadPage;readOnly:boolean}) {
     onSuccess:() => queryClient.invalidateQueries({queryKey:['portal','leads']})});
   const valueChange=useMutation({mutationFn:(leadId:string)=>apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'set_job_value',leadId,value:Number(jobValue)})}),
     onSuccess:()=>{setJobValue('');void queryClient.invalidateQueries({queryKey:['portal-lead-timeline']})}});
-  const {data:timeline}=useQuery<{lead:Lead;events:Array<{event_type:string;body:string|null;metadata:Record<string,unknown>;created_at:string}>}>({
+  const {data:timeline,error:timelineError,isLoading:timelineLoading}=useQuery<{lead:Lead;events:TimelineEvent[]}>({
     queryKey:['portal-lead-timeline',selected],queryFn:()=>apiFetch(`/api/portal?action=lead_timeline&leadId=${selected}`),enabled:!!selected,retry:false});
   if (!allRows.length) return <Card className="p-8 text-center text-muted-foreground">No client leads yet.</Card>;
   const leadCard=(lead:Lead)=><Card key={lead.id} className="min-w-0 space-y-3 p-4">
@@ -191,7 +207,10 @@ function LeadTable({data,readOnly}:{data:LeadPage;readOnly:boolean}) {
     {loadOlder.error&&<p role="alert" className="text-red-600">Could not load older leads: {String(loadOlder.error)}</p>}
     {selected&&<Card className="space-y-3 p-4"><div className="flex justify-between"><h3 className="font-semibold">Lead timeline</h3><Button size="sm" variant="outline" onClick={()=>setSelected(null)}>Close</Button></div>
       <div className="flex flex-wrap gap-2"><Input aria-label="Job value" type="number" min="0" className="w-36" placeholder="Job value" value={jobValue} onChange={e=>setJobValue(e.target.value)}/><Button disabled={readOnly||!jobValue||valueChange.isPending} onClick={()=>valueChange.mutate(selected)}>Save job value</Button></div>
-      {timeline?.events.map((event,index)=><div key={index} className="border-t py-2 text-sm"><p className="font-medium">{nice(event.event_type)} <span className="font-normal text-muted-foreground">{new Date(event.created_at).toLocaleString()}</span></p><p>{event.body}</p>{typeof event.metadata.recording_url==='string'&&<audio controls src={event.metadata.recording_url} className="mt-2 w-full"/>}</div>)}</Card>}
+      {timelineLoading&&<p className="text-sm text-muted-foreground">Loading timeline...</p>}
+      {timelineError&&<p role="alert" className="text-sm text-red-600">Could not load timeline: {String(timelineError)}</p>}
+      {timeline&&!timeline.events.length&&<p className="text-sm text-muted-foreground">No activity yet.</p>}
+      {timeline?.events.map((event,index)=><LeadTimelineEvent key={`${event.created_at}-${event.event_type}-${index}`} event={event}/>)}</Card>}
     {change.error&&<p role="alert" className="text-red-600">{String(change.error)}</p>}
   </div>;
 }
@@ -265,12 +284,30 @@ function ReviewPanel({readOnly,accountId}:{readOnly:boolean;accountId:string|nul
   ].map(([label,value])=><Card key={label} className="p-4"><p className="text-xs text-slate-700">{label}</p><p className="mt-2 text-xl font-semibold">{value}</p></Card>)}</div>}<Card className="p-4"><h2 className="font-semibold">Rating trend</h2><div className="mt-3 flex items-end gap-3 overflow-x-auto">{summary?.trend.length?summary.trend.map(item=><div key={item.month} className="min-w-16 text-center text-xs"><div className="mx-auto w-10 rounded-t bg-blue-500" style={{height:`${Math.max(8,item.rating/5*90)}px`}}/><p className="mt-1">{item.month}</p><p>{item.rating.toFixed(1)} / 5</p><p>{item.count} reviews</p></div>):<p className="text-sm text-muted-foreground">No reviews in the past six months.</p>}</div></Card><ReviewList kind="reviews" accountId={accountId}/><ReviewList kind="requests" accountId={accountId}/></div>;
 }
 type ReportRow={id:string;type:string;period_start:string;period_end:string;status:string;work_done:string|null;whats_next:string|null;pdf_path:string|null};
-function ReportArchive({canEdit}:{canEdit:boolean}) {
+type ReportRecipient={id:string;email:string;name:string|null;active:boolean};
+function ReportRecipients(){
+  const queryClient=useQueryClient();
+  const [email,setEmail]=useState(''),[name,setName]=useState('');
+  const {data,error}=useQuery<ReportRecipient[]>({queryKey:['portal-report-recipients'],
+    queryFn:()=>apiFetch('/api/portal?action=report_recipients'),retry:false});
+  const save=useMutation({mutationFn:(recipient:{email:string;name:string;active:boolean})=>
+    apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'set_report_recipient',...recipient})}),
+    onSuccess:()=>{setEmail('');setName('');void queryClient.invalidateQueries({queryKey:['portal-report-recipients']})}});
+  return <Card className="space-y-3 p-4"><div><h2 className="font-semibold">Report recipients</h2>
+    <p className="mt-1 text-xs text-muted-foreground">Active recipients receive the account's weekly or monthly report. The account owner also receives it.</p></div>
+    {error&&<p role="alert" className="text-sm text-red-600">Could not load recipients: {String(error)}</p>}
+    {data?.map(recipient=><div key={recipient.id} className="flex flex-wrap items-center justify-between gap-2 border-t py-2 text-sm"><div><p className="font-medium">{recipient.name||recipient.email}</p><p className="text-muted-foreground">{recipient.email}</p></div>
+      <Button size="sm" variant="outline" disabled={save.isPending} onClick={()=>save.mutate({email:recipient.email,name:recipient.name||'',active:!recipient.active})}>{recipient.active?'Pause reports':'Resume reports'}</Button></div>)}
+    <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]"><Input aria-label="Recipient name" placeholder="Name" value={name} onChange={event=>setName(event.target.value)}/><Input aria-label="Recipient email" type="email" placeholder="Email" value={email} onChange={event=>setEmail(event.target.value)}/><Button disabled={save.isPending||!email.trim()} onClick={()=>save.mutate({email:email.trim(),name:name.trim(),active:true})}>Add recipient</Button></div>
+    {save.error&&<p role="alert" className="text-sm text-red-600">Could not save recipient: {String(save.error)}</p>}
+  </Card>;
+}
+function ReportArchive({canEdit,canManageRecipients}:{canEdit:boolean;canManageRecipients:boolean}) {
   const {data,error}=useQuery<ReportRow[]>({queryKey:['portal-report-archive'],queryFn:()=>apiFetch('/api/portal?action=reports'),retry:false});
   const queryClient=useQueryClient();const [draft,setDraft]=useState<Record<string,{workDone:string;whatsNext:string}>>({});
   const update=useMutation({mutationFn:(value:{reportId:string;send:boolean})=>{const row=data?.find(x=>x.id===value.reportId);const text=draft[value.reportId];return apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'update_report',reportId:value.reportId,workDone:text?.workDone??row?.work_done??'',whatsNext:text?.whatsNext??row?.whats_next??'',send:value.send})})},onSuccess:()=>void queryClient.invalidateQueries({queryKey:['portal-report-archive']})});
   async function download(reportId:string){const result=await apiFetch(`/api/portal?action=report_file&reportId=${reportId}`) as {url:string};window.open(result.url,'_blank','noopener,noreferrer')}
-  return <div className="space-y-3">{error&&<p role="alert" className="text-red-600">{String(error)}</p>}{!data?.length&&!error&&<Card className="p-6">No reports yet.</Card>}{data?.map(report=><Card key={report.id} className="space-y-3 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-semibold">{nice(report.type)} report</h3><p className="text-xs text-muted-foreground">{report.period_start} to {report.period_end} · {nice(report.status)}</p></div>{report.pdf_path&&<Button variant="outline" onClick={()=>void download(report.id)}>Download PDF</Button>}</div>
+  return <div className="space-y-3">{canManageRecipients&&<ReportRecipients/>}{error&&<p role="alert" className="text-red-600">{String(error)}</p>}{!data?.length&&!error&&<Card className="p-6">No reports yet.</Card>}{data?.map(report=><Card key={report.id} className="space-y-3 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-semibold">{nice(report.type)} report</h3><p className="text-xs text-muted-foreground">{report.period_start} to {report.period_end} · {nice(report.status)}</p></div>{report.pdf_path&&<Button variant="outline" onClick={()=>void download(report.id)}>Download PDF</Button>}</div>
     {report.status==='draft'&&canEdit?<><label className="text-sm">What we did<Textarea className="mt-1" value={draft[report.id]?.workDone??report.work_done??''} onChange={e=>setDraft(old=>({...old,[report.id]:{workDone:e.target.value,whatsNext:old[report.id]?.whatsNext??report.whats_next??''}}))}/></label><label className="text-sm">What's next<Textarea className="mt-1" value={draft[report.id]?.whatsNext??report.whats_next??''} onChange={e=>setDraft(old=>({...old,[report.id]:{workDone:old[report.id]?.workDone??report.work_done??'',whatsNext:e.target.value}}))}/></label><div className="flex gap-2"><Button variant="outline" disabled={update.isPending} onClick={()=>update.mutate({reportId:report.id,send:false})}>Save draft</Button><Button disabled={update.isPending||!(draft[report.id]?.workDone??report.work_done)?.trim()||!(draft[report.id]?.whatsNext??report.whats_next)?.trim()} onClick={()=>update.mutate({reportId:report.id,send:true})}>Send report</Button></div></>:<><p className="text-sm">{report.work_done}</p><p className="text-sm">{report.whats_next}</p></>}
   </Card>)}{update.error&&<p role="alert" className="text-red-600">{String(update.error)}</p>}</div>;
 }
@@ -285,7 +322,7 @@ function ClientSettings({readOnly}:{readOnly:boolean}) {
   useEffect(()=>{if(data)setForm({phone:data.phone||'',website:data.website||'',email:data.notifications?.email!==false,text:!!data.notifications?.text,alertPhone:data.notifications?.phone||''})},[data]);
   const save=useMutation({mutationFn:()=>apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'update_client_settings',phone:form?.phone||'',website:form?.website||'',notifications:{email:!!form?.email,text:!!form?.text,phone:form?.alertPhone||''}})})});
   if(!form)return <p>Loading settings...</p>;
-  return <Card className="space-y-3 p-4"><h2 className="font-semibold">Business and notifications</h2><div className="grid gap-3 sm:grid-cols-2"><label className="text-sm">Business phone<Input className="mt-1" value={form.phone} disabled={readOnly} onChange={e=>setForm(old=>old&&({...old,phone:e.target.value}))}/></label><label className="text-sm">Website<Input className="mt-1" value={form.website} disabled={readOnly} onChange={e=>setForm(old=>old&&({...old,website:e.target.value}))}/></label></div><label className="flex gap-2 text-sm"><input type="checkbox" checked={form.email} disabled={readOnly} onChange={e=>setForm(old=>old&&({...old,email:e.target.checked}))}/>Email new lead and missed-call alerts</label><label className="flex gap-2 text-sm"><input type="checkbox" checked={form.text} disabled={readOnly} onChange={e=>setForm(old=>old&&({...old,text:e.target.checked}))}/>Text new lead and missed-call alerts</label>{form.text&&<label className="text-sm">Alert mobile number<Input className="mt-1" placeholder="+1..." value={form.alertPhone} disabled={readOnly} onChange={e=>setForm(old=>old&&({...old,alertPhone:e.target.value}))}/></label>}<Button disabled={readOnly||save.isPending} onClick={()=>save.mutate()}>Save settings</Button>{save.error&&<p role="alert" className="text-red-600">{String(save.error)}</p>}{save.isSuccess&&<p className="text-green-700">Settings saved.</p>}</Card>;
+  return <Card className="space-y-3 p-4"><h2 className="font-semibold">Business and notifications</h2><div className="grid gap-3 sm:grid-cols-2"><label className="text-sm">Business phone<Input className="mt-1" value={form.phone} disabled={readOnly} onChange={e=>setForm(old=>old&&({...old,phone:e.target.value}))}/></label><label className="text-sm">Website<Input className="mt-1" value={form.website} disabled={readOnly} onChange={e=>setForm(old=>old&&({...old,website:e.target.value}))}/></label></div><label className="flex gap-2 text-sm"><input type="checkbox" checked={form.email} disabled={readOnly} onChange={e=>setForm(old=>old&&({...old,email:e.target.checked}))}/>Email new lead and missed-call alerts</label><label className="flex gap-2 text-sm"><input type="checkbox" checked={form.text} disabled={readOnly} onChange={e=>setForm(old=>old&&({...old,text:e.target.checked}))}/>Text new lead and missed-call alerts</label>{form.text&&<label className="text-sm">Alert mobile number<Input className="mt-1" placeholder="+1..." value={form.alertPhone} disabled={readOnly} onChange={e=>setForm(old=>old&&({...old,alertPhone:e.target.value}))}/></label>}{form.text&&!/^\+1\d{10}$/.test(form.alertPhone)&&<p role="alert" className="text-sm text-red-600">Enter a mobile number in +1XXXXXXXXXX format to enable text alerts.</p>}<Button disabled={readOnly||save.isPending||(form.text&&!/^\+1\d{10}$/.test(form.alertPhone))} onClick={()=>save.mutate()}>Save settings</Button>{save.error&&<p role="alert" className="text-red-600">{String(save.error)}</p>}{save.isSuccess&&<p className="text-green-700">Settings saved.</p>}</Card>;
 }
 function ReviewDelaySettings() {
   const {data}=useQuery<{reviewDelayHours:number}>({queryKey:['portal-client-settings'],queryFn:()=>apiFetch('/api/portal?action=client_settings'),retry:false});
@@ -398,7 +435,7 @@ function PageBuilder({initial,readOnly,onSaved}:{initial?:Page;readOnly:boolean;
         <button aria-label="Move up" disabled={readOnly||index===0} onClick={()=>move(index,-1)}><ArrowUp className="h-3 w-3"/></button>
         <button aria-label="Move down" disabled={readOnly||index===draft.sections.length-1} onClick={()=>move(index,1)}><ArrowDown className="h-3 w-3"/></button>
         <button aria-label={item.hidden?'Show section':'Hide section'} disabled={readOnly} onClick={()=>{setSelected(item.id);edit(old=>({...old,sections:old.sections.map(section=>section.id===item.id?{...section,hidden:!section.hidden}:section)}))}}>{item.hidden?<EyeOff className="h-3 w-3"/>:<Eye className="h-3 w-3"/>}</button>
-        <button aria-label="Duplicate section" disabled={readOnly||draft.sections.length>=40} onClick={()=>{const duplicate={...structuredClone(item),id:crypto.randomUUID()};edit(old=>({...old,sections:[...old.sections.slice(0,index+1),duplicate,...old.sections.slice(index+1)]}));setSelected(duplicate.id)}}><Copy className="h-3 w-3"/></button>
+        <button aria-label="Duplicate section" disabled={readOnly||draft.sections.length>=40} onClick={()=>{const duplicate={...structuredClone(item),id:crypto.randomUUID(),blocks:item.blocks?.map(block=>({...block,id:crypto.randomUUID()}))};edit(old=>({...old,sections:[...old.sections.slice(0,index+1),duplicate,...old.sections.slice(index+1)]}));setSelected(duplicate.id)}}><Copy className="h-3 w-3"/></button>
         <button aria-label="Delete section" disabled={readOnly} onClick={()=>{edit(old=>({...old,sections:old.sections.filter(section=>section.id!==item.id)}));if(selected===item.id)setSelected(null)}}><Trash2 className="h-3 w-3"/></button></div>)}
         <div className="grid grid-cols-2 gap-1">{sections.map(type=><Button key={type} size="sm" variant="outline" disabled={readOnly||draft.sections.length>=40} onClick={()=>{const item:Section={id:crypto.randomUUID(),type,heading:`New ${type} section`,body:''};edit(old=>({...old,sections:[...old.sections,item]}));setSelected(item.id)}}><Plus className="mr-1 h-3 w-3"/>{nice(type)}</Button>)}</div>
       </Card>
@@ -407,6 +444,7 @@ function PageBuilder({initial,readOnly,onSaved}:{initial?:Page;readOnly:boolean;
           {draft.sections.filter(item=>!item.hidden).map(item=><section key={item.id} onClick={()=>setSelected(item.id)} className={`cursor-pointer border-2 p-10 ${selected===item.id?'border-blue-500':'border-transparent'}`}>
             <h2 className="mb-3 text-3xl font-bold">{item.heading}</h2><p>{item.body}</p>
             {item.type==='features'&&<div className="mt-3 grid gap-2 sm:grid-cols-3">{item.items?.map((text,index)=><div key={index} className="rounded border p-3">{text}</div>)}</div>}
+            {!!item.blocks?.length&&<div className="mt-3 grid gap-2 sm:grid-cols-2">{item.blocks.filter(block=>!block.hidden).map(block=><div key={block.id} className="rounded border p-3"><h3 className="font-semibold">{block.heading}</h3><p>{block.body}</p></div>)}</div>}
             {item.type==='image'&&item.imageUrl&&<img alt={item.heading||''} src={item.imageUrl} className="mt-3 max-h-80 rounded object-cover"/>}
             {item.buttonText&&<span className="mt-4 inline-block rounded px-4 py-2 text-white" style={{background:draft.theme.accent}}>{item.buttonText}</span>}
           </section>)}</div></div>
@@ -532,9 +570,11 @@ export default function ClientPortal() {
   const path = location.replace(/^\/leadgen/,'');
   const current = path.split('/')[2] as PortalPage|undefined;
   const tab = pages.includes(current as PortalPage) ? current as PortalPage : null;
-  const agency = ['owner','admin','member','viewer','agent','agency_admin','agency_staff'].includes(role);
+  const agencyRole = ['owner','admin','member','viewer','agent','agency_admin','agency_staff'].includes(role);
   const {data:accounts,error:accountsError,isLoading:accountsLoading} = useQuery<Accounts>({queryKey:['portal-accounts'],queryFn:()=>apiFetch('/api/portal?action=accounts'),retry:false});
-  const admin = ['owner','admin','agency_admin'].includes(role);
+  const viewingAsClient=accounts?.selected?.viewAsClient===true;
+  const agency=agencyRole&&!viewingAsClient;
+  const admin=['owner','admin','agency_admin'].includes(role)&&!viewingAsClient;
   const {data:closedCompanies} = useQuery<ClosedCompany[]>({queryKey:['portal-closed-companies'],
     queryFn:()=>apiFetch('/api/portal?action=closed_companies'),enabled:admin&&!tab,retry:false});
   const [companyId,setCompanyId] = useState('');
@@ -552,13 +592,14 @@ export default function ClientPortal() {
   const {data:branding}=useQuery<{name:string;logoUrl:string|null;brand:{primary?:string;text?:string;background?:string}|null}>({queryKey:['portal-branding',selectedId],queryFn:()=>apiFetch('/api/portal?action=branding'),enabled:!!selectedId,retry:false});
   const {data:snapshot,error:pageError,isLoading:pageLoading} = useQuery<Snapshot>({queryKey:['portal',tab,selectedId],queryFn:()=>apiFetch(`/api/portal?action=snapshot&section=${tab}`),enabled:!!tab&&tab!=='launchpad'&&!!selectedId,retry:false});
   const {data:pageStats}=useQuery<Array<{id:string;visits:number;leads:number}>>({queryKey:['portal-page-stats',selectedId],queryFn:()=>apiFetch('/api/portal?action=page_stats'),enabled:tab==='pages'&&!!selectedId,retry:false});
+  const {data:pageEditAllowed=false}=useQuery<boolean>({queryKey:['portal-page-edit-allowed',selectedId],
+    queryFn:()=>apiFetch('/api/portal?action=page_edit_allowed'),enabled:tab==='pages'&&!!selectedId,retry:false});
   const [editing,setEditing] = useState<Page|undefined>();
   const [creating,setCreating] = useState(false);
   useEffect(()=>{setEditing(undefined);setCreating(false)},[tab,selectedId]);
   async function viewAs(accountId:string) {
     await apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'switch',accountId,viewAsClient:true})});
-    await queryClient.invalidateQueries({queryKey:['portal']});
-    await queryClient.invalidateQueries({queryKey:['portal-accounts']});
+    await queryClient.resetQueries();
     navigate('/client-portal/dashboard');
   }
   async function exportData() {
@@ -574,7 +615,7 @@ export default function ClientPortal() {
   if (!accounts) return null;
   const limited = role==='client_staff';
   return <div className="space-y-6"><div className="flex flex-wrap items-center gap-3 rounded-xl border p-4" style={{background:branding?.brand?.background||'#ffffff',borderColor:branding?.brand?.primary||undefined,color:branding?.brand?.text||undefined}}>{branding?.logoUrl?<img src={branding.logoUrl} alt={`${branding.name} logo`} className="h-12 w-12 rounded object-contain"/>:<div className="flex h-12 w-12 items-center justify-center rounded bg-blue-600 font-bold text-white">VS</div>}<div><h1 className="text-xl font-semibold sm:text-2xl">{branding?.name||'Victory Sync'} portal</h1><p className="text-xs opacity-70 sm:text-sm">Leads, calls, pages, reviews, reports, and billing.</p></div></div>
-    {accounts.selected?.viewAsClient&&<div className="flex items-center justify-between rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm"><span>Viewing as client. Changes are disabled.</span><Button size="sm" variant="outline" onClick={()=>void apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'switch',accountId:selectedId,viewAsClient:false})}).then(()=>queryClient.invalidateQueries({queryKey:['portal-accounts']})).then(()=>queryClient.invalidateQueries({queryKey:['portal']}))}>End client view</Button></div>}
+    {accounts.selected?.viewAsClient&&<div className="flex items-center justify-between rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm"><span>Viewing as client. Changes are disabled.</span><Button size="sm" variant="outline" onClick={()=>void apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'switch',accountId:selectedId,viewAsClient:false})}).then(()=>queryClient.resetQueries())}>End client view</Button></div>}
     {!tab && admin && <Card className="space-y-4 p-5"><div><h2 className="font-semibold">Add a client</h2><p className="mt-1 text-sm text-muted-foreground">Start with a new business or select a company already marked Client.</p></div>
       <div className="grid gap-3 sm:grid-cols-2"><label className="space-y-1 text-sm"><span>Existing client company</span><select aria-label="Existing client company" className="h-10 w-full rounded border px-3 text-sm" value={companyId} onChange={event=>{const id=event.target.value;setCompanyId(id);const company=closedCompanies?.find(item=>item.id===id);setOwnerEmail(company?.email||'');setOwnerName(company?.contact_name||'')}}><option value="">Create a new business</option>{closedCompanies?.map(company=><option key={company.id} value={company.id}>{company.name}</option>)}</select></label><label className="space-y-1 text-sm"><span>Package</span><select aria-label="Package" className="h-10 w-full rounded border px-3 text-sm" value={packageName} onChange={event=>setPackageName(event.target.value)}>{['starter','scale','domination','overflow','business_hours','coverage_247','appt_part_time','appt_full_time','revive','custom'].map(value=><option key={value} value={value}>{nice(value)}</option>)}</select></label></div>
       {!companyId&&<div className="grid gap-3 sm:grid-cols-3"><Input aria-label="Business name" placeholder="Business name" value={businessName} onChange={event=>setBusinessName(event.target.value)}/><Input aria-label="Business phone" placeholder="Business phone" value={businessPhone} onChange={event=>setBusinessPhone(event.target.value)}/><Input aria-label="Business website" placeholder="https://business.com" value={businessWebsite} onChange={event=>setBusinessWebsite(event.target.value)}/></div>}
@@ -585,20 +626,20 @@ export default function ClientPortal() {
       {createClient.data?.inviteUrl&&<div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm"><p className="font-medium">Client created. Email sending is not configured, so share this private invitation link with the owner. It expires in 7 days.</p><div className="flex flex-wrap gap-2"><Input aria-label="Client invitation link" readOnly value={createClient.data.inviteUrl} className="min-w-0 flex-1"/><Button variant="outline" onClick={()=>void navigator.clipboard.writeText(createClient.data.inviteUrl||'')}>Copy link</Button></div></div>}
       {createClient.data?.existing&&<p className="text-sm text-muted-foreground">This company already has a client account.</p>}
     </Card>}
-    {!tab && agency && <AgencyOperations admin={admin} onOpen={id=>void apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'switch',accountId:id,viewAsClient:false})}).then(()=>queryClient.invalidateQueries({queryKey:['portal-accounts']})).then(()=>navigate('/client-portal/dashboard'))} onViewAs={id=>void viewAs(id)}/>}
+    {!tab && agency && <AgencyOperations admin={admin} onOpen={id=>void apiFetch('/api/portal',{method:'POST',body:JSON.stringify({action:'switch',accountId:id,viewAsClient:false})}).then(()=>queryClient.resetQueries()).then(()=>navigate('/client-portal/dashboard'))} onViewAs={id=>void viewAs(id)}/>}
     {admin&&!tab&&<FeatureManager/>}
     {(!tab && !agency) && <p>Select an account to continue.</p>}
     {tab&&<><nav aria-label="Portal pages" className="flex gap-2 overflow-x-auto pb-2">{pages.filter(page=>canAccessPath(`/client-portal/${page}`,pagePermissions,role)).map(page=><Link key={page} href={`/client-portal/${page}`} className={`shrink-0 rounded-lg px-3 py-2 text-sm ${tab===page?'bg-blue-600 text-white':'border bg-white'}`}>{nice(page)}</Link>)}</nav>
-      {tab==='launchpad'?<Launchpad accountId={selectedId}/>:pageLoading?<p>Loading {tab}…</p>:pageError?<Card role="alert" className="p-6">{String(pageError)}</Card>:snapshot&&<>
+      {tab==='launchpad'?<Launchpad accountId={selectedId} role={role} pagePermissions={pagePermissions}/>:pageLoading?<p>Loading {tab}…</p>:pageError?<Card role="alert" className="p-6">{String(pageError)}</Card>:snapshot&&<>
         {['leads','calls','reviews','reports'].includes(tab)&&<div className="flex justify-end"><Button variant="outline" size="sm" disabled={snapshot.readOnly} onClick={()=>void exportData()}><Download className="mr-1 h-4 w-4"/>Export</Button></div>}
-        {tab==='dashboard'&&<Dashboard admin={admin}/>}
+        {tab==='dashboard'&&<Dashboard canManageSpend={admin||role==='agency_staff'||role==='member'}/>}
         {tab==='leads'&&<LeadTable data={snapshot.data as {rows:Lead[];stages:{id:string;name:string}[]}} readOnly={snapshot.readOnly||limited}/>}
-        {tab==='pages'&&<div className="space-y-4"><Button disabled={snapshot.readOnly} onClick={()=>{setCreating(true);setEditing(undefined)}}><Plus className="mr-1 h-4 w-4"/>New page</Button>{(creating||editing)?<PageBuilder key={editing?.id??'new'} initial={editing} readOnly={snapshot.readOnly} onSaved={()=>{setCreating(false);setEditing(undefined);void queryClient.invalidateQueries({queryKey:['portal','pages']});void queryClient.invalidateQueries({queryKey:['portal-page-stats']})}}/>:<div className="grid gap-3 md:grid-cols-2">{(snapshot.data as Page[]).map(page=>{const stats=pageStats?.find(x=>x.id===page.id);return <Card key={page.id} className="p-4"><h3 className="font-semibold">{page.name}</h3><p className="mb-2 text-xs text-muted-foreground">/{page.slug} · {page.status}</p><p className="mb-3 text-sm">{stats?.visits??0} visits · {stats?.leads??0} leads · {stats?.visits?((stats.leads/stats.visits)*100).toFixed(1):'0'}% conversion</p><div className="flex gap-2"><Button size="sm" variant="outline" onClick={()=>setEditing(page)}>{snapshot.readOnly?'View':'Edit'}</Button>{page.status==='published'&&<a aria-label={`Open ${page.name} published page`} href={`${BASE}/p/${page.public_slug||page.slug}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-white px-3 hover:bg-slate-50"><ExternalLink className="h-4 w-4"/></a>}</div></Card>})}</div>}</div>}
+        {tab==='pages'&&<div className="space-y-4"><Button disabled={snapshot.readOnly||!pageEditAllowed} onClick={()=>{setCreating(true);setEditing(undefined)}}><Plus className="mr-1 h-4 w-4"/>New page</Button>{(creating||editing)?<PageBuilder key={editing?.id??'new'} initial={editing} readOnly={snapshot.readOnly||!pageEditAllowed} onSaved={()=>{setCreating(false);setEditing(undefined);void queryClient.invalidateQueries({queryKey:['portal','pages']});void queryClient.invalidateQueries({queryKey:['portal-page-stats']})}}/>:<div className="grid gap-3 md:grid-cols-2">{(snapshot.data as Page[]).map(page=>{const stats=pageStats?.find(x=>x.id===page.id);return <Card key={page.id} className="p-4"><h3 className="font-semibold">{page.name}</h3><p className="mb-2 text-xs text-muted-foreground">/{page.slug} · {page.status}</p><p className="mb-3 text-sm">{stats?.visits??0} visits · {stats?.leads??0} leads · {stats?.visits?((stats.leads/stats.visits)*100).toFixed(1):'0'}% conversion</p><div className="flex gap-2"><Button size="sm" variant="outline" onClick={()=>setEditing(page)}>{pageEditAllowed&&!snapshot.readOnly?"Edit":"View"}</Button>{pageEditAllowed&&!snapshot.readOnly&&<Link href={`/landing-pages/${page.id}?from=client-portal`}><Button size="sm" variant="outline">Full builder</Button></Link>}{page.status==='published'&&<a aria-label={`Open ${page.name} published page`} href={`${BASE}/p/${page.public_slug||page.slug}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-white px-3 hover:bg-slate-50"><ExternalLink className="h-4 w-4"/></a>}</div></Card>})}</div>}</div>}
         {tab==='billing'&&<BillingPanel rows={snapshot.data as Record<string,unknown>[]} readOnly={snapshot.readOnly}/>}
-        {tab==='settings'&&<div className="space-y-4">{(admin||role==='client_owner')&&<ClientSettings readOnly={snapshot.readOnly}/>}{admin&&!snapshot.readOnly&&<AccountSettings value={snapshot.data as Record<string,unknown>} onSaved={()=>void queryClient.invalidateQueries({queryKey:['portal','settings']})}/>}{admin&&!snapshot.readOnly&&<ReviewDelaySettings/>}{admin&&<StaffAssignments/>}{(admin||role==='client_owner'||role==='client')&&<ClientStaffInvite/>}</div>}
+        {tab==='settings'&&<div className="space-y-4">{(admin||role==='client_owner'||viewingAsClient)&&<ClientSettings readOnly={snapshot.readOnly}/>}{admin&&!snapshot.readOnly&&<AccountSettings value={snapshot.data as Record<string,unknown>} onSaved={()=>void queryClient.invalidateQueries({queryKey:['portal','settings']})}/>}{admin&&!snapshot.readOnly&&<ReviewDelaySettings/>}{admin&&<StaffAssignments/>}{(admin||role==='client_owner'||role==='client')&&!viewingAsClient&&<ClientStaffInvite/>}</div>}
         {tab==='calls'&&<CallLog canEdit={agency&&!snapshot.readOnly} admin={admin&&!snapshot.readOnly}/>}
         {tab==='reviews'&&<ReviewPanel readOnly={snapshot.readOnly||limited} accountId={selectedId}/>}
-        {tab==='reports'&&<ReportArchive canEdit={agency&&!snapshot.readOnly}/>}
+        {tab==='reports'&&<ReportArchive canEdit={agency&&!snapshot.readOnly} canManageRecipients={(agency||role==='client_owner'||role==='client')&&!snapshot.readOnly}/>}
         {tab==='forms'&&<DataTable rows={snapshot.data as Record<string,unknown>[]}/>}
       </>}</>}
   </div>;

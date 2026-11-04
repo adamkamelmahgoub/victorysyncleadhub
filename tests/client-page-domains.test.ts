@@ -26,11 +26,13 @@ test('custom page host serves only its published page and never another slug',as
     published_theme:{primary:'#2563eb',text:'#172033',background:'#ffffff'},
     custom_domain:'client.example.com',variant_of:null,form_id:null,tracking:{},visits:0};
   let status=page.status;
+  let sections=page.sections;
+  let publishedSections:typeof page.published_sections|null=page.published_sections;
   const queries:string[]=[];
   mcpPool.query=(async(sql:string,params?:unknown[])=>{
     queries.push(sql);
-    if(sql.includes('lower(custom_domain)'))return {rows:params?.[0]==='client.example.com'?[{...page,status}]:[],rowCount:1};
-    if(sql.includes('where organization_id=$1 and slug=$2'))return {rows:[page],rowCount:1};
+    if(sql.includes('lower(custom_domain)'))return {rows:params?.[0]==='client.example.com'?[{...page,status,sections,published_sections:publishedSections}]:[],rowCount:1};
+    if(sql.includes('where organization_id=$1 and slug=$2'))return {rows:[{...page,status,sections,published_sections:publishedSections}],rowCount:1};
     if(sql.includes('variant_of=$1'))return {rows:[],rowCount:0};
     return {rows:[],rowCount:0};
   }) as typeof mcpPool.query;
@@ -47,6 +49,14 @@ test('custom page host serves only its published page and never another slug',as
     assert.equal(home.status,200);
     assert.match(home.content,/Published client page/);
     assert.doesNotMatch(home.content,/Private client page/);
+    sections=[{id:'hero',type:'hero',heading:'Unpublished new draft'}];
+    const unchanged=await invoke('/','client.example.com');
+    assert.match(unchanged.content,/Published client page/);
+    assert.doesNotMatch(unchanged.content,/Unpublished new draft/);
+    publishedSections=null;
+    assert.equal((await invoke('/','client.example.com')).status,404);
+    publishedSections=[{id:'hero',type:'hero',heading:'New public heading'}];
+    assert.match((await invoke('/','client.example.com')).content,/New public heading/);
     assert.equal((await invoke('/p/other','client.example.com')).status,404);
     assert.equal((await invoke('/p/plumbing','client.example.com')).status,200);
     assert.equal((await invoke('/p/plumbing','app.victorysync.com')).status,200);

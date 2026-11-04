@@ -67,6 +67,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
     const created=await rest<{accountId:string;inviteCode?:string;existing:boolean}>('rpc/portal_create_client',{
       p_company:session.metadata.company_id,p_package:session.metadata.package,
       p_owner_email:email,p_owner_name:name});
+    await rest('rpc/portal_apply_account_template',{p_account:created.accountId,p_template:session.metadata.package});
     if(session.customer)await rest(`sub_accounts?id=eq.${created.accountId}`,{stripe_customer_id:session.customer},'PATCH');
     if(!created.existing&&created.inviteCode){
       const from=process.env.INVITE_FROM_EMAIL,key=process.env.RESEND_API_KEY,origin=process.env.APP_URL;

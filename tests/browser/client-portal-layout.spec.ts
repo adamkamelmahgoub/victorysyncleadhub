@@ -52,6 +52,11 @@ test.beforeEach(async({page})=>{
         action==='reports'?[{id:'90000000-0000-4000-8000-000000000001',type:'monthly',
           period_start:'2026-09-01',period_end:'2026-09-30',status:'sent',work_done:'Updated campaign pages',
           whats_next:'Improve follow-up',pdf_path:'demo.pdf'}]:
+        action==='page_edit_allowed'?true:
+        action==='launchpad'?{accountName:'Demo Plumbing',steps:[
+          {key:'phone',label:'Connect your phone number',done:false,path:'/client-portal/settings'},
+          {key:'page',label:'Publish your first landing page',done:false,path:'/client-portal/pages'},
+          {key:'workflow',label:'Activate your first workflow',done:false,path:'/automation'}]}:
         action==='page_stats'?[{id:'50000000-0000-4000-8000-000000000001',visits:100,leads:12}]:[];
       return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});
     }
@@ -69,6 +74,101 @@ test('client dashboard fits the viewport and has no serious accessibility violat
   expect(result.violations.filter(item=>['critical','serious'].includes(item.impact||''))
     .flatMap(item=>item.nodes.map(node=>`${item.id}: ${node.target.join(' ')} ${node.html}`))).toEqual([]);
   await page.screenshot({path:testInfo.outputPath('client-dashboard.png'),fullPage:true});
+});
+
+test('client owner manages report recipients on desktop and mobile',async({page},testInfo)=>{
+  const recipients:Array<{id:string;email:string;name:string;active:boolean}>=[];
+  await page.route('**/api/portal**',route=>{
+    const request=route.request(),url=new URL(request.url());
+    if(request.method()==='GET'&&url.searchParams.get('action')==='report_recipients')
+      return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(recipients)});
+    if(request.method()==='POST'&&request.postDataJSON()?.action==='set_report_recipient'){
+      const input=request.postDataJSON() as {email:string;name:string;active:boolean};
+      const existing=recipients.find(item=>item.email===input.email);
+      if(existing)Object.assign(existing,input);
+      else recipients.push({id:'91000000-0000-4000-8000-000000000001',...input});
+      return route.fulfill({status:200,contentType:'application/json',body:'{"id":"91000000-0000-4000-8000-000000000001"}'});
+    }
+    return route.fallback();
+  });
+  await page.goto('/client-portal/reports');
+  await expect(page.getByRole('heading',{name:'Report recipients'})).toBeVisible();
+  await page.getByRole('textbox',{name:'Recipient name'}).fill('Office manager');
+  await page.getByRole('textbox',{name:'Recipient email'}).fill('office@example.test');
+  await page.getByRole('button',{name:'Add recipient'}).click();
+  await expect(page.getByText('office@example.test')).toBeVisible();
+  await page.getByRole('button',{name:'Pause reports'}).click();
+  await expect(page.getByRole('button',{name:'Resume reports'})).toBeVisible();
+  expect(recipients).toMatchObject([{email:'office@example.test',active:false}]);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);
+  await page.screenshot({path:testInfo.outputPath('report-recipients.png'),fullPage:true});
+});
+
+test('launchpad shows only reachable actions to client staff',async({page})=>{
+  const staffJwt=`${tokenPart({alg:'HS256',typ:'JWT'})}.${tokenPart({sub:userId,role:'authenticated',
+    crm_role:'client_staff',crm_client_account_id:accountId,exp:4102444800})}.test-signature`;
+  await page.addInitScript(value=>{
+    const key='sb-supabase-auth-token',session=JSON.parse(localStorage.getItem(key)||'{}');
+    localStorage.setItem(key,JSON.stringify({...session,access_token:value}));
+  },staffJwt);
+  await page.goto('/client-portal/launchpad');
+  await expect(page.getByRole('heading',{name:'Set up Demo Plumbing'})).toBeVisible();
+  await expect(page.getByRole('link',{name:'Open'})).toHaveCount(0);
+  await expect(page.getByText('Ask your account owner')).toHaveCount(3);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);
+});
+
+test('account switcher is available in the top bar without clipping the portal',async({page})=>{
+  await page.goto('/client-portal/dashboard');
+  const switcher=page.locator('header').getByRole('combobox',{name:'Selected client account'});
+  await expect(switcher).toBeVisible();
+  await expect(switcher).toHaveValue(accountId);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);
+});
+
+test('agency top-bar switcher searches assigned client accounts',async({page})=>{
+  const agencyJwt=`${tokenPart({alg:'HS256',typ:'JWT'})}.${tokenPart({sub:userId,role:'authenticated',
+    crm_role:'agency_admin',aal:'aal2',exp:4102444800})}.test-signature`;
+  await page.addInitScript(value=>{
+    const key='sb-supabase-auth-token',session=JSON.parse(localStorage.getItem(key)||'{}');
+    localStorage.setItem(key,JSON.stringify({...session,access_token:value}));
+  },agencyJwt);
+  const accounts=Array.from({length:5},(_,index)=>({id:`10000000-0000-4000-8000-00000000000${index+1}`,
+    name:index===4?'Westside HVAC':`Client ${index+1}`,health_score:80,leads_this_week:0,
+    overdue_tasks:0,failed_payments:0}));
+  let switched:string|null=null;
+  await page.route('**/api/portal',route=>{
+    if(route.request().method()!=='POST')return route.fallback();
+    const body=route.request().postDataJSON() as {action?:string;accountId?:string};
+    if(body.action!=='switch')return route.fallback();
+    switched=body.accountId||null;
+    return route.fulfill({status:200,contentType:'application/json',body:'{}'});
+  });
+  await page.route('**/api/portal?action=accounts',route=>route.fulfill({status:200,
+    contentType:'application/json',body:JSON.stringify({accounts,selected:{accountId,viewAsClient:false}})}));
+  await page.goto('/client-portal/dashboard');
+  const header=page.locator('header');
+  await header.getByRole('textbox',{name:'Search client accounts'}).fill('Westside');
+  const switcher=header.getByRole('combobox',{name:'Selected client account'});
+  await expect(switcher.getByRole('option')).toHaveCount(3);
+  await expect(switcher.getByRole('option',{name:'Agency view'})).toBeAttached();
+  await expect(switcher.getByRole('option',{name:'Westside HVAC'})).toBeAttached();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);
+  await switcher.selectOption(accounts[4].id);
+  await expect.poll(()=>switched).toBe(accounts[4].id);
+});
+
+test('client page editing flag controls the full builder and quick editor',async({page})=>{
+  await page.goto('/client-portal/pages');
+  await expect(page.getByRole('button',{name:'Full builder'})).toBeVisible();
+  await expect(page.getByRole('link',{name:'Full builder'})).toHaveAttribute('href',
+    '/landing-pages/50000000-0000-4000-8000-000000000001?from=client-portal');
+  await page.route('**/api/portal?action=page_edit_allowed',route=>route.fulfill({status:200,
+    contentType:'application/json',body:'false'}));
+  await page.reload();
+  await expect(page.getByRole('button',{name:'Full builder'})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'New page'})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'View'})).toBeVisible();
 });
 
 test('client owner can move a lead to Won, save a note, and record job value',async({page})=>{
@@ -97,7 +197,13 @@ test('client owner can move a lead to Won, save a note, and record job value',as
     if(action==='lead_timeline')return route.fulfill({status:200,contentType:'application/json',
       body:JSON.stringify({lead:{...lead,pipeline_stage_id:stage,notes:note},events:[{
         event_type:'call',body:'Customer booked a repair',created_at:'2026-10-15T12:00:00Z',
-        metadata:{recording_url:'https://example.test/recording.mp3'}}]})});
+        metadata:{recording_url:'https://example.test/recording.mp3',outcome:'booked',duration_seconds:120}},
+        {event_type:'form',body:null,created_at:'2026-10-15T11:00:00Z',
+          metadata:{data:{service_needed:'Water heater repair',zip_code:'78701'}}},
+        {event_type:'text',body:'We can visit tomorrow.',created_at:'2026-10-15T10:00:00Z',
+          metadata:{direction:'outbound'}},
+        {event_type:'email',body:'Your request is confirmed.',created_at:'2026-10-15T09:00:00Z',
+          metadata:{subject:'Service request'}}]})});
     return route.fallback();
   });
   await page.goto('/client-portal/leads');
@@ -111,10 +217,42 @@ test('client owner can move a lead to Won, save a note, and record job value',as
   await page.getByRole('button',{name:'Timeline'}).click();
   await expect(page.getByText('Customer booked a repair')).toBeVisible();
   await expect(page.locator('audio[controls]')).toHaveCount(1);
+  await expect(page.getByText('Water heater repair')).toBeVisible();
+  await expect(page.getByText('Zip Code')).toBeVisible();
+  await expect(page.getByText('We can visit tomorrow.')).toBeVisible();
+  await expect(page.getByText('Service request')).toBeVisible();
   await page.getByRole('spinbutton',{name:'Job value'}).fill('1250');
   await page.getByRole('button',{name:'Save job value'}).click();
   await expect.poll(()=>writes.some(x=>x.action==='set_job_value'&&x.value===1250)).toBe(true);
   expect(writes.filter(x=>x.action==='change_lead').map(x=>x.leadId)).toEqual([lead.id,lead.id]);
+});
+
+test('client owner must enter an alert phone before enabling text notifications',async({page})=>{
+  let saved:Record<string,unknown>|null=null;
+  await page.route('**/api/portal*',route=>{
+    const request=route.request();
+    const url=new URL(request.url());
+    if(url.searchParams.get('action')==='client_settings')return route.fulfill({status:200,
+      contentType:'application/json',body:JSON.stringify({name:'Demo Plumbing',phone:'',website:'',
+        notifications:{email:true,text:false,phone:''}})});
+    if(request.method()==='POST'){
+      const body=request.postDataJSON() as Record<string,unknown>;
+      if(body.action==='update_client_settings'){
+        saved=body;
+        return route.fulfill({status:200,contentType:'application/json',body:'{}'});
+      }
+    }
+    return route.fallback();
+  });
+  await page.goto('/client-portal/settings');
+  await page.getByRole('checkbox',{name:'Text new lead and missed-call alerts'}).check();
+  await expect(page.getByRole('alert').filter({hasText:'Enter a mobile number'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Save settings'})).toBeDisabled();
+  await page.getByRole('textbox',{name:'Alert mobile number'}).fill('+15125550123');
+  await page.getByRole('button',{name:'Save settings'}).click();
+  await expect.poll(()=>saved).toMatchObject({action:'update_client_settings',
+    notifications:{email:true,text:true,phone:'+15125550123'}});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);
 });
 
 test('client lead list and board load older account leads',async({page})=>{

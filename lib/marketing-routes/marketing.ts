@@ -22,6 +22,9 @@ export function leadDedupeLockKeys(accountId:string|null,phone:string,email:stri
     ...(email?[`form-lead:${scope}:email:${email.trim().toLowerCase()}`]:[])];
   return [...new Set(keys)].sort();
 }
+export function formSubmissionLockKey(formId:string,submissionKey:string){
+  return `form-submission:${formId}:${submissionKey}`;
+}
 export const pageDailyStatsSql=`select created_at::date AS day,count(*) filter(where event_type='view')::integer views,
         count(*) filter(where event_type='form_submit')::integer submissions from public.landing_page_events
         where landing_page_id=$1 and organization_id=$2 and created_at>=now()-interval '30 days' group by 1 order by 1`;
@@ -40,7 +43,7 @@ async function body(req:IncomingMessage,max=65536){let text='';for await(const c
   const type=String(req.headers['content-type']||'');if(type.includes('application/json'))return JSON.parse(text||'{}') as Record<string,unknown>;
   if(type.includes('application/x-www-form-urlencoded'))return Object.fromEntries(new URLSearchParams(text));
   throw new Error('Send JSON or a standard HTML form');}
-async function actor(req:IncomingMessage,permission:'forms'|'landing-pages'){
+export async function actor(req:IncomingMessage,permission:'forms'|'landing-pages'){
   const authorization=String(req.headers.authorization||'');const base=process.env.SUPABASE_URL,key=process.env.SUPABASE_ANON_KEY||process.env.VITE_SUPABASE_ANON_KEY;
   if(!authorization.startsWith('Bearer ')||!base||!key)throw new Error('Sign in first');
   const response=await fetch(`${base}/auth/v1/user`,{headers:{apikey:key,authorization},signal:AbortSignal.timeout(10000)});
@@ -54,16 +57,24 @@ async function actor(req:IncomingMessage,permission:'forms'|'landing-pages'){
     if(!feature.rows[0]?.enabled)throw new Error('Landing page builder access is disabled');
   }
   const membership=await mcpPool.query<{role:string;page_permissions:string[]|null}>(`select role,page_permissions from public.team_members where auth_user_id=$1 and org_id=$2
-    and status='active' and client_account_id is null and role in ('owner','admin','member','agency_admin','agency_staff') limit 1`,[user.id,org]);
+    and status='active' and role in ('owner','admin','member','agency_admin','agency_staff','client_owner','client_staff')
+    order by (role in ('owner','admin','agency_admin')) desc, (client_account_id is not null) desc limit 1`,[user.id,org]);
   const platform=await mcpPool.query(`select 1 from public.profiles where id=$1 and global_role='platform_admin'`,[user.id]);
-  if(!membership.rowCount&&!platform.rowCount)throw new Error('Internal workspace access required');
+  if(!membership.rowCount&&!platform.rowCount)throw new Error('Workspace access required');
+  const teamRole=membership.rows[0]?.role||'';
+  if(teamRole==='client_owner'||teamRole==='client_staff'){
+    const allowed=await fetch(`${base}/rest/v1/rpc/portal_page_allowed`,{method:'POST',
+      headers:{apikey:key,authorization,'content-type':'application/json'},
+      body:JSON.stringify({p_page:permission==='forms'?'forms':'pages'}),signal:AbortSignal.timeout(10000)});
+    if(!allowed.ok||await allowed.json()!==true)throw new Error(`${permission} access is disabled for this account`);
+  }
   const permissions=membership.rows[0]?.page_permissions;
-  if(!platform.rowCount&&!['owner','admin','agency_admin'].includes(membership.rows[0]?.role||'')&&Array.isArray(permissions)
+  if(!platform.rowCount&&!['owner','admin','agency_admin','client_owner'].includes(teamRole)&&Array.isArray(permissions)
     &&!(permission==='forms'?permissions.includes('forms'):permissions.includes('pages')||permissions.includes('forms')))
     throw new Error(`${permission} access is disabled for this account`);
-  return {...user,agencyViewAllowed:Boolean(platform.rowCount)||['owner','admin','agency_admin'].includes(membership.rows[0]?.role||'')};
+  return {...user,teamRole,agencyViewAllowed:Boolean(platform.rowCount)||['owner','admin','agency_admin'].includes(teamRole)};
 }
-async function selectedAccount(req:IncomingMessage,userId:string,agencyViewAllowed:boolean){
+export async function selectedAccount(req:IncomingMessage,userId:string,agencyViewAllowed:boolean,teamRole:string){
   const cookie=Array.isArray(req.headers.cookie)?req.headers.cookie[0]:req.headers.cookie;
   const selected=readPortalSelection(cookie,userId);
   if(!selected?.accountId){
@@ -76,6 +87,13 @@ async function selectedAccount(req:IncomingMessage,userId:string,agencyViewAllow
     body:JSON.stringify({p_account_id:selected.accountId}),signal:AbortSignal.timeout(10000)});
   if(!response.ok||await response.json()!==true)throw new Error('Client account access denied');
   if(agencyViewAllowed)return {id:selected.accountId,readOnly:selected.viewAsClient,canEdit:true};
+  if(teamRole==='client_owner'){
+    const edit=await fetch(`${base}/rest/v1/rpc/portal_page_edit_allowed`,{method:'POST',
+      headers:{apikey:key||'',authorization:String(req.headers.authorization||''),'content-type':'application/json'},
+      body:JSON.stringify({p_account:selected.accountId}),signal:AbortSignal.timeout(10000)});
+    return {id:selected.accountId,readOnly:selected.viewAsClient,canEdit:edit.ok&&await edit.json()===true};
+  }
+  if(teamRole==='client_staff')return {id:selected.accountId,readOnly:true,canEdit:false};
   const assignment=await mcpPool.query<{role_in_account:string}>(`select role_in_account from public.sub_account_assignments
     where sub_account_id=$1 and user_id=$2 limit 1`,[selected.accountId,userId]);
   return {id:selected.accountId,readOnly:selected.viewAsClient,
@@ -194,6 +212,8 @@ async function publicForm(req:IncomingMessage,res:ServerResponse,slug:string,sub
       values($1,$2,$3,1) on conflict(form_id,ip_hash,window_started_at) do update set attempts=public.form_rate_limits.attempts+1
       returning attempts`,[form.id,hash,bucket]);
     if(attempts.rows[0].attempts>8)throw new Error('Too many submissions. Please try again later');
+    await db.query('select pg_advisory_xact_lock(hashtextextended($1,0))',
+      [formSubmissionLockKey(form.id,key)]);
     const duplicate=await db.query<{id:string}>(`select id from public.form_submissions where form_id=$1 and submission_key=$2 limit 1`,[form.id,key]);
     if(duplicate.rows[0]){submissionId=duplicate.rows[0].id;await db.query('commit');}
     else{
@@ -256,7 +276,9 @@ async function publicPage(req:IncomingMessage,res:ServerResponse,slug:string|nul
     const variant=variants.rows[0];if(variant){const cookie=String(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(`lp_variant_${base.id}=`))?.split('=')[1];
       const selected=cookie===base.id||cookie===variant.id?cookie:(Math.random()*100<base.traffic_split?variant.id:base.id);
       found=selected===variant.id?variant:base;res.setHeader('set-cookie',`lp_variant_${base.id}=${selected}; Path=/; Max-Age=2592000; SameSite=Lax; Secure; HttpOnly`);}}
-  const page={...found,sections:found.published_sections||found.sections,theme:found.published_theme||found.theme,
+  if(!Array.isArray(found.published_sections)||!found.published_sections.length||!found.published_theme)
+    return json(res,404,{error:'Page unavailable'});
+  const page={...found,sections:found.published_sections,theme:found.published_theme,
     tracking:{...(base.tracking||{}),...(found.tracking||{})}};
   const linked=page.form_id?await mcpPool.query<{slug:string}>(`select slug from public.forms where id=$1 and organization_id=$2 and status='active' limit 1`,[page.form_id,org]):null;
   const referrer=plain(req.headers.referer,1000);let referrerDomain:string|null=null;
@@ -282,7 +304,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
   if(path==='/api/marketing/reports'){
     if(method!=='GET')return json(res,405,{error:'Method not allowed'});
     const reportUser=await actor(req,'forms');
-    const reportAccount=await selectedAccount(req,reportUser.id,reportUser.agencyViewAllowed);
+    const reportAccount=await selectedAccount(req,reportUser.id,reportUser.agencyViewAllowed,reportUser.teamRole);
     const period=url.searchParams.get('period')||'30d';
     if(!['7d','30d','all'].includes(period))return json(res,400,{error:'Invalid reporting period'});
     const since=period==='all'?null:period==='7d'?7:30;
@@ -302,7 +324,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
   }
   if(!path.startsWith('/api/forms')&&!path.startsWith('/api/landing-pages'))return json(res,404,{error:'Not found'});
   const isForms=path.startsWith('/api/forms'),user=await actor(req,isForms?'forms':'landing-pages');
-  const selected=await selectedAccount(req,user.id,user.agencyViewAllowed);
+  const selected=await selectedAccount(req,user.id,user.agencyViewAllowed,user.teamRole);
   if(method!=='GET'&&(selected.readOnly||!selected.canEdit))return json(res,403,{error:'Page and form changes require a marketing assignment'});
   if(path==='/api/landing-pages/media'&&method==='POST'){
     const input=z.object({pageId:z.string().uuid(),mime:z.enum(['image/jpeg','image/png','image/webp']),data:z.string().min(100).max(7500000)}).strict().parse(await body(req,8000000));
@@ -408,7 +430,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){tr
       (select count(*)::integer from public.form_submissions s where s.landing_page_id=p.id) submissions
       from public.landing_pages p where p.organization_id=$2 and (p.id=$1 or p.variant_of=$1) order by p.created_at`,[id,org]);
       return json(res,200,{variants:rows.rows.map(row=>({...row,conversionRate:Number(row.views)?Number(row.submissions)/Number(row.views)*100:0}))});}
-    if(method==='GET'&&!parts[1]){const found=await mcpPool.query<PageRow>(`select * from public.landing_pages where id=$1 and organization_id=$2`,[id,org]);return found.rows[0]?json(res,200,pageShape(found.rows[0],req)):json(res,404,{error:'Page not found'});}
+    if(method==='GET'&&!parts[1]){const found=await mcpPool.query<PageRow>(`select * from public.landing_pages where id=$1 and organization_id=$2`,[id,org]);return found.rows[0]?json(res,200,{...pageShape(found.rows[0],req),readOnly:selected.readOnly||!selected.canEdit}):json(res,404,{error:'Page not found'});}
     if(method==='GET'&&parts[1]==='versions'){const versions=await mcpPool.query(`select version,published_at,note,published_by from public.landing_page_versions where page_id=$1 order by version desc limit 50`,[id]);return json(res,200,{versions:versions.rows});}
     if(method==='POST'&&parts[1]==='restore'){const data=await body(req);const version=Number(data.version);if(!Number.isInteger(version)||version<1)throw new Error('Invalid version');
       const restored=await mcpPool.query<PageRow>(`update public.landing_pages p set draft_sections=v.sections,draft_theme=v.theme,sections=v.sections,theme=v.theme,updated_at=now()

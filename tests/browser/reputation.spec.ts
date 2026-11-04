@@ -36,6 +36,12 @@ test('reputation overview and review details fit the viewport',async({page},test
   await page.goto('/reputation');
   await expect(page.getByRole('heading',{name:'Reputation Management'})).toBeVisible();
   await expect(page.getByText('Overall Rating')).toBeVisible();
+  if(testInfo.project.name==='mobile'){
+    for(const name of ['Overview','Sources (1)','Reviews (1)','Request Reviews']){
+      const tab=page.getByLabel('Reputation sections').getByRole('button',{name,exact:true});
+      await expect(tab).toBeInViewport();
+    }
+  }
   await page.getByRole('button',{name:/Reviews \(1\)/}).click();
   await expect(page.getByText('Synthetic QA Customer')).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);

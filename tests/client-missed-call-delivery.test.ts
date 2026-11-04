@@ -32,6 +32,8 @@ async function runScenario(scenario:Scenario){
       kind:'missed_call_text',source_id:'call:call-1',attempts:1,payload:{}}]);
     if(url.pathname==='/rest/v1/rpc/client_delivery_enabled')return Response.json(true);
     if(url.pathname==='/rest/v1/rpc/client_phone_dnc')return Response.json(scenario.optedOut);
+    if(url.pathname==='/rest/v1/rpc/client_claim_sms_send')return Response.json(true);
+    if(url.pathname==='/rest/v1/rpc/client_mark_sms_send_sent')return Response.json(null);
     if(url.pathname==='/rest/v1/rpc/client_claim_missed_call_text'){
       assert.deepEqual(body,{p_account:accountId,p_phone:'+15125550101',p_job:jobId});
       result.claims++;return Response.json(!scenario.claimDenied);

@@ -54,6 +54,7 @@ const ClientWorkspace = lazy(() => import("@/pages/client-workspace"));
 const ClientPortal = lazy(() => import("@/pages/client-portal"));
 const ProspectSearch = lazy(() => import("@/pages/prospect-search"));
 const MeetingScheduler = lazy(() => import("@/pages/meeting-scheduler"));
+const PublicBooking = lazy(() => import("@/pages/public-booking"));
 const SequenceAnalytics = lazy(() => import("@/pages/sequence-analytics"));
 const RevenueAttribution = lazy(() => import("@/pages/revenue-attribution"));
 const Onboarding = lazy(() => import("@/pages/onboarding"));
@@ -294,6 +295,8 @@ function AuthenticatedApp() {
   const { loading, session, pagePermissions, role, clientAccountId } = useAuth();
   const [location] = useLocation();
 
+  if(/^\/book\/[a-z0-9-]+$/.test(location))return <Suspense fallback={<main role="status" className="p-6">Loading booking page...</main>}><PublicBooking /></Suspense>;
+
   if (loading) {
     return (
       <main className="min-h-screen bg-background flex items-center justify-center text-sm text-muted-foreground">
@@ -311,7 +314,7 @@ function AuthenticatedApp() {
   if (window.location.hostname === "portal.victorysync.com" && ["/", "/dashboard", "/victorysync"].includes(location)) {
     return <Redirect to="/client-portal" />;
   }
-  if (["client_owner", "client_staff"].includes(role) && ["/", "/dashboard", "/victorysync", "/leadgen"].includes(location)) {
+  if (["client_owner", "client_staff"].includes(role) && ["/", "/dashboard", "/victorysync", "/leadgen", "/login"].includes(location)) {
     return <Redirect to="/client-portal/dashboard" />;
   }
 

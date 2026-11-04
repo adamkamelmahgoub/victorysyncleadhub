@@ -5,6 +5,7 @@ import { clientReportPdf } from '../lib/client-report-pdf.js';
 import {previousReportPeriod,reportMetricRange} from '../lib/client-report-period.js';
 import {mightyCallAuthUrl,mightyCallProduct,mightyCallUrl} from '../lib/mightycall-endpoints.js';
 import {externalSendsEnabled,requireExternalSends} from '../lib/external-send-mode.js';
+import {clientPortalLink} from '../lib/client-portal-link.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const inputSchema = z.object({ limit: z.number().int().min(1).max(50).optional() }).strict();
@@ -61,11 +62,17 @@ async function sendText(account:Account,to:string,message:string,job:Job) {
   if(await rest<boolean>('rpc/client_phone_dnc','POST',{p_account:account.id,p_phone:recipient}))return false;
   const logged=await rest<Array<{id:string}>>(`mightycall_sms_messages?client_account_id=eq.${account.id}&metadata->>automation_job_id=eq.${job.id}&select=id&limit=1`);
   if(logged.length)return true;
+  await mightyAuth();
+  const claimed=await rest<boolean>('rpc/client_claim_sms_send','POST',
+    {p_account:account.id,p_phone:recipient,p_job:job.id});
+  if(!claimed)throw Error('SMS send outcome is uncertain. Check MightyCall history before retrying');
   const text=message.includes('Reply STOP to opt out')?message:`${message} Reply STOP to opt out`;
   const sent=await mighty('messages/send','POST',{from,to:[recipient],message:text});
   await rest('mightycall_sms_messages','POST',{org_id:'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1',
     client_account_id:account.id,from_number:from,to_number:recipient,direction:'outbound',
     message_text:text,status:'sent',external_sms_id:sent?.id||null,metadata:{automation_job_id:job.id,automation_kind:job.kind}});
+  await rest('rpc/client_mark_sms_send_sent','POST',
+    {p_account:account.id,p_phone:recipient,p_job:job.id});
   return true;
 }
 async function sendEmail(to:string,subject:string,body:string,job:Job) {
@@ -75,7 +82,6 @@ async function sendEmail(to:string,subject:string,body:string,job:Job) {
     'content-type':'application/json','Idempotency-Key':`${job.id}-${crypto.createHash('sha256').update(to.toLowerCase()).digest('hex').slice(0,12)}`},body:JSON.stringify({from:process.env.REPORT_FROM_EMAIL,to:[to],subject,text:body}),signal:AbortSignal.timeout(12000)});
   if(!response.ok)throw Error(`Email delivery ${response.status}`);
 }
-function portalLink(path:string){return `${(process.env.APP_URL||'https://app.victorysync.com').replace(/\/$/,'')}/client-portal/${path}`}
 function coveredNow(account:Account){
   const configured=account.settings?.covered_hours as {start?:string;end?:string;days?:number[]}|undefined;
   const start=/^([01]\d|2[0-3]):[0-5]\d$/.test(configured?.start||'')?configured?.start:'09:00';
@@ -200,11 +206,11 @@ async function handle(job:Job) {
   }
   if(job.kind==='review_request') {
     if(!account.google_review_link||!/^https:\/\//.test(account.google_review_link))return 'cancelled';
-    let request:{id:string;lead_id:string|null;contact_name:string;contact_phone:string;contact_email:string|null;click_token:string;clicked_at:string|null}|null=null;
+    let request:{id:string;lead_id:string|null;contact_name:string;contact_phone:string;contact_email:string|null;click_token:string;clicked_at:string|null;status?:string}|null=null;
     if(job.source_id.startsWith('request:'))request=await row('review_requests',`id=eq.${job.source_id.slice(8)}&client_account_id=eq.${account.id}`);
     else if(job.source_id.startsWith('lead:')){
       const lead=await row<Lead>('leads',`id=eq.${job.source_id.slice(5)}&client_account_id=eq.${account.id}`);
-      if(!lead||lead.dnc||!lead.phone)return 'cancelled';
+      if(!lead||lead.dnc||!lead.phone||!['form','call','missed_call'].includes(lead.opt_in_source||lead.source||''))return 'cancelled';
       const existing=await rest<typeof request[]>(`review_requests?client_account_id=eq.${account.id}&lead_id=eq.${lead.id}&select=*&limit=1`);
       request=existing[0]||null;
       if(!request){const created=await rest<Array<NonNullable<typeof request>>>('review_requests','POST',{client_account_id:account.id,lead_id:lead.id,contact_name:lead.first_name||'Customer',contact_phone:lead.phone,contact_email:lead.email,channel:'sms',platform:'google',status:'pending'});request=created[0]||null;}
@@ -215,7 +221,7 @@ async function handle(job:Job) {
       if(!lead||lead.dnc||!lead.phone)return 'cancelled';
       const created=await rest<Array<NonNullable<typeof request>>>('review_requests','POST',{client_account_id:account.id,lead_id:lead.id,contact_name:appointment.guest_name,contact_phone:lead.phone,contact_email:lead.email,channel:'sms',platform:'google',status:'pending'});request=created[0]||null;
     }
-    if(!request||request.clicked_at)return 'cancelled';
+    if(!request||request.clicked_at||['sent','reminder','clicked'].includes(request.status||''))return 'cancelled';
     const lead=request.lead_id?await row<Lead>('leads',`id=eq.${request.lead_id}&client_account_id=eq.${account.id}`):null;
     if(!lead||lead.dnc||!e164(lead.phone)||e164(lead.phone)!==e164(request.contact_phone)
       ||!['form','call','missed_call'].includes(lead.opt_in_source||lead.source||''))return 'cancelled';
@@ -254,7 +260,7 @@ async function handle(job:Job) {
   if(job.kind==='owner_alert'){
     const isCall=job.source_id.startsWith('call:');
     const detail=isCall?'A call was missed':'A new lead submitted a form';
-    const link=portalLink(isCall?'calls':'leads');
+    const link=clientPortalLink(isCall?'calls':'leads',process.env.PORTAL_BASE_URL,process.env.APP_URL);
     const preferences=account.settings?.notifications as {email?:boolean;text?:boolean;phone?:string}|undefined;
     if(preferences?.email!==false&&account.owner_email)await sendEmail(account.owner_email,`${account.name}: ${detail}`,`${detail}. Open your client portal: ${link}`,job);
     if(preferences?.text&&preferences.phone)await sendText(account,preferences.phone,`${account.name}: ${detail}. ${link}`,job);
@@ -291,7 +297,9 @@ async function handle(job:Job) {
     if(!uploaded.ok)throw Error(`Report storage ${uploaded.status}`);
     const signed=await fetch(`${base}/storage/v1/object/sign/client-reports/${path}`,{method:'POST',headers:{apikey:key,authorization:`Bearer ${key}`,'content-type':'application/json'},body:JSON.stringify({expiresIn:604800}),signal:AbortSignal.timeout(10000)});
     const signedBody=await signed.json() as {signedURL?:string};if(!signed.ok||!signedBody.signedURL)throw Error('Report link failed');
-    const emails=[...new Set([account.owner_email,...recipients.map(x=>x.email)].filter(Boolean))];
+    const emails=[...new Set([account.owner_email,...recipients.map(x=>x.email)]
+      .filter((email):email is string=>typeof email==='string'&&Boolean(email.trim()))
+      .map(email=>email.trim().toLowerCase()))];
     if(!emails.length)throw Error('No report recipients configured');
     for(const email of emails)await sendEmail(email,`${account.name} ${report.type} report`,
       `Your report is ready. Download the PDF: ${base}/storage/v1${signedBody.signedURL}\n\nWhat we did: ${report.work_done}\nWhat's next: ${report.whats_next}`,job);

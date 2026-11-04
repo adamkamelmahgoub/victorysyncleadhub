@@ -1,6 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 import { assertNoUnsupportedProof,assertApprovedAiImages } from '../lib/landing-ai-policy.js';
+import {aiPageInputSchema,aiPageEditInputSchema} from '../lib/landing-ai-input.js';
+import {aiPatchJsonSchema,aiPatchResponseSchema,applyAiPatches} from '../lib/landing-ai-patches.js';
 import {mcpPool} from '../lib/mcp-auth.js';
 import {registry,sectionTypes} from '../lib/landing-section-registry.js';
 import {clientInviteUrl} from '../lib/client-invite.js';
@@ -9,6 +11,8 @@ import {externalSendsEnabled} from '../lib/external-send-mode.js';
 import {portalBillingReturnUrl} from '../lib/portal-billing-url.js';
 import {requiresAgencyMfa} from '../lib/portal-roles.js';
 import {providerReadiness} from '../lib/provider-readiness.js';
+import {approvedAiImageUrls} from '../lib/landing-ai-approved-images.js';
+import {aiPageLimitsSql,assertAiPageLimits,aiUsageCostCents,AiUsageRecordingError} from '../lib/landing-ai-budget.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const ORG = 'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1';
@@ -33,9 +37,11 @@ const querySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('lead_page'), beforeAt: z.string().datetime({offset:true}), beforeId: uuid }).strict(),
   z.object({ action: z.literal('ad_spend') }),
   z.object({ action: z.literal('page_stats') }),
+  z.object({ action: z.literal('page_edit_allowed') }),
   z.object({ action: z.literal('page_versions'), pageId:uuid }),
   z.object({ action: z.literal('report_file'), reportId:uuid }),
   z.object({ action: z.literal('reports') }),
+  z.object({ action: z.literal('report_recipients') }),
   z.object({ action: z.literal('billing_summary') }),
   z.object({ action: z.literal('branding') }),
   z.object({ action: z.literal('client_settings') }),
@@ -51,19 +57,31 @@ const querySchema = z.discriminatedUnion('action', [
 const sectionSchema = z.object({
   id: z.string().min(1).max(100),
   type: z.enum(sectionTypes),
+  eyebrow:z.string().max(500).optional(),imageAlt:z.string().max(500).optional(),
+  quote:z.string().max(3000).optional(),author:z.string().max(300).optional(),
   heading: z.string().max(5000).optional(), body: z.string().max(5000).optional(),
   buttonText: z.string().max(200).optional(), buttonUrl: z.string().max(2000).optional(),
   imageUrl: z.string().max(2000).optional(), formId: z.union([z.string().uuid(),z.literal('')]).optional(),
   items: z.array(z.string().max(300)).max(12).optional(),
+  blocks:z.array(z.object({id:z.string().min(1).max(80),type:z.string().min(1).max(40),
+    heading:z.string().max(500).optional(),body:z.string().max(3000).optional(),
+    imageUrl:z.string().max(1000).optional(),hidden:z.boolean().optional(),
+    attested:z.boolean().optional()}).strict()).max(20).optional(),
   hidden: z.boolean().optional(),
-}).strict();
+}).strict().superRefine((value,ctx)=>{
+  if((value.blocks?.length||0)>registry[value.type].maxBlocks)
+    ctx.addIssue({code:'custom',message:'Too many blocks for this section'});
+  const allowed=(registry[value.type].allowedBlockTypes||[]).map(type=>type.toLowerCase());
+  if(value.blocks?.some(block=>!allowed.includes(block.type.toLowerCase())))
+    ctx.addIssue({code:'custom',message:'Block type is not allowed in this section'});
+});
 const themeSchema = z.object({
   background: z.string().regex(/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i),
   foreground: z.string().regex(/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i),
   accent: z.string().regex(/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i),
   font: z.enum(['sans','serif']),
 }).strict();
-const pageSchema = z.object({ action: z.literal('save_page'), id: uuid.nullable(),
+export const pageSchema = z.object({ action: z.literal('save_page'), id: uuid.nullable(),
   title: z.string().trim().min(1).max(180), slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(100),
   sections: z.array(sectionSchema).max(40), theme: themeSchema,
   seoDescription: z.string().max(320), status: z.enum(['draft','published']),
@@ -96,8 +114,11 @@ const postSchema = z.discriminatedUnion('action', [
   z.object({action:z.literal('update_call'),callId:uuid,outcome:z.enum(['booked','message_taken','spam','existing_customer','other']),
     summary:z.string().max(5000),booked:z.boolean()}).strict(),
   z.object({action:z.literal('update_report'),reportId:uuid,workDone:z.string().max(5000),whatsNext:z.string().max(5000),send:z.boolean()}).strict(),
+  z.object({action:z.literal('set_report_recipient'),email:z.string().trim().email().max(320),
+    name:z.string().trim().max(200),active:z.boolean()}).strict(),
   z.object({action:z.literal('update_client_settings'),phone:z.string().max(30),website:z.union([z.string().url(),z.literal('')]),
-    notifications:z.object({email:z.boolean(),text:z.boolean(),phone:z.union([z.string().regex(/^\+1\d{10}$/),z.literal('')])}).strict()}).strict(),
+    notifications:z.object({email:z.boolean(),text:z.boolean(),phone:z.union([z.string().regex(/^\+1\d{10}$/),z.literal('')])})
+      .strict().refine(value=>!value.text||!!value.phone,{message:'Enter a mobile number for text alerts',path:['phone']})}).strict(),
   z.object({action:z.literal('set_usage_limit'),minutes:z.number().int().min(0).max(1_000_000)}).strict(),
   z.object({action:z.literal('set_review_delay'),hours:z.number().int().min(0).max(168)}).strict(),
   z.object({action:z.literal('set_feature'),feature:z.enum(['client_portal','client_accounts','landing_page_builder','landing_page_ai','delivery_automation','client_page_editing']),
@@ -119,8 +140,8 @@ const postSchema = z.discriminatedUnion('action', [
     phone:z.string().max(40),website:z.union([z.literal(''),z.string().url().startsWith('https://')]),
     package:z.enum(['starter','scale','domination','overflow','business_hours','coverage_247','appt_part_time','appt_full_time','revive','custom']),
     ownerEmail:z.string().email().max(320),ownerName:z.string().trim().min(1).max(200)}).strict(),
-  z.object({ action: z.literal('ai_page'), prompt: z.string().trim().min(5).max(4000),
-    currentSections: z.array(sectionSchema).max(40).optional() }).strict(),
+  aiPageInputSchema,
+  aiPageEditInputSchema,
   pageSchema,
 ]);
 type PortalCookie = PortalSelection;
@@ -189,46 +210,45 @@ async function account(req: IncomingMessage,user: PortalUser): Promise<{id:strin
   const accounts = await rpc<Array<{id:string}>>(user.token,'portal_accounts');
   const saved = verify(req,user.id);
   const id = saved?.accountId || (accounts.length === 1 ? accounts[0].id : null);
-  if (!id || !accounts.some(a => a.id === id)) throw new Error('Select a client account');
+  if (!id) throw new Error('Select a client account');
+  if (!accounts.some(a => a.id === id)) throw new Error('Access denied');
   return {id,viewAsClient: Boolean(saved?.viewAsClient && user.role === 'agency_admin')};
 }
-const aiResponseSchema = z.object({ sections: z.array(sectionSchema).min(1).max(40), theme: themeSchema,
+export const aiResponseSchema = z.object({ sections: z.array(sectionSchema).min(1).max(40), theme: themeSchema,
   title: z.string().min(1).max(180), seoDescription: z.string().max(320) }).strict();
-const aiJsonSchema = {
+export const aiJsonSchema = {
   type:'object',additionalProperties:false,required:['title','seoDescription','sections','theme'],
   properties:{
     title:{type:'string'},seoDescription:{type:'string'},
     sections:{type:'array',items:{type:'object',additionalProperties:false,
-      required:['id','type','heading','body','buttonText','buttonUrl','imageUrl','formId','items'],
+      required:['id','type','heading','body','buttonText','buttonUrl','imageUrl','formId','items','blocks'],
       properties:{id:{type:'string'},type:{type:'string',enum:sectionTypes},
         heading:{type:'string'},body:{type:'string'},buttonText:{type:'string'},buttonUrl:{type:'string'},
-        imageUrl:{type:'string'},formId:{type:'string'},items:{type:'array',items:{type:'string'}}}}},
+        imageUrl:{type:'string'},formId:{type:'string'},items:{type:'array',items:{type:'string'}},
+        blocks:{type:'array',maxItems:20,items:{type:'object',additionalProperties:false,
+          required:['id','type','heading','body','imageUrl','hidden','attested'],
+          properties:{id:{type:'string'},type:{type:'string'},heading:{type:'string'},body:{type:'string'},
+            imageUrl:{type:'string'},hidden:{type:'boolean'},attested:{type:'boolean'}}}}}}},
     theme:{type:'object',additionalProperties:false,required:['background','foreground','accent','font'],
       properties:{background:{type:'string'},foreground:{type:'string'},accent:{type:'string'},font:{type:'string',enum:['sans','serif']}}},
   },
 } as const;
-async function generatePage(user: PortalUser, accountId: string, prompt: string, currentSections?: unknown) {
-  const limits=await mcpPool.query<{requests:number;spent:number;budget:number|null}>(`select
-    (select count(*)::integer from public.ai_requests where user_id=$1 and created_at>now()-interval '1 hour') requests,
-    (select coalesce(sum(cost_cents),0)::float from public.ai_requests where created_at>=date_trunc('month',now()) and client_account_id=$2) spent,
-    nullif(o.settings->>'ai_monthly_budget_cents','')::float budget
-    from public.organizations o where o.id=$3`,[user.id,accountId,ORG]);
-  if(Number(limits.rows[0]?.requests||0)>=30)throw new Error('AI request limit reached. Try again in an hour');
-  if(limits.rows[0]?.budget!=null&&Number(limits.rows[0].spent)>=Number(limits.rows[0].budget))throw new Error('Monthly AI budget reached');
+export const aiPageSystemPrompt='Create or edit a mobile-first landing page as structured JSON. Use plain words, short sentences, a service-and-city headline, one clear call to action, and the provided phone number. Use ordered blocks for services, benefits, steps, and FAQ where helpful. Never invent reviews, ratings, awards, licences, years in business, guarantees, prices, results, or business credentials. Use [Add a real customer review] and similar placeholders when facts are missing. Use only the uploaded photos provided. Never use em dashes or raw HTML. Keep forms unlinked unless a form ID was supplied.';
+async function pageAiSetup(user:PortalUser,accountId:string){
+  const limits=await mcpPool.query<{requests:number;spent:number;budget:number|null}>(aiPageLimitsSql,[user.id,ORG]);
+  assertAiPageLimits(limits.rows[0]);
   const context = await rpc<Record<string,unknown>>(user.token,'portal_ai_context',{p_account:accountId});
-  const mediaBase=String(process.env.SUPABASE_URL||'').replace(/\/$/,'');
-  const approvedPhotos=(Array.isArray(context.photos)?context.photos:[])
-    .filter((value):value is string=>typeof value==='string'&&value.startsWith('landing-media/'))
-    .map(value=>`${mediaBase}/storage/v1/object/public/${value}`);
-  const existingImages=(Array.isArray(currentSections)?currentSections:[])
-    .flatMap(value=>value&&typeof value==='object'&&'imageUrl' in value&&typeof value.imageUrl==='string'?[value.imageUrl]:[]);
-  const approvedImages=[...approvedPhotos,...existingImages,...(typeof context.logoUrl==='string'?[context.logoUrl]:[])];
-  const clientContext={...context,photos:approvedPhotos};
+  const approvedImages=approvedAiImageUrls(context,String(process.env.SUPABASE_URL||''));
+  const clientContext={...context,photos:approvedImages.filter(url=>url.includes('/storage/v1/object/public/landing-media/'))};
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error('OpenRouter is not configured');
   const fallback = 'openai/gpt-4o-mini-2024-07-18';
   const primary = String(context.model || process.env.OPENROUTER_LANDING_MODEL || 'openai/gpt-4o-mini');
   const models = [...new Set([primary,fallback])];
+  return {clientContext,approvedImages,key,models};
+}
+async function generatePage(user: PortalUser, accountId: string, prompt: string, currentSections?: unknown) {
+  const {clientContext,approvedImages,key,models}=await pageAiSetup(user,accountId);
   let lastError: Error = new Error('AI page generation failed');
   for (const model of models) {
     try {
@@ -236,14 +256,19 @@ async function generatePage(user: PortalUser, accountId: string, prompt: string,
       for(let attempt=0;attempt<3;attempt++){
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method:'POST',headers:{authorization:`Bearer ${key}`,'content-type':'application/json'},
-        body:JSON.stringify({model,temperature:0.4,max_tokens:2200,
+        body:JSON.stringify({model,temperature:0.4,max_tokens:2200,usage:{include:true},
           response_format:{type:'json_schema',json_schema:{name:'landing_page',strict:true,schema:aiJsonSchema}},
-          messages:[{role:'system',content:'Create or edit a mobile-first landing page as structured JSON. Use plain words, short sentences, a service-and-city headline, one clear call to action, and the provided phone number. Never invent reviews, ratings, awards, licences, years in business, guarantees, prices, results, or business credentials. Use [Add a real customer review] and similar placeholders when facts are missing. Use only the uploaded photos provided. Never use em dashes or raw HTML. Keep forms unlinked unless a form ID was supplied.'},
-            {role:'user',content:JSON.stringify({brief:prompt,client:clientContext,currentSections,sectionRegistry:Object.values(registry).filter(item=>!['reviews','testimonial','trust_bar'].includes(item.type)).map(({type,label,fields,maxBlocks})=>({type,label,fields,maxBlocks})),validationFeedback:feedback})}]}),
+          messages:[{role:'system',content:aiPageSystemPrompt},
+            {role:'user',content:JSON.stringify({brief:prompt,client:clientContext,currentSections,sectionRegistry:Object.values(registry).filter(item=>!['reviews','testimonial','trust_bar'].includes(item.type)).map(({type,label,fields,maxBlocks,allowedBlockTypes})=>({type,label,fields,maxBlocks,allowedBlockTypes:allowedBlockTypes||[]})),validationFeedback:feedback})}]}),
         signal:AbortSignal.timeout(45000),
       });
       const data = await response.json() as {choices?:Array<{message?:{content?:string}}> ;error?:{message?:string};usage?:{prompt_tokens?:number;completion_tokens?:number;cost?:number}};
       if (!response.ok) throw new Error(data.error?.message || 'AI provider failed');
+      const costCents=aiUsageCostCents(data.usage);
+      try {
+        await mcpPool.query(`insert into public.ai_requests(user_id,client_account_id,prompt_tokens,completion_tokens,cost_cents,action)
+          values($1,$2,$3,$4,$5,'landing_page_generate')`,[user.id,accountId,Number(data.usage?.prompt_tokens||0),Number(data.usage?.completion_tokens||0),costCents]);
+      } catch(error) { throw new AiUsageRecordingError(error); }
       const parsedResult=aiResponseSchema.safeParse(JSON.parse(data.choices?.[0]?.message?.content || '{}'));
       if(!parsedResult.success){feedback=parsedResult.error.issues.map(issue=>`${issue.path.join('.')}: ${issue.message}`).join('; ');if(attempt<2)continue;throw parsedResult.error}
       const parsed=parsedResult.data;
@@ -255,11 +280,54 @@ async function generatePage(user: PortalUser, accountId: string, prompt: string,
         if(attempt<2)continue;
         throw error;
       }
-      await mcpPool.query(`insert into public.ai_requests(user_id,client_account_id,prompt_tokens,completion_tokens,cost_cents,action)
-        values($1,$2,$3,$4,$5,'landing_page_generate')`,[user.id,accountId,Number(data.usage?.prompt_tokens||0),Number(data.usage?.completion_tokens||0),Number(data.usage?.cost||0)*100]);
       return parsed;
       }
-    } catch (error) { lastError = error instanceof Error ? error : new Error(String(error)); }
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if(lastError.message==='AI provider did not return valid cost information'||lastError instanceof AiUsageRecordingError)throw lastError;
+    }
+  }
+  throw lastError;
+}
+async function generatePageEdits(user:PortalUser,accountId:string,prompt:string,
+  currentSections:z.infer<typeof aiPageEditInputSchema>['currentSections'],
+  currentTheme:z.infer<typeof aiPageEditInputSchema>['currentTheme']){
+  const {clientContext,approvedImages,key,models}=await pageAiSetup(user,accountId);
+  let lastError:Error=new Error('AI page edit failed');
+  for(const model of models){
+    try{
+      let feedback='';
+      for(let attempt=0;attempt<3;attempt++){
+        const response=await fetch('https://openrouter.ai/api/v1/chat/completions',{
+          method:'POST',headers:{authorization:`Bearer ${key}`,'content-type':'application/json'},
+          body:JSON.stringify({model,temperature:0.3,max_tokens:2200,usage:{include:true},
+            response_format:{type:'json_schema',json_schema:{name:'landing_page_edit',strict:true,schema:aiPatchJsonSchema}},
+            messages:[{role:'system',content:'Return only validated patch operations for the requested landing page edit. Preserve all sections and blocks the user did not ask to change. Use existing IDs when editing; give new sections and blocks unique newId values. An afterId of null appends a section. Never invent reviews, ratings, awards, licences, years in business, guarantees, prices, results, or credentials. Never use raw HTML or em dashes. Use only approved client photos. Do not create or edit proof sections.'},
+              {role:'user',content:JSON.stringify({brief:prompt,client:clientContext,currentSections,currentTheme,
+                sectionRegistry:Object.values(registry).filter(item=>!['reviews','testimonial','trust_bar'].includes(item.type))
+                  .map(({type,label,fields,maxBlocks})=>({type,label,fields,maxBlocks})),validationFeedback:feedback})}]}),
+          signal:AbortSignal.timeout(45000),
+        });
+        const data=await response.json() as {choices?:Array<{message?:{content?:string}}>;
+          error?:{message?:string};usage?:{prompt_tokens?:number;completion_tokens?:number;cost?:number}};
+        if(!response.ok)throw Error(data.error?.message||'AI provider failed');
+        const costCents=aiUsageCostCents(data.usage);
+        try {
+          await mcpPool.query(`insert into public.ai_requests(user_id,client_account_id,prompt_tokens,completion_tokens,cost_cents,action)
+            values($1,$2,$3,$4,$5,'landing_page_edit')`,[user.id,accountId,Number(data.usage?.prompt_tokens||0),
+              Number(data.usage?.completion_tokens||0),costCents]);
+        } catch(error) { throw new AiUsageRecordingError(error); }
+        const parsed=aiPatchResponseSchema.safeParse(JSON.parse(data.choices?.[0]?.message?.content||'{}'));
+        if(!parsed.success){feedback=parsed.error.issues.map(issue=>`${issue.path.join('.')}: ${issue.message}`).join('; ');
+          if(attempt<2)continue;throw parsed.error;}
+        try{applyAiPatches(currentSections,currentTheme,parsed.data.patches,approvedImages)}
+        catch(error){feedback=error instanceof Error?error.message:'Invalid page edit';if(attempt<2)continue;throw error;}
+        return {...parsed.data,approvedImages};
+      }
+    }catch(error){
+      lastError=error instanceof Error?error:Error(String(error));
+      if(lastError.message==='AI provider did not return valid cost information'||lastError instanceof AiUsageRecordingError)throw lastError;
+    }
   }
   throw lastError;
 }
@@ -275,10 +343,17 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
     const url = new URL(req.url || '/api/portal','https://local.invalid');
     if (req.method === 'GET') {
       const parsed = querySchema.parse(Object.fromEntries(url.searchParams));
+      const impersonating=user.role==='agency_admin'&&verify(req,user.id)?.viewAsClient===true;
       if (parsed.action === 'accounts') {
-        const accounts = await rpc<unknown>(user.token,'portal_accounts');
-        return send(res,200,{accounts,selected:verify(req,user.id)});
+        const accounts = await rpc<Array<{id:string}>>(user.token,'portal_accounts');
+        const saved=verify(req,user.id);
+        const selected=saved?.accountId&&accounts.some(item=>item.id===saved.accountId)?saved:null;
+        return send(res,200,{accounts:impersonating
+          ?accounts.filter(item=>item.id===selected?.accountId):accounts,selected});
       }
+      if (impersonating&&['agency_overview','provider_readiness','failed_automations',
+        'closed_companies','features','ai_model'].includes(parsed.action))
+        return send(res,403,{error:'Client view is read only'});
       if (parsed.action === 'agency_overview') return send(res,200,await rpc(user.token,'portal_agency_overview'));
       if (parsed.action === 'provider_readiness') return user.role === 'agency_admin'
         ? send(res,200,providerReadiness(process.env)) : send(res,403,{error:'Agency admin access required'});
@@ -306,6 +381,8 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
         {p_account:selected.id}));
       if (parsed.action === 'page_stats') return send(res,200,await rpc(user.token,'portal_page_stats',
         {p_account:selected.id}));
+      if (parsed.action === 'page_edit_allowed') return send(res,200,
+        !selected.viewAsClient&&await rpc<boolean>(user.token,'portal_page_edit_allowed',{p_account:selected.id}));
       if (parsed.action === 'page_versions') return send(res,200,await rpc(user.token,'portal_page_versions',
         {p_account:selected.id,p_page:parsed.pageId}));
       if (parsed.action === 'report_file') {
@@ -322,6 +399,8 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
         return send(res,200,{url:`${base}/storage/v1${data.signedURL}`});
       }
       if (parsed.action === 'reports') return send(res,200,await rpc(user.token,'portal_reports',
+        {p_account:selected.id}));
+      if (parsed.action === 'report_recipients') return send(res,200,await rpc(user.token,'portal_report_recipients',
         {p_account:selected.id}));
       if (parsed.action === 'billing_summary') return send(res,200,await rpc(user.token,'portal_billing_summary',
         {p_account:selected.id}));
@@ -343,6 +422,8 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
         ? await rpc<unknown>(user.token,'portal_pages',{p_account:selected.id})
         : parsed.section==='forms'
         ? await rpc<unknown>(user.token,'portal_forms',{p_account:selected.id})
+        : parsed.section==='billing'
+        ? await rpc<unknown>(user.token,'portal_invoices',{p_account:selected.id})
         : await rpc<unknown>(user.token,'portal_snapshot',{p_account:selected.id,p_page:parsed.section});
       if (parsed.action === 'export') {
         let rows = Array.isArray(data) ? data : (data && typeof data === 'object' ?
@@ -378,6 +459,8 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
     }
     if (req.method !== 'POST') return send(res,405,{error:'Method not allowed'});
     const parsed = postSchema.parse(await read(req));
+    if (parsed.action!=='switch'&&user.role==='agency_admin'&&verify(req,user.id)?.viewAsClient)
+      return send(res,403,{error:'Client view is read only'});
     if (parsed.action === 'switch') {
       const accounts = await rpc<Array<{id:string}>>(user.token,'portal_accounts');
       if (parsed.accountId && !accounts.some(a => a.id === parsed.accountId)) return send(res,403,{error:'Account unavailable'});
@@ -412,7 +495,7 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
           catch(error){console.error('Client invite email failed',error instanceof Error?error.name:'unknown')}
         }
       }
-      if (externalSendsEnabled()&&process.env.SLACK_WEBHOOK_URL) await fetch(process.env.SLACK_WEBHOOK_URL,{method:'POST',
+      if (!created.existing&&externalSendsEnabled()&&process.env.SLACK_WEBHOOK_URL) await fetch(process.env.SLACK_WEBHOOK_URL,{method:'POST',
         headers:{'content-type':'application/json'},body:JSON.stringify({text:`New VictorySync client account: ${parsed.ownerName} (${parsed.package})`}),
         signal:AbortSignal.timeout(5000)}).catch(()=>undefined);
       return send(res,201,{accountId:created.accountId,existing:created.existing,inviteSent,inviteUrl});
@@ -452,6 +535,10 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
       await rpc(user.token,'portal_update_report',{p_account:selected.id,p_report:parsed.reportId,
         p_work_done:parsed.workDone,p_whats_next:parsed.whatsNext,p_send:parsed.send});
       return send(res,200,{ok:true});
+    }
+    if (parsed.action === 'set_report_recipient') {
+      const id=await rpc<string>(user.token,'portal_set_report_recipient',{p_account:selected.id,
+        p_email:parsed.email,p_name:parsed.name,p_active:parsed.active});return send(res,200,{id});
     }
     if (parsed.action === 'update_client_settings') {
       await rpc(user.token,'portal_update_client_settings',{p_account:selected.id,p_phone:parsed.phone,
@@ -516,7 +603,16 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
     if (parsed.action === 'ai_page') {
       if(!await rpc<boolean>(user.token,'portal_page_edit_allowed',{p_account:selected.id}))
         return send(res,403,{error:'Page editing is unavailable for this account'});
+      if(!await rpc<boolean>(user.token,'client_feature_enabled',{p_feature:'landing_page_ai'}))
+        return send(res,403,{error:'AI page editing is disabled'});
       return send(res,200,await generatePage(user,selected.id,parsed.prompt,parsed.currentSections));
+    }
+    if(parsed.action==='ai_page_edit'){
+      if(!await rpc<boolean>(user.token,'portal_page_edit_allowed',{p_account:selected.id}))
+        return send(res,403,{error:'Page editing is unavailable for this account'});
+      if(!await rpc<boolean>(user.token,'client_feature_enabled',{p_feature:'landing_page_ai'}))
+        return send(res,403,{error:'AI page editing is disabled'});
+      return send(res,200,await generatePageEdits(user,selected.id,parsed.prompt,parsed.currentSections,parsed.currentTheme));
     }
     if (parsed.action === 'billing_portal') {
       const customer = await rpc<string|null>(user.token,'portal_billing_customer',{p_account:selected.id});
@@ -535,6 +631,8 @@ export default async function handler(req: IncomingMessage,res: ServerResponse) 
   } catch (error) {
     if (error instanceof z.ZodError || error instanceof SyntaxError) return send(res,400,{error:'Invalid request'});
     const message = error instanceof Error ? error.message : 'Portal request failed';
-    return send(res,/Sign in|Session expired/.test(message)?401:/Access denied|unavailable|disabled|verification|read only/.test(message)?403:500,{error:message});
+    return send(res,/Sign in|Session expired/.test(message)?401
+      :/Access denied|unavailable|disabled|verification|read only/.test(message)?403
+      :/Add a Google review link|opted-in lead|Contact opted out|Complete both report narrative fields|Add a report recipient/.test(message)?400:500,{error:message});
   }
 }

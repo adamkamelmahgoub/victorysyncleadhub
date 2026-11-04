@@ -130,7 +130,7 @@ export default function Login() {
               type="text"
               autoComplete="one-time-code"
               value={inviteCode}
-              onChange={(event) => setInviteCode(event.target.value.toUpperCase())}
+              onChange={(event) => setInviteCode(event.target.value)}
               required
             />
           </div>

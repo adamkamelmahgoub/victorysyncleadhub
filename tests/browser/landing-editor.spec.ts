@@ -91,6 +91,70 @@ test('draft iframe renders its hero without horizontal clipping',async({page},te
   const dimensions=await preview.locator('html').evaluate(element=>({
     scrollWidth:element.scrollWidth,clientWidth:element.clientWidth}));
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth+1);
+  await expect.poll(async()=>page.locator('iframe[title="Draft landing page preview"]').evaluate(
+    element=>element.getBoundingClientRect().height)).toBeLessThanOrEqual(350);
+});
+
+test('direct page link is read only when editing is disabled',async({page})=>{
+  await page.route(`**/api/landing-pages/${pageId}`,route=>route.fulfill({status:200,
+    contentType:'application/json',body:JSON.stringify({...initialPage,readOnly:true})}));
+  await page.goto(`/landing-pages/${pageId}?from=client-portal`);
+  await expect(page.getByText('View only · draft')).toBeVisible();
+  await expect(page.getByRole('button',{name:'Publish'})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Add section'})).toHaveCount(0);
+  const preview=page.frameLocator('iframe[title="Read-only landing page preview"]');
+  await expect(preview.getByRole('heading',{name:'Original heading'})).toBeVisible();
+  await expect(preview.locator('[contenteditable]')).toHaveCount(0);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)).toBeLessThanOrEqual(1);
+});
+
+test('clicking a preview block selects it and inline edits its heading',async({page},testInfo)=>{
+  await page.route(`**/api/landing-pages/${pageId}`,route=>{
+    if(route.request().method()!=='GET')return route.fulfill({status:200,contentType:'application/json',
+      body:JSON.stringify({...initialPage,...route.request().postDataJSON()})});
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({...initialPage,
+      sections:[{id:'services-1',type:'services',heading:'Our services',body:'Help for homeowners',
+        blocks:[{id:'drains-1',type:'service',heading:'Drain cleaning',body:'Request a visit.'}]}]})});
+  });
+  await page.goto(`/landing-pages/${pageId}`);
+  if(testInfo.project.name==='mobile')await page.getByRole('tab',{name:'Page preview'}).click();
+  const preview=page.frameLocator('iframe[title="Draft landing page preview"]');
+  await preview.getByRole('heading',{name:'Drain cleaning'}).click();
+  if(testInfo.project.name==='mobile')await page.getByRole('tab',{name:'Edit sections'}).click();
+  await expect(page.locator('#block-drains-1 input[placeholder="Title"]')).toHaveValue('Drain cleaning');
+  if(testInfo.project.name==='mobile')await page.getByRole('tab',{name:'Page preview'}).click();
+  await preview.getByRole('heading',{name:'Drain cleaning'}).fill('Water heater repair');
+  await preview.getByRole('heading',{name:'Water heater repair'}).blur();
+  await expect(preview.getByRole('heading',{name:'Water heater repair'})).toBeVisible();
+  if(testInfo.project.name==='mobile')await page.getByRole('tab',{name:'Edit sections'}).click();
+  await expect(page.locator('#block-drains-1 input[placeholder="Title"]')).toHaveValue('Water heater repair');
+});
+
+test('AI patch preview changes only the requested heading and undoes in one step',async({page},testInfo)=>{
+  await page.route('**/api/portal',route=>{
+    const request=route.request();
+    if(request.method()!=='POST'||request.postDataJSON()?.action!=='ai_page_edit')return route.fallback();
+    expect(request.postDataJSON()?.currentSections?.[0]?.id).toBe('hero-1');
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+      summary:'Shorten the hero headline',approvedImages:[],patches:[
+        {op:'update_settings',sectionId:'hero-1',field:'heading',value:'Austin plumbing help'},
+      ],
+    })});
+  });
+  await page.goto(`/landing-pages/${pageId}`);
+  await page.getByRole('button',{name:'AI assistant'}).click();
+  await page.getByLabel('AI page instructions').fill('Shorten the hero heading for Austin');
+  await page.getByRole('button',{name:'Suggest page edits'}).click();
+  await expect(page.getByText('Review suggested changes')).toBeVisible();
+  if(testInfo.project.name==='mobile')await page.getByRole('tab',{name:'Page preview'}).click();
+  const preview=page.frameLocator('iframe[title="Draft landing page preview"]');
+  await expect(preview.getByRole('heading',{name:'Original heading'})).toBeVisible();
+  if(testInfo.project.name==='mobile')await page.getByRole('tab',{name:'Edit sections'}).click();
+  await page.getByRole('button',{name:'Apply to draft'}).click();
+  if(testInfo.project.name==='mobile')await page.getByRole('tab',{name:'Page preview'}).click();
+  await expect(preview.getByRole('heading',{name:'Austin plumbing help'})).toBeVisible();
+  await page.getByRole('button',{name:'Undo'}).click();
+  await expect(preview.getByRole('heading',{name:'Original heading'})).toBeVisible();
 });
 
 test('mobile editor switches between editable controls and page preview',async({page},testInfo)=>{
@@ -121,6 +185,12 @@ test('blocks can be reordered, hidden, duplicated, and removed',async({page})=>{
   await expect(page.locator('[id^="block-"]')).toHaveCount(1);
   await page.getByRole('button',{name:'Add block'}).click();
   await page.getByPlaceholder('Title').nth(1).fill('Water heaters');
+  await page.getByRole('button',{name:'Drag tree block'}).nth(1)
+    .dragTo(page.getByRole('button',{name:'Drag tree block'}).nth(0),{steps:12});
+  await expect(page.getByPlaceholder('Title').first()).toHaveValue('Water heaters');
+  await page.getByRole('button',{name:'Drag block'}).nth(1)
+    .dragTo(page.getByRole('button',{name:'Drag block'}).nth(0),{steps:12});
+  await expect(page.getByPlaceholder('Title').first()).toHaveValue('Drain cleaning');
   await page.getByRole('button',{name:'Move block up'}).nth(1).click();
   await expect(page.getByPlaceholder('Title').first()).toHaveValue('Water heaters');
   await page.getByRole('button',{name:'Hide block'}).first().click();
@@ -145,7 +215,7 @@ test('section copies get unique block IDs and Delete removes the selected block'
   await page.getByRole('button',{name:'Services grid',exact:true}).click();
   await page.getByRole('button',{name:'Add block'}).click();
   await page.getByPlaceholder('Title').fill('Drain cleaning');
-  await page.getByRole('button',{name:/Services gridOur services/}).locator('..')
+  await page.getByRole('button',{name:/Services grid\s+Our services/}).locator('..')
     .getByRole('button',{name:'Duplicate'}).click();
   await expect(page.getByRole('button',{name:'Drain cleaning'})).toHaveCount(2);
   await expect.poll(()=>savedSections?.filter(section=>section.type==='services').length).toBe(2);
@@ -154,7 +224,7 @@ test('section copies get unique block IDs and Delete removes the selected block'
   await page.getByRole('button',{name:'Drain cleaning'}).first().click();
   await page.keyboard.press('Delete');
   await expect(page.getByRole('button',{name:'Drain cleaning'})).toHaveCount(1);
-  await expect(page.getByRole('button',{name:/Services gridOur services/})).toHaveCount(2);
+  await expect(page.getByRole('button',{name:/Services grid\s+Our services/})).toHaveCount(2);
 });
 
 test('editor changes sections as one draft and publishes the saved state',async({page},testInfo)=>{
@@ -176,6 +246,9 @@ test('editor changes sections as one draft and publishes the saved state',async(
   });
   await page.goto(`/landing-pages/${pageId}`);
   await expect(page.getByRole('heading',{name:'Demo service page'})).toBeVisible();
+  await expect(page.getByRole('navigation',{name:'Workspace navigation'})).toHaveCount(0);
+  const editorWidth=await page.locator('main#workspace-content').evaluate(element=>element.getBoundingClientRect().width);
+  expect(editorWidth).toBeGreaterThanOrEqual((page.viewportSize()?.width??0)-1);
   await page.getByRole('button',{name:'Add section'}).click();
   await page.getByRole('button',{name:'Services grid',exact:true}).click();
   await page.getByRole('textbox',{name:'Heading'}).fill('Plumbing services');
@@ -202,7 +275,7 @@ test('editor keeps an unsaved draft out of published versions',async({page})=>{
   });
   await page.goto(`/landing-pages/${pageId}`);
   await expect(page.getByRole('heading',{name:'Demo service page'})).toBeVisible();
-  await page.getByRole('button',{name:/HeroOriginal heading/}).click();
+  await page.getByRole('button',{name:/Hero\s+Original heading/}).click();
   await page.getByRole('textbox',{name:'Headline'}).fill('Updated heading');
   await page.getByRole('button',{name:'Publish'}).click();
   await expect(page.getByText('Draft could not be saved',{exact:true})).toBeVisible();
@@ -224,19 +297,21 @@ test('editor hides, duplicates, reorders and removes sections',async({page},test
   await expect(page.getByRole('heading',{name:'Demo service page'})).toBeVisible();
   await page.getByRole('button',{name:'Add section'}).click();
   await page.getByRole('button',{name:'Services grid',exact:true}).click();
-  const hero=page.getByRole('button',{name:/HeroOriginal heading/}).locator('..');
-  const service=page.getByRole('button',{name:/Services gridOur services/}).locator('..');
+  const hero=page.getByRole('button',{name:/Hero\s+Original heading/}).locator('..');
+  const service=page.getByRole('button',{name:/Services grid\s+Our services/}).locator('..');
   await service.getByRole('button',{name:'Hide'}).click();
   await expect(service.getByRole('button',{name:'Show'})).toBeVisible();
   await service.getByRole('button',{name:'Duplicate'}).click();
-  await expect(page.getByRole('button',{name:/Services gridOur services/})).toHaveCount(2);
-  await page.getByRole('button',{name:/Services gridOur services/}).last().locator('..')
+  await expect(page.getByRole('button',{name:/Services grid\s+Our services/})).toHaveCount(2);
+  await page.getByRole('button',{name:/Services grid\s+Our services/}).last().locator('..')
     .getByRole('button',{name:'Remove'}).click();
-  await expect(page.getByRole('button',{name:/Services gridOur services/})).toHaveCount(1);
+  await expect(page.getByRole('button',{name:/Services grid\s+Our services/})).toHaveCount(1);
   if(testInfo.project.name==='mobile')await service.getByRole('button',{name:'Move section up'}).click();
-  else await service.dragTo(hero);
-  await expect.poll(async()=>page.locator('[draggable="true"] > button:first-child').allTextContents())
-    .toEqual(['Services gridOur services','HeroOriginal heading']);
+  else await page.getByRole('button',{name:'Drag section'}).nth(1)
+    .dragTo(page.getByRole('button',{name:'Drag section'}).nth(0),{steps:12});
+  await expect.poll(async()=>(await page.getByRole('button',{name:'Drag section'}).locator('..').allTextContents())
+    .map(text=>text.includes('Services grid')?'services':'hero'))
+    .toEqual(['services','hero']);
   await expect.poll(()=>saved?.map(section=>section.type)||[]).toEqual(['services','hero']);
   expect(saved?.[0]?.hidden).toBe(true);
 });
@@ -261,6 +336,6 @@ test('editor restores a published version into the draft',async({page})=>{
   await expect(page.getByRole('heading',{name:'Demo service page'})).toBeVisible();
   await page.getByRole('button',{name:'Version history'}).click();
   await page.getByRole('button',{name:'Restore'}).click();
-  await expect(page.getByRole('button',{name:/HeroOriginal heading/})).toBeVisible();
+  await expect(page.getByRole('button',{name:/Hero\s+Original heading/})).toBeVisible();
   expect(requestedVersion).toBe(1);
 });

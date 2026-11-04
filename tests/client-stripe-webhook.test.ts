@@ -39,6 +39,12 @@ test('signed checkout provisions one client from split UTF-8 chunks and sends it
       assert.equal(body.p_owner_name,'Zoë 🔧');
       return Response.json({accountId:'20000000-0000-4000-8000-000000000001',inviteCode:'fixture-code',existing:false});
     }
+    if(url.includes('/rpc/portal_apply_account_template')){
+      const body=JSON.parse(String(init?.body)) as Record<string,string>;
+      assert.equal(body.p_account,'20000000-0000-4000-8000-000000000001');
+      assert.equal(body.p_template,'starter');
+      return Response.json({template:'starter'});
+    }
     if(url==='https://api.resend.com/emails'){
       const body=JSON.parse(String(init?.body)) as {text:string};
       assert.match(body.text,/invite=fixture-code/);
@@ -62,6 +68,7 @@ test('signed checkout provisions one client from split UTF-8 chunks and sends it
     assert.equal((JSON.parse(body) as {accountId:string}).accountId,
       '20000000-0000-4000-8000-000000000001');
     assert.equal(paths.some(path=>path.includes('/rpc/portal_create_client')),true);
+    assert.equal(paths.some(path=>path.includes('/rpc/portal_apply_account_template')),true);
     assert.equal(paths.some(path=>path.includes('/rpc/portal_mark_invite_sent')),true);
     assert.equal(paths.some(path=>path==='https://api.resend.com/emails'),true);
   }finally{
@@ -109,6 +116,7 @@ test('unpaid checkout waits for the signed asynchronous payment success',async()
     assert.equal(success.status,200);
     assert.equal(success.body.accountId,'20000000-0000-4000-8000-000000000001');
     assert.equal(paths.filter(path=>path.includes('/rpc/portal_create_client')).length,1);
+    assert.equal(paths.filter(path=>path.includes('/rpc/portal_apply_account_template')).length,1);
   }finally{
     globalThis.fetch=previousFetch;
     for(const key of keys){
