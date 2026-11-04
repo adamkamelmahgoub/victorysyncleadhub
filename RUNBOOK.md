@@ -26,6 +26,10 @@ Agency admins and staff must complete authenticator verification before the port
 
 If **Continue** reports an enrollment or verification error, check the project's Supabase Auth MFA settings for TOTP enrollment and verification, then retry after signing in again. Supabase documents the [TOTP enrollment flow](https://supabase.com/docs/guides/auth/auth-mfa/totp) and [MFA controls](https://supabase.com/docs/guides/auth/auth-mfa). Do not disable the agency API or database gate to work around a setup failure.
 
+## Create a booking link
+
+Open **Calendars** and create an event type with its duration, timezone, available days and hours. Use **Copy Link** on that event type to share its public `/book/` page. A visitor can choose an open time and enter a name and email without signing in. The public booking API rechecks availability while holding a database lock before creating the appointment. Agency staff can view it on the calendar, add an appointment manually, and mark it completed or cancelled. Test the public link after deploying and verify the event timezone and confirmation against a real appointment.
+
 ## Connect a domain and publish a page
 
 Set server-only `VERCEL_API_TOKEN` and `VERCEL_PROJECT_ID` in Vercel. For a team-owned project, also set `VERCEL_TEAM_ID` (or use Vercel's `VERCEL_ORG_ID`). Set `PUBLIC_PAGES_BASE_URL` to the public pages origin. The client keeps control of their domain and DNS; do not collect registrar credentials.
