@@ -3435,7 +3435,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const claimedRole = String(currentUser.user_metadata?.role ?? "");
     if (path !== "/api/auth/sync-session" && path !== "/api/activity/events" &&
       (["agency_staff", "client_owner", "client_staff"].includes(claimedRole) ||
-        (["member", "viewer", "agent", "client"].includes(claimedRole) && await portalEnabledForUser(req)))) {
+    (["member", "viewer", "agent", "client"].includes(claimedRole) &&
+     !(["member", "viewer", "agent"].includes(claimedRole) && !clientAccountIdForUser(currentUser)) &&
+     await portalEnabledForUser(req)))) {
       sendJson(res, 403, { message: "Use the client portal for this account" }); return;
     }
     if(path==='/api/activity/events'&&method==='POST'){
