@@ -370,7 +370,12 @@ function actorLabelForUser(user: AuthenticatedUser) {
 
 function leadScopeSuffix(user: AuthenticatedUser) {
   const clientAccountId = clientLeadScope(user) ?? clientAccountIdForUser(user);
-  return clientAccountId ? `&client_account_id=eq.${encodeURIComponent(clientAccountId)}` : "";
+  if (clientAccountId) return `&client_account_id=eq.${encodeURIComponent(clientAccountId)}`;
+  if (normalizeDashboardRole(user.user_metadata?.role ?? user.app_metadata?.role) === "agent") {
+    const teamMemberId = user.user_metadata?.team_member_id ?? user.app_metadata?.team_member_id;
+    return `&custom_fields->>assigned_agent_id=eq.${encodeURIComponent(typeof teamMemberId === "string" && teamMemberId ? teamMemberId : "00000000-0000-0000-0000-000000000000")}`;
+  }
+  return "";
 }
 
 function legacyCompatibleTeamRole(role: unknown) {
@@ -1790,6 +1795,7 @@ async function handleContactContext(path: string, method: string, user: Authenti
   if (method !== 'GET') { sendJson(res, 405, { error: 'Unsupported contact operation' }); return true; }
   const id = match[1];
   if (!uuidPattern.test(id)) { sendJson(res, 400, { error: 'Invalid contact id' }); return true; }
+  if (!await assertLeadAccess(id, user, req)) { sendJson(res, 404, { error: 'Contact not found' }); return true; }
   const organizationId = await resolveContactOrganization(user, req);
   if (!organizationId || !uuidPattern.test(organizationId)) { sendJson(res, 403, { error: 'No organization is assigned to this session' }); return true; }
   const leads = await supabaseRest(`leads?id=eq.${id}&select=id,organization_id,phone&limit=1`, { method: 'GET' }, req) as Array<{ id: string; organization_id: string | null; phone: string | null }>;
@@ -3517,6 +3523,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (role === "agent" && !(
       path === "/api/leads" || /^\/api\/leads\/[^/]+$/.test(path) ||
+      /^\/api\/leads\/[^/]+\/(?:activities|notes|tasks)(?:\/[^/]+)?$/.test(path) ||
+      /^\/api\/leads\/[^/]+\/score$/.test(path) ||
+      /^\/api\/contacts\/[^/]+\/context$/.test(path) ||
       /^\/api\/leads\/[^/]+\/(calls|outreach)$/.test(path) ||
       path === "/api/outreach/queue" || path === "/api/outreach/needs-timezone" ||
       path === "/api/dispositions" || path === "/api/pipeline/leads" ||
@@ -3641,6 +3650,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (leadId && method === "DELETE") {
       await deleteLead(leadId, currentUser, req, res);
+      return;
+    }
+
+    const scoreMatch = path.match(/^\/api\/leads\/([^/]+)\/score$/);
+    if (scoreMatch && method === "PATCH") {
+      const id = decodeURIComponent(scoreMatch[1]);
+      const body = await readJson(req) as { score?: unknown };
+      if (typeof body.score !== "number" || !Number.isFinite(body.score)) {
+        sendJson(res, 400, { error: "Invalid lead score" }); return;
+      }
+      const rows = await supabaseRest(`leads?id=eq.${encodeURIComponent(id)}${leadScopeSuffix(currentUser)}`, {
+        method: "PATCH", body: JSON.stringify({ score: body.score, updated_by: currentUser.id }),
+      }, req) as LeadRow[];
+      sendJson(res, rows[0] ? 200 : 404, rows[0] ? leadFromRow(rows[0]) : { error: "Lead not found" });
       return;
     }
 
