@@ -191,7 +191,7 @@ export default function Dashboard() {
                     <div className="flex items-center justify-between py-2 px-2 rounded-md hover:bg-muted/40 transition-colors cursor-pointer">
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-foreground truncate">{c.name}</p>
-                        <p className="text-xs text-muted-foreground">{c.leadCount} leads · {c.sourceType ?? "—"}</p>
+                        <p className="text-xs text-muted-foreground">{c.leadCount} leads · {c.sourceType ?? "–"}</p>
                       </div>
                       <div className="flex-shrink-0 ml-4 text-right">
                         <p className="text-sm font-bold text-primary">{rate}%</p>

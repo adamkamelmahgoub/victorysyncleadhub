@@ -24,6 +24,7 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  Rocket,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
@@ -47,6 +48,7 @@ const core: Item[] = [
   { href: "/meeting-scheduler", label: "Calendars", icon: CalendarClock },
 ];
 const clientCore: Item[] = [
+  { href: "/client-portal/launchpad", label: "Launchpad", icon: Rocket },
   { href: "/client-portal/dashboard", label: "Dashboard", icon: BarChart3 },
   { href: "/client-portal/leads", label: "Leads", icon: Users },
   { href: "/client-portal/calls", label: "Calls", icon: Phone },
@@ -137,14 +139,19 @@ export function Layout({ children }: { children: ReactNode }) {
   const [pageSearchOpen, setPageSearchOpen] = useState(false);
   const [refreshLiveSegments, setRefreshLiveSegments] = useState(false);
   const { user, role, pagePermissions, signOut } = useAuth();
-  const clientWorkspace = role === "client_owner" || role === "client_staff";
+  const agencyRole = ["owner", "admin", "member", "viewer", "agent", "agency_admin", "agency_staff"].includes(role);
+  const {data:portalAccounts}=useQuery<{selected:{viewAsClient:boolean}|null}>({queryKey:["portal-accounts"],
+    queryFn:()=>apiFetch('/api/portal?action=accounts'),enabled:agencyRole&&location.startsWith('/client-portal'),retry:false});
+  const viewAsClient=portalAccounts?.selected?.viewAsClient===true;
+  const navigationRole=viewAsClient?'client_owner':role;
+  const clientWorkspace = role === "client_owner" || role === "client_staff" || viewAsClient;
   const primary = clientWorkspace ? clientCore : core;
-  const canSeeSegments = role !== "client" && role !== "agent" && canAccessPath("/segments", pagePermissions, role);
+  const path = location.replace(/^\/leadgen/, "") || "/";
+  const landingEditor = /^\/landing-pages\/[0-9a-f-]{36}$/i.test(path);
+  const canSeeSegments = !landingEditor&&!clientWorkspace&&role !== "client" && role !== "agent" && canAccessPath("/segments", pagePermissions, navigationRole);
   const { data: segmentResponse } = useQuery<Array<{id:string;name:string;contactCount:number}>>({ queryKey: ["segments"], queryFn: () => apiFetch("/api/segments"), enabled: canSeeSegments, staleTime: 5 * 60_000, refetchOnWindowFocus: false });
   const { data: liveSegmentResponse } = useQuery<Array<{id:string;name:string;contactCount:number}>>({ queryKey: ["segments", "live"], queryFn: () => apiFetch("/api/segments?liveCounts=1"), enabled: canSeeSegments && refreshLiveSegments, staleTime: 5 * 60_000, refetchOnWindowFocus: false });
   const segments = asArray<{id:string;name:string;contactCount:number}>(liveSegmentResponse ?? segmentResponse);
-  const path = location.replace(/^\/leadgen/, "") || "/";
-  const landingEditor = /^\/landing-pages\/[0-9a-f-]{36}$/i.test(path);
   const active = (href: string) =>
     href === "/client-portal"
       ? path === "/client-portal" || path === "/client-portal/dashboard"
@@ -177,15 +184,16 @@ export function Layout({ children }: { children: ReactNode }) {
   }, []);
   const searchablePages = [...primary, ...groups.flatMap((group) => group.links),
     { href: "/settings", label: "Settings", icon: Settings }]
-    .filter((item) => canAccessPath(item.href, pagePermissions, role))
+    .filter((item) => canAccessPath(item.href, pagePermissions, navigationRole))
     .filter((item) => item.label.toLowerCase().includes(pageSearch.trim().toLowerCase()));
   const current =
     [...primary, ...groups.flatMap((group) => group.links)].find((item) =>
       active(item.href),
     )?.label ?? (path.startsWith("/client-portal/")
       ? `Client ${path.split("/")[2]}` : "Workspace");
+  if (landingEditor) return <main id="workspace-content" className="h-dvh min-h-0 min-w-0 overflow-y-auto bg-slate-50">{children}</main>;
   function navLink(item: Item) {
-    return !canAccessPath(item.href, pagePermissions, role) ? null : (
+    return !canAccessPath(item.href, pagePermissions, navigationRole) ? null : (
       <Link
         key={item.href}
         href={item.href}
@@ -230,6 +238,7 @@ export function Layout({ children }: { children: ReactNode }) {
             </span>
           )}
         </Link>
+        {(!collapsed || mobile) && <div className="mx-3 mb-3"><AccountSwitcher variant="sidebar"/></div>}
         {(!collapsed || mobile) && <button type="button" onClick={() => setPageSearchOpen(true)}
           className="mx-3 mb-3 flex h-10 items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 text-left text-xs text-slate-300 hover:border-slate-500 hover:text-white">
           <Search className="h-4 w-4"/><span className="flex-1">Find a page</span><kbd className="rounded border border-slate-700 px-1.5 py-0.5 text-[10px]">Ctrl K</kbd>
@@ -238,7 +247,7 @@ export function Layout({ children }: { children: ReactNode }) {
           aria-label="Workspace navigation"
           className="flex-1 space-y-1 overflow-y-auto px-3 pb-5 pt-2"
         >
-          {(!collapsed || mobile) && <p className="px-3 pb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Main menu</p>}
+          {(!collapsed || mobile) && <p className="px-3 pb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Main menu</p>}
           {primary.map(navLink)}
           {(!collapsed || mobile) && canSeeSegments && <div className="ml-7 border-l border-slate-700 pl-2">
             <Link href="/segments" onMouseEnter={() => prefetchPage("/segments")} onFocus={() => prefetchPage("/segments")} className="block rounded px-2 py-1 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white">Segments</Link>
@@ -247,7 +256,7 @@ export function Layout({ children }: { children: ReactNode }) {
           {!collapsed || mobile
             ? groups.map((group) => {
                 const links = group.links.filter((item) =>
-                  canAccessPath(item.href, pagePermissions, role),
+                  canAccessPath(item.href, pagePermissions, navigationRole),
                 );
                 if (!links.length) return null;
                 return (
@@ -256,7 +265,7 @@ export function Layout({ children }: { children: ReactNode }) {
                     className="group mt-4 border-t border-slate-800 pt-3"
                     open={links.some((item) => active(item.href)) || undefined}
                   >
-                    <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                    <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
                       {group.label}
                       <ChevronRight className="h-3 w-3 transition-transform group-open:rotate-90" />
                     </summary>
@@ -278,7 +287,7 @@ export function Layout({ children }: { children: ReactNode }) {
                   <p className="truncate text-xs font-medium text-slate-200">
                     {user?.email}
                   </p>
-                  <p className="text-[10px] capitalize text-slate-500">
+                  <p className="text-[10px] capitalize text-slate-400">
                     {role}
                   </p>
                 </div>
@@ -316,15 +325,15 @@ export function Layout({ children }: { children: ReactNode }) {
               <PanelLeftClose className="h-4 w-4" />
             )}
           </button>
-          <span className="hidden text-xs text-slate-400 sm:inline">
+          <span className="hidden text-xs text-slate-600 sm:inline">
             Workspace
           </span>
           <ChevronRight className="hidden h-3 w-3 text-slate-300 sm:block" />
           <span className="truncate text-xs font-medium text-slate-600">
             {current}
           </span>
-          <div className="ml-auto"><AccountSwitcher /></div>
-          {canAccessPath("/companies", pagePermissions, role) && (
+          <div className="ml-auto min-w-0"><AccountSwitcher /></div>
+          {canAccessPath("/companies", pagePermissions, navigationRole) && (
             <form
               className="relative w-full min-w-[160px] flex-1 sm:max-w-64 sm:flex-none"
               onSubmit={(event) => {

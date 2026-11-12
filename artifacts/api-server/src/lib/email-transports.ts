@@ -1,7 +1,9 @@
 import nodemailer from 'nodemailer';
 import { ResendTransport,SmtpRecipientRejected,type EmailTransport } from '../../../../lib/email-providers.js';
 import { decryptCredentials,EmailInputError } from '../../../../lib/email-security.js';
+import {requireExternalSends} from '../../../../lib/external-send-mode.js';
 export function mailboxTransport(mailbox:Record<string,any>):EmailTransport {
+ requireExternalSends();
  const credentials=decryptCredentials(mailbox.smtp_password,mailbox.from_email);
  if(mailbox.provider==='resend') {if(!credentials.apiKey) throw new EmailInputError('Mailbox API credentials are missing');return new ResendTransport(credentials.apiKey,fetch,credentials.domainId);}
  if(!credentials.password) throw new EmailInputError('Mailbox SMTP credentials are missing');

@@ -2,6 +2,10 @@ import crypto from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 import { clientReportPdf } from '../lib/client-report-pdf.js';
+import {previousReportPeriod,reportMetricRange} from '../lib/client-report-period.js';
+import {mightyCallAuthUrl,mightyCallProduct,mightyCallUrl} from '../lib/mightycall-endpoints.js';
+import {externalSendsEnabled,requireExternalSends} from '../lib/external-send-mode.js';
+import {clientPortalLink} from '../lib/client-portal-link.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const inputSchema = z.object({ limit: z.number().int().min(1).max(50).optional() }).strict();
@@ -33,9 +37,9 @@ function e164(value:string|null|undefined) {
 }
 async function mightyAuth() {
   if(mightyToken&&mightyToken.expires>Date.now()+60_000)return mightyToken.value;
-  const key=process.env.MIGHTYCALL_API_KEY,secret=process.env.MIGHTYCALL_SECRET_KEY;
+  const key=process.env.MIGHTYCALL_API_KEY,secret=process.env.MIGHTYCALL_SECRET_KEY||process.env.MIGHTYCALL_USER_KEY;
   if(!key||!secret)throw Error('MightyCall is not configured');
-  const response=await fetch('https://api.mightycall.com/v4/auth/token',{method:'POST',
+  const response=await fetch(mightyCallAuthUrl(mightyCallProduct(process.env.MIGHTYCALL_PRODUCT)),{method:'POST',
     headers:{'x-api-key':key,'content-type':'application/x-www-form-urlencoded'},
     body:new URLSearchParams({grant_type:'client_credentials',client_id:key,client_secret:secret}),signal:AbortSignal.timeout(12000)});
   const data=await response.json() as {access_token?:string;expires_in?:number};
@@ -43,8 +47,9 @@ async function mightyAuth() {
   mightyToken={value:data.access_token,expires:Date.now()+(data.expires_in||3600)*1000};return data.access_token;
 }
 async function mighty(path:string,method='GET',body?:unknown) {
+  if(method!=='GET')requireExternalSends();
   const key=process.env.MIGHTYCALL_API_KEY;if(!key)throw Error('MightyCall API key missing');
-  const response=await fetch(`https://api.mightycall.com/v4/api/${path}`,{method,
+  const response=await fetch(mightyCallUrl(mightyCallProduct(process.env.MIGHTYCALL_PRODUCT),path),{method,
     headers:{authorization:`Bearer ${await mightyAuth()}`,'x-api-key':key,'content-type':'application/json'},
     body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(12000)});
   const data=await response.json().catch(()=>null) as Record<string,unknown>|null;
@@ -57,20 +62,26 @@ async function sendText(account:Account,to:string,message:string,job:Job) {
   if(await rest<boolean>('rpc/client_phone_dnc','POST',{p_account:account.id,p_phone:recipient}))return false;
   const logged=await rest<Array<{id:string}>>(`mightycall_sms_messages?client_account_id=eq.${account.id}&metadata->>automation_job_id=eq.${job.id}&select=id&limit=1`);
   if(logged.length)return true;
+  await mightyAuth();
+  const claimed=await rest<boolean>('rpc/client_claim_sms_send','POST',
+    {p_account:account.id,p_phone:recipient,p_job:job.id});
+  if(!claimed)throw Error('SMS send outcome is uncertain. Check MightyCall history before retrying');
   const text=message.includes('Reply STOP to opt out')?message:`${message} Reply STOP to opt out`;
   const sent=await mighty('messages/send','POST',{from,to:[recipient],message:text});
   await rest('mightycall_sms_messages','POST',{org_id:'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1',
     client_account_id:account.id,from_number:from,to_number:recipient,direction:'outbound',
     message_text:text,status:'sent',external_sms_id:sent?.id||null,metadata:{automation_job_id:job.id,automation_kind:job.kind}});
+  await rest('rpc/client_mark_sms_send_sent','POST',
+    {p_account:account.id,p_phone:recipient,p_job:job.id});
   return true;
 }
 async function sendEmail(to:string,subject:string,body:string,job:Job) {
+  requireExternalSends();
   if(!process.env.RESEND_API_KEY||!process.env.REPORT_FROM_EMAIL)throw Error('Report email is not configured');
   const response=await fetch('https://api.resend.com/emails',{method:'POST',headers:{authorization:`Bearer ${process.env.RESEND_API_KEY}`,
     'content-type':'application/json','Idempotency-Key':`${job.id}-${crypto.createHash('sha256').update(to.toLowerCase()).digest('hex').slice(0,12)}`},body:JSON.stringify({from:process.env.REPORT_FROM_EMAIL,to:[to],subject,text:body}),signal:AbortSignal.timeout(12000)});
   if(!response.ok)throw Error(`Email delivery ${response.status}`);
 }
-function portalLink(path:string){return `${(process.env.APP_URL||'https://app.victorysync.com').replace(/\/$/,'')}/client-portal/${path}`}
 function coveredNow(account:Account){
   const configured=account.settings?.covered_hours as {start?:string;end?:string;days?:number[]}|undefined;
   const start=/^([01]\d|2[0-3]):[0-5]\d$/.test(configured?.start||'')?configured?.start:'09:00';
@@ -84,7 +95,7 @@ function coveredNow(account:Account){
 }
 async function load(job:Job) {
   const account=await row<Account>('sub_accounts',`id=eq.${job.client_account_id}`);
-  if(!account||!await enabled(account.id))return null;
+  if(!account||job.kind!=='stop_confirmation'&&!await enabled(account.id))return null;
   return account;
 }
 async function routeCalls() {
@@ -100,14 +111,8 @@ async function routeCalls() {
       const business=e164(details.businessNumber);
       const matched=business?accounts.find(item=>e164(item.mightycall_number)===business):undefined;
       if(!matched){await rest(`mightycall_webhook_inbox?id=eq.${event.id}`,'PATCH',{client_route_attempted_at:new Date().toISOString()});continue;}
-      await rest(`mightycall_webhook_inbox?id=eq.${event.id}`,'PATCH',{
-        client_account_id:matched.id,caller_number:e164(details.caller?.phone),
-        business_number:e164(details.businessNumber),call_status:details.callStatus||null,
-        call_direction:details.direction||null,client_route_attempted_at:new Date().toISOString(),
-        client_routed_at:new Date().toISOString(),
-      });
       const caller=e164(details.caller?.phone);
-      const lead=caller?await rest<Lead[]>(`leads?client_account_id=eq.${matched.id}&phone=ilike.*${caller.slice(-10)}&select=id&limit=1`):[];
+      const lead=caller?await rest<Lead[]>(`leads?client_account_id=eq.${matched.id}&normalized_phone=eq.${encodeURIComponent(caller)}&select=id&limit=1`):[];
       const durationMs=Number(details.duration);
       const recording=details.callRecord?.uri;
       await rest('client_call_details?on_conflict=client_account_id,external_call_id','POST',{
@@ -118,7 +123,13 @@ async function routeCalls() {
         recording_url:recording&&recording.startsWith('https://')?recording:null,
         agent_name:details.called?.find(x=>x.isConnected)?.name||null,summary:details.note||null,
       });
-      if(process.env.SLACK_WEBHOOK_URL){
+      await rest(`mightycall_webhook_inbox?id=eq.${event.id}`,'PATCH',{
+        client_account_id:matched.id,caller_number:caller,
+        business_number:business,call_status:details.callStatus||null,
+        call_direction:details.direction||null,client_route_attempted_at:new Date().toISOString(),
+        client_routed_at:new Date().toISOString(),
+      });
+      if(process.env.SLACK_WEBHOOK_URL&&externalSendsEnabled()){
         const usage=await rest<{minutesUsed:number;minutesIncluded:number}>('rpc/client_usage_meter','POST',{p_account:matched.id});
         if(usage.minutesIncluded>0&&usage.minutesUsed>=Math.ceil(usage.minutesIncluded*0.8)){
           const month=new Date().toISOString().slice(0,7)+'-01';
@@ -177,21 +188,29 @@ async function handle(job:Job) {
     const details=(call?.data||call) as {businessNumber?:string;caller?:{phone?:string};direction?:string};
     if(!e164(details.businessNumber)||e164(details.businessNumber)!==e164(account.mightycall_number)||!details.caller?.phone)return 'cancelled';
     const caller=e164(details.caller.phone);if(!caller)return 'cancelled';
+    if(await rest<boolean>('rpc/client_phone_dnc','POST',{p_account:account.id,p_phone:caller}))return 'cancelled';
+    const leads=await rest<Lead[]>(`leads?client_account_id=eq.${account.id}&normalized_phone=eq.${encodeURIComponent(caller)}&select=id,dnc,phone,source,opt_in_source&limit=1`);
+    if(leads[0]?.dnc)return 'cancelled';
+    let leadId=leads[0]?.id;
+    if(!leadId){const created=await rest<Array<{id:string}>>('leads','POST',{client_account_id:account.id,
+      first_name:'Caller',last_name:'',phone:caller,source:'missed_call',opt_in_source:'call',status:'new'});
+      leadId=created[0]?.id;}
+    if(leadId)await rest(`client_call_details?client_account_id=eq.${account.id}&external_call_id=eq.${encodeURIComponent(event.external_call_id)}&lead_id=is.null`,'PATCH',{lead_id:leadId});
     const recent=await rest<Array<{id:string}>>(`mightycall_sms_messages?client_account_id=eq.${account.id}&to_number=eq.${encodeURIComponent(caller)}&direction=eq.outbound&created_at=gte.${encodeURIComponent(new Date(Date.now()-86400_000).toISOString())}&metadata->>automation_kind=eq.missed_call_text&select=id&limit=1`);
     if(recent.length)return 'cancelled';
-    const leads=await rest<Lead[]>(`leads?client_account_id=eq.${account.id}&phone=ilike.*${encodeURIComponent(caller.slice(-10))}&select=id,dnc,phone,source,opt_in_source&limit=1`);
-    if(leads[0]?.dnc)return 'cancelled';
-    if(!leads[0])await rest('leads','POST',{client_account_id:account.id,
-      first_name:'Caller',last_name:'',phone:caller,source:'missed_call',opt_in_source:'call',status:'new'});
-    return await sendText(account,caller,`Sorry we missed your call! This is ${account.name}. How can we help?`,job)?'sent':'cancelled';
+    const claimed=await rest<boolean>('rpc/client_claim_missed_call_text','POST',{p_account:account.id,p_phone:caller,p_job:job.id});
+    if(!claimed)return 'cancelled';
+    const sent=await sendText(account,caller,`Sorry we missed your call! This is ${account.name}. How can we help?`,job);
+    if(sent)await rest('rpc/client_mark_missed_call_text_sent','POST',{p_account:account.id,p_phone:caller,p_job:job.id});
+    return sent?'sent':'cancelled';
   }
   if(job.kind==='review_request') {
     if(!account.google_review_link||!/^https:\/\//.test(account.google_review_link))return 'cancelled';
-    let request:{id:string;lead_id:string|null;contact_name:string;contact_phone:string;contact_email:string|null;click_token:string;clicked_at:string|null}|null=null;
+    let request:{id:string;lead_id:string|null;contact_name:string;contact_phone:string;contact_email:string|null;click_token:string;clicked_at:string|null;status?:string}|null=null;
     if(job.source_id.startsWith('request:'))request=await row('review_requests',`id=eq.${job.source_id.slice(8)}&client_account_id=eq.${account.id}`);
     else if(job.source_id.startsWith('lead:')){
       const lead=await row<Lead>('leads',`id=eq.${job.source_id.slice(5)}&client_account_id=eq.${account.id}`);
-      if(!lead||lead.dnc||!lead.phone)return 'cancelled';
+      if(!lead||lead.dnc||!lead.phone||!['form','call','missed_call'].includes(lead.opt_in_source||lead.source||''))return 'cancelled';
       const existing=await rest<typeof request[]>(`review_requests?client_account_id=eq.${account.id}&lead_id=eq.${lead.id}&select=*&limit=1`);
       request=existing[0]||null;
       if(!request){const created=await rest<Array<NonNullable<typeof request>>>('review_requests','POST',{client_account_id:account.id,lead_id:lead.id,contact_name:lead.first_name||'Customer',contact_phone:lead.phone,contact_email:lead.email,channel:'sms',platform:'google',status:'pending'});request=created[0]||null;}
@@ -202,19 +221,23 @@ async function handle(job:Job) {
       if(!lead||lead.dnc||!lead.phone)return 'cancelled';
       const created=await rest<Array<NonNullable<typeof request>>>('review_requests','POST',{client_account_id:account.id,lead_id:lead.id,contact_name:appointment.guest_name,contact_phone:lead.phone,contact_email:lead.email,channel:'sms',platform:'google',status:'pending'});request=created[0]||null;
     }
-    if(!request||request.clicked_at)return 'cancelled';
+    if(!request||request.clicked_at||['sent','reminder','clicked'].includes(request.status||''))return 'cancelled';
     const lead=request.lead_id?await row<Lead>('leads',`id=eq.${request.lead_id}&client_account_id=eq.${account.id}`):null;
-    if(!lead||lead.dnc||!['form','call','missed_call'].includes(lead.opt_in_source||lead.source||''))return 'cancelled';
+    if(!lead||lead.dnc||!e164(lead.phone)||e164(lead.phone)!==e164(request.contact_phone)
+      ||!['form','call','missed_call'].includes(lead.opt_in_source||lead.source||''))return 'cancelled';
     const link=`${(process.env.APP_URL||'https://app.victorysync.com').replace(/\/$/,'')}/r/${request.click_token}`;
     if(!await sendText(account,request.contact_phone,`Thanks for choosing ${account.name}. If you would like to share your experience, here is our review link: ${link}`,job))return 'cancelled';
-    if(request.contact_email||lead.email)await sendEmail(request.contact_email||lead.email!,`Share your experience with ${account.name}`,`Thank you for choosing ${account.name}. If you would like to leave a review: ${link}`,job);
+    if(lead.email)await sendEmail(lead.email,`Share your experience with ${account.name}`,`Thank you for choosing ${account.name}. If you would like to leave a review: ${link}`,job);
     await rest(`review_requests?id=eq.${request.id}`,'PATCH',{status:'sent',sent_at:new Date().toISOString()});
     await rest('client_automation_jobs','POST',{client_account_id:account.id,lead_id:lead.id,kind:'review_reminder',source_id:`request:${request.id}`,run_at:new Date(Date.now()+3*86400_000).toISOString()}).catch(()=>undefined);
     return 'sent';
   }
   if(job.kind==='review_reminder'){
-    const request=await row<{id:string;contact_phone:string;clicked_at:string|null;click_token:string}>('review_requests',`id=eq.${job.source_id.slice(8)}&client_account_id=eq.${account.id}`);
+    const request=await row<{id:string;lead_id:string|null;contact_phone:string;clicked_at:string|null;click_token:string}>('review_requests',`id=eq.${job.source_id.slice(8)}&client_account_id=eq.${account.id}`);
     if(!request||request.clicked_at||!account.google_review_link)return 'cancelled';
+    const lead=request.lead_id?await row<Lead>('leads',`id=eq.${request.lead_id}&client_account_id=eq.${account.id}`):null;
+    if(!lead||lead.dnc||!e164(lead.phone)||e164(lead.phone)!==e164(request.contact_phone)
+      ||!['form','call','missed_call'].includes(lead.opt_in_source||lead.source||''))return 'cancelled';
     const link=`${(process.env.APP_URL||'https://app.victorysync.com').replace(/\/$/,'')}/r/${request.click_token}`;
     if(!await sendText(account,request.contact_phone,`A quick reminder from ${account.name}: if you would like to share your experience, here is the review link: ${link}`,job))return 'cancelled';
     await rest(`review_requests?id=eq.${request.id}`,'PATCH',{reminder_sent_at:new Date().toISOString()});return 'sent';
@@ -224,24 +247,27 @@ async function handle(job:Job) {
     if(!recipient||!from)return 'cancelled';
     const existing=await rest<Array<{id:string}>>(`mightycall_sms_messages?client_account_id=eq.${account.id}&metadata->>automation_job_id=eq.${job.id}&select=id&limit=1`);
     if(existing.length)return 'sent';
+    const claimed=await rest<boolean>('rpc/client_claim_stop_confirmation','POST',
+      {p_account:account.id,p_phone:recipient,p_job:job.id});
+    if(!claimed)throw Error('STOP confirmation claim already exists; check MightyCall before retrying');
     const message='You are opted out and will not receive further automated texts.';
     await mighty('messages/send','POST',{from,to:[recipient],message});
     await rest('mightycall_sms_messages','POST',{org_id:'cfbaf78a-3caa-4cb2-a367-d3b3eb161ba1',client_account_id:account.id,from_number:from,to_number:recipient,direction:'outbound',message_text:message,status:'sent',metadata:{automation_job_id:job.id,automation_kind:job.kind}});
+    await rest('rpc/client_mark_stop_confirmation_sent','POST',
+      {p_account:account.id,p_phone:recipient,p_job:job.id});
     return 'sent';
   }
   if(job.kind==='owner_alert'){
     const isCall=job.source_id.startsWith('call:');
     const detail=isCall?'A call was missed':'A new lead submitted a form';
-    const link=portalLink(isCall?'calls':'leads');
+    const link=clientPortalLink(isCall?'calls':'leads',process.env.PORTAL_BASE_URL,process.env.APP_URL);
     const preferences=account.settings?.notifications as {email?:boolean;text?:boolean;phone?:string}|undefined;
     if(preferences?.email!==false&&account.owner_email)await sendEmail(account.owner_email,`${account.name}: ${detail}`,`${detail}. Open your client portal: ${link}`,job);
     if(preferences?.text&&preferences.phone)await sendText(account,preferences.phone,`${account.name}: ${detail}. ${link}`,job);
     return 'sent';
   }
   if(job.kind==='weekly_report') {
-    const monthly=account.package!=='domination';const end=new Date();const start=new Date(end);
-    if(monthly){start.setUTCMonth(start.getUTCMonth()-1)}else start.setUTCDate(start.getUTCDate()-7);
-    const type=monthly?'monthly':'weekly';const from=start.toISOString().slice(0,10);const until=end.toISOString().slice(0,10);
+    const {type,start:from,end:until}=previousReportPeriod(account.package==='domination'?'weekly':'monthly');
     const existing=await rest<Array<{id:string}>>(`report_sends?client_account_id=eq.${account.id}&type=eq.${type}&period_start=eq.${from}&period_end=eq.${until}&select=id&limit=1`);
     if(existing.length)return 'sent';
     await rest('report_sends','POST',{client_account_id:account.id,type,period_start:from,period_end:until,
@@ -254,27 +280,26 @@ async function handle(job:Job) {
     const report=await row<{id:string;type:string;period_start:string;period_end:string;work_done:string|null;whats_next:string|null;status:string}>('report_sends',`id=eq.${reportId}&client_account_id=eq.${account.id}`);
     if(!report||report.status==='sent')return 'cancelled';
     if(!report.work_done?.trim()||!report.whats_next?.trim())throw Error('Report narrative must be completed before sending');
-    const from=`${report.period_start}T00:00:00Z`;const until=`${report.period_end}T23:59:59Z`;
-    const [leads,bookings,calls,recovered,reviews,spend,recipients]=await Promise.all([
-      rest<Array<{id:string}>>(`leads?client_account_id=eq.${account.id}&created_at=gte.${from}&created_at=lte.${until}&select=id`),
-      rest<Array<{id:string}>>(`booking_appointments?client_account_id=eq.${account.id}&start_at=gte.${from}&start_at=lte.${until}&status=not.in.(cancelled,no_show)&select=id`),
-      rest<Array<{id:string}>>(`client_call_details?client_account_id=eq.${account.id}&occurred_at=gte.${from}&occurred_at=lte.${until}&status=in.(Answered,Connected,answered,connected)&select=id`),
-      rest<Array<{id:string}>>(`client_automation_jobs?client_account_id=eq.${account.id}&kind=eq.missed_call_text&status=eq.sent&sent_at=gte.${from}&sent_at=lte.${until}&select=id`),
-      rest<Array<{rating:number}>>(`reviews?client_account_id=eq.${account.id}&created_at=gte.${from}&created_at=lte.${until}&select=rating`),
-      rest<Array<{amount_cents:number}>>(`ad_spend_entries?client_account_id=eq.${account.id}&month=gte.${report.period_start.slice(0,7)}-01&month=lte.${report.period_end.slice(0,7)}-01&select=amount_cents`),
+    const range=reportMetricRange({start:report.period_start,end:report.period_end});
+    const [rawMetrics,recipients]=await Promise.all([
+      rest<unknown>('rpc/client_dashboard_metric_values','POST',
+        {p_account:account.id,p_start:range.start,p_end:range.endExclusive}),
       rest<Array<{email:string}>>(`report_recipients?client_account_id=eq.${account.id}&active=eq.true&select=email`),
     ]);
+    const metrics=z.object({newLeads:z.number(),bookedJobs:z.number(),answeredCalls:z.number(),
+      missedCallsRecovered:z.number(),reviewsReceived:z.number(),averageRating:z.number().nullable(),
+      adSpendCents:z.number()}).parse(rawMetrics);
     const pdf=await clientReportPdf({accountName:account.name,periodStart:report.period_start,periodEnd:report.period_end,
-      newLeads:leads.length,bookedJobs:bookings.length,answeredCalls:calls.length,missedCallsRecovered:recovered.length,
-      reviewsReceived:reviews.length,averageRating:reviews.length?reviews.reduce((n,r)=>n+r.rating,0)/reviews.length:null,
-      adSpendCents:spend.reduce((n,x)=>n+x.amount_cents,0),workDone:report.work_done,whatsNext:report.whats_next,brandPrimary:account.brand?.primary});
+      ...metrics,workDone:report.work_done,whatsNext:report.whats_next,brandPrimary:account.brand?.primary});
     const base=process.env.SUPABASE_URL;if(!base)throw Error('Supabase URL missing');const key=serviceKey();
     const path=`${account.id}/${report.id}.pdf`;
     const uploaded=await fetch(`${base}/storage/v1/object/client-reports/${path}`,{method:'POST',headers:{apikey:key,authorization:`Bearer ${key}`,'content-type':'application/pdf','x-upsert':'true'},body:Buffer.from(pdf),signal:AbortSignal.timeout(15000)});
     if(!uploaded.ok)throw Error(`Report storage ${uploaded.status}`);
     const signed=await fetch(`${base}/storage/v1/object/sign/client-reports/${path}`,{method:'POST',headers:{apikey:key,authorization:`Bearer ${key}`,'content-type':'application/json'},body:JSON.stringify({expiresIn:604800}),signal:AbortSignal.timeout(10000)});
     const signedBody=await signed.json() as {signedURL?:string};if(!signed.ok||!signedBody.signedURL)throw Error('Report link failed');
-    const emails=[...new Set([account.owner_email,...recipients.map(x=>x.email)].filter(Boolean))];
+    const emails=[...new Set([account.owner_email,...recipients.map(x=>x.email)]
+      .filter((email):email is string=>typeof email==='string'&&Boolean(email.trim()))
+      .map(email=>email.trim().toLowerCase()))];
     if(!emails.length)throw Error('No report recipients configured');
     for(const email of emails)await sendEmail(email,`${account.name} ${report.type} report`,
       `Your report is ready. Download the PDF: ${base}/storage/v1${signedBody.signedURL}\n\nWhat we did: ${report.work_done}\nWhat's next: ${report.whats_next}`,job);
@@ -291,6 +316,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
   const secrets=[process.env.CLIENT_DELIVERY_WORKER_SECRET,process.env.CRON_SECRET,process.env.OUTREACH_WORKER_TOKEN].filter((value):value is string=>!!value);
   if(!provided||!secrets.some(secret=>provided.length===secret.length&&
     crypto.timingSafeEqual(Buffer.from(provided),Buffer.from(secret))))return reply(res,401,{error:'Unauthorized'});
+  if(!externalSendsEnabled())return reply(res,503,{error:'Delivery worker is disabled outside production or in sandbox mode'});
   let input:z.infer<typeof inputSchema>;
   try{input=req.method==='GET'?inputSchema.parse({}):await read(req)}catch{return reply(res,400,{error:'Invalid input'})}
   try {
@@ -306,7 +332,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse) {
       catch(error){const message=error instanceof Error?error.message:String(error);
         await rest(`client_automation_jobs?id=eq.${job.id}`,'PATCH',{status:'failed',last_error:message.slice(0,500),claimed_at:null,run_at:new Date(Date.now()+Math.min(60,2**job.attempts)*60_000).toISOString()});
         await rest(`automation_runs?job_id=eq.${job.id}`,'PATCH',{status:'failed',error:message.slice(0,500),finished_at:new Date().toISOString()});
-        if(job.attempts>=5&&process.env.SLACK_WEBHOOK_URL)await fetch(process.env.SLACK_WEBHOOK_URL,{method:'POST',
+        if(job.attempts>=5&&process.env.SLACK_WEBHOOK_URL&&externalSendsEnabled())await fetch(process.env.SLACK_WEBHOOK_URL,{method:'POST',
           headers:{'content-type':'application/json'},body:JSON.stringify({text:`VictorySync client automation failed: ${job.kind} for account ${job.client_account_id}, job ${job.id}`}),
           signal:AbortSignal.timeout(5000)}).catch(()=>undefined);
         results.push({id:job.id,status:'failed'});}

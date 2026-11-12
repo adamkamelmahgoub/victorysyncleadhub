@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { canAccessPath } from '../artifacts/leadgen/src/lib/permissions.js';
 
 test('client staff routes stay within their allowed portal pages', () => {
+  assert.equal(canAccessPath('/client-portal/launchpad', ['dashboard','leads','calls'], 'client_staff'), true);
+  assert.equal(canAccessPath('/client-portal/launchpad', ['leads','calls'], 'client_staff'), false);
   assert.equal(canAccessPath('/client-portal/leads', ['dashboard','leads','calls'], 'client_staff'), true);
   assert.equal(canAccessPath('/client-portal/billing', ['dashboard','leads','calls'], 'client_staff'), false);
   assert.equal(canAccessPath('/leads', ['dashboard','leads','calls'], 'client_staff'), false);

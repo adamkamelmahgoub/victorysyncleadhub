@@ -64,7 +64,7 @@ export function CompanyEnrichment({ companyId }: { companyId: string }) {
       <p className="text-xs text-slate-500">Data © OpenStreetMap contributors and Overture Maps Foundation</p></div>}
     {data?.google?.place_id && <p className="text-sm"><strong>Google Places ID:</strong> {data.google.place_id}</p>}
     {google && <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm"><strong>Google Places snapshot</strong>
-      <p>{google.rating ?? "—"} stars · {google.review_count ?? "—"} reviews · {google.category || "Unknown category"}</p>
+      <p>{google.rating ?? "–"} stars · {google.review_count ?? "–"} reviews · {google.category || "Unknown category"}</p>
       {!!google.grid?.length && <p>Top 3 on {google.top3_points}/{google.grid.length} grid points</p>}
       <p className="text-xs text-slate-500">Google content is shown for this request; only its place ID is saved.</p></div>}
     {data?.enrichment && <div className="space-y-2 text-sm"><strong>AI research</strong>

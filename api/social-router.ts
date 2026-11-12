@@ -20,6 +20,8 @@ import threadsOauth from '../lib/social-routes/social-threads-oauth.js';
 import unipile from '../lib/social-routes/social-unipile.js';
 import repStats from '../lib/social-routes/social-rep-stats.js';
 import attribution from '../lib/social-routes/social-attribution.js';
+import history from '../lib/social-routes/social-history.js';
+import {readSignedPortalSelection} from '../lib/portal-cookie.js';
 
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 const handlers: Record<string, (req: IncomingMessage, res: ServerResponse) => Promise<void>> = {
@@ -33,6 +35,7 @@ const handlers: Record<string, (req: IncomingMessage, res: ServerResponse) => Pr
   'social-unipile': unipile,
   'social-rep-stats': repStats,
   'social-attribution': attribution,
+  'social-history': history,
 };
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
@@ -41,6 +44,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   const route = handlers[name];
   if (!route || !/^\/(?:leadgen\/)?api\//.test(path)) {
     res.statusCode = 404; res.end('Not found'); return;
+  }
+  const cookie=Array.isArray(req.headers.cookie)?req.headers.cookie[0]:req.headers.cookie;
+  if(!['social-webhook','social-worker'].includes(name)&&readSignedPortalSelection(cookie)?.viewAsClient){
+    res.statusCode=403;
+    res.setHeader('content-type','application/json; charset=utf-8');
+    res.setHeader('cache-control','no-store');
+    res.end(JSON.stringify({error:'Client view is read only'}));return;
   }
   await route(req, res);
 }

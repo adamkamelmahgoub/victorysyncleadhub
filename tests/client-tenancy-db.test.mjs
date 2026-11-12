@@ -33,6 +33,29 @@ test('client tenancy is enforced in the database', { skip: !process.env.DATABASE
       assert.equal(row.has_guard, true, `${row.name} must have a restrictive guard`);
       assert.equal(row.has_account, true, `${row.name} must carry a client account`);
     }
+    const accessTables = await db.query(`
+      select c.relname as name, c.relrowsecurity as rls_enabled,
+        exists (select 1 from pg_policies p where p.schemaname = 'public'
+          and p.tablename = c.relname and p.policyname = 'team_directory_tenancy'
+          and p.permissive = 'RESTRICTIVE') as has_team_guard,
+        has_table_privilege('authenticated', c.oid, 'SELECT') as authenticated_can_select
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relname in ('team_members', 'invite_codes')
+    `);
+    assert.equal(accessTables.rowCount, 2);
+    const team = accessTables.rows.find(row => row.name === 'team_members');
+    const invites = accessTables.rows.find(row => row.name === 'invite_codes');
+    assert.equal(team.rls_enabled, true);
+    assert.equal(team.has_team_guard, true);
+    assert.equal(invites.rls_enabled, true);
+    assert.equal(invites.authenticated_can_select, false);
+    const accountRoot = await db.query(`select c.relrowsecurity as rls_enabled,
+      exists (select 1 from pg_policies p where p.schemaname='public'
+        and p.tablename='sub_accounts' and p.policyname='sub_account_tenancy_guard'
+        and p.permissive='RESTRICTIVE') as has_guard
+      from pg_class c where c.oid='public.sub_accounts'::regclass`);
+    assert.equal(accountRoot.rows[0].rls_enabled, true);
+    assert.equal(accountRoot.rows[0].has_guard, true);
     await db.query('begin');
     await db.query('set local role authenticated');
     await db.query("select set_config('request.jwt.claim.sub', $1, true)", ['00000000-0000-4000-8000-000000000000']);

@@ -1,6 +1,7 @@
 import type { IncomingMessage,ServerResponse } from 'node:http';
 import { mcpPool } from '../mcp-auth.js';
 import {refreshThreadsAccounts} from '../social-vault.js';
+import {markStaleUnipileAccountsSql} from '../social-health-sql.js';
 
 export const config={maxDuration:60};
 type Due={id:string;organization_id:string;connected_account_id:string|null;step_id:string;step_type:string;due_at:Date;
@@ -17,20 +18,15 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
       where status='due' and due_at<now()-interval '2 days'`);
     await db.query(`update public.connected_accounts set status='expired',updated_at=now()
       where status='active' and token_expires_at is not null and token_expires_at<=now()`);
-    const silent=await db.query<{id:string;organization_id:string;label:string;owner_user_id:string|null}>(`update public.connected_accounts a
-      set health='warning',last_error='No message webhook received in the past 24 hours',updated_at=now()
-      where a.provider='unipile' and a.status='active' and a.health<>'warning'
-        and extract(isodow from now() at time zone coalesce(a.timezone,'America/New_York')) between 1 and 5
-        and coalesce(a.last_webhook_at,a.created_at)<now()-interval '24 hours'
-      returning a.id,a.organization_id,a.label,a.owner_user_id`);
+    const silent=await db.query<{id:string;organization_id:string;label:string;owner_user_id:string|null}>(markStaleUnipileAccountsSql);
     for(const account of silent.rows){
       await db.query(`insert into public.social_unipile_sync_state(connected_account_id,organization_id,next_sync_at)
         values($1,$2,now()) on conflict(connected_account_id) do update set next_sync_at=now(),updated_at=now()`,
         [account.id,account.organization_id]);
       await db.query(`insert into public.notification_outbox(organization_id,channel,payload,dedupe_key)
-        values($1,'slack',jsonb_build_object('event','webhook_silence','account_id',$2::text,'account_label',$3::text),$4)
+        values($1,'slack',jsonb_build_object('event','reconnect_needed','account_id',$2::text,'account_label',$3::text),$4)
         on conflict(dedupe_key) do nothing`,[account.organization_id,account.id,account.label,
-        `webhook-silence:${account.id}:${new Date().toISOString().slice(0,10)}`]);
+        `reconnect-needed:${account.id}:${new Date().toISOString().slice(0,10)}`]);
     }
     const due=await db.query<Due>(`select e.id,e.organization_id,e.connected_account_id,s.id step_id,s.step_type,
       e.enrolled_at+make_interval(days=>s.day_offset) due_at,

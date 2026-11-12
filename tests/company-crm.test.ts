@@ -203,3 +203,36 @@ test("API forwards user JWT, pages companies, blocks unauthorized writes and tra
     else process.env.SUPABASE_ANON_KEY = originalKey;
   }
 });
+
+test('unified task route reads one view and completes the correct legacy row',async()=>{
+  const originalFetch=globalThis.fetch;
+  const originalUrl=process.env.SUPABASE_URL;
+  const originalKey=process.env.SUPABASE_ANON_KEY;
+  process.env.SUPABASE_URL='https://test.invalid';process.env.SUPABASE_ANON_KEY='test-anon';
+  const taskId='11111111-1111-4111-8111-111111111111';
+  const requests:string[]=[];
+  globalThis.fetch=async(url,init)=>{
+    const resource=String(url);requests.push(`${init?.method||'GET'} ${resource}`);
+    assert.equal(new Headers(init?.headers).get('authorization'),'Bearer user-token');
+    if(resource.includes('unified_tasks?id='))return Response.json([{id:taskId,source:'contact'}]);
+    if(resource.includes('contact_tasks?id=')){
+      assert.deepEqual(JSON.parse(String(init?.body)),{is_completed:true,completed_at:JSON.parse(String(init?.body)).completed_at});
+      return Response.json([{id:taskId,is_completed:true}]);
+    }
+    if(resource.includes('unified_tasks?'))return Response.json([{id:taskId,source:'contact',title:'Call homeowner'}]);
+    return Response.json([]);
+  };
+  const user={id:'22222222-2222-4222-8222-222222222222',user_metadata:{role:'owner'}};
+  try{
+    const list=await companyCrmRequest('GET','/api/company-crm/tasks','Bearer user-token',user,async()=>({}));
+    assert.equal((list.data as unknown[]).length,1);
+    const complete=await companyCrmRequest('PATCH',`/api/company-crm/tasks/${taskId}`,'Bearer user-token',user,
+      async()=>({status:'completed'}));
+    assert.equal(complete.status,200);
+    assert.ok(requests.some(request=>request.includes('contact_tasks?id=')));
+  }finally{
+    globalThis.fetch=originalFetch;
+    if(originalUrl===undefined)delete process.env.SUPABASE_URL;else process.env.SUPABASE_URL=originalUrl;
+    if(originalKey===undefined)delete process.env.SUPABASE_ANON_KEY;else process.env.SUPABASE_ANON_KEY=originalKey;
+  }
+});

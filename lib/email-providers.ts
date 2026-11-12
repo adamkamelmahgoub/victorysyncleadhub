@@ -1,4 +1,5 @@
 import { EmailInputError } from './email-security.js';
+import {requireExternalSends} from './external-send-mode.js';
 export type VerificationStatus='valid'|'risky'|'invalid'|'unverified';
 export interface VerificationProvider {name:string;verify(email:string):Promise<VerificationStatus>}
 export class ZeroBounceVerifier implements VerificationProvider {
@@ -29,6 +30,7 @@ export class ResendTransport implements EmailTransport {
   } catch {throw new EmailInputError('Resend requires a verified matching domain with open and click tracking disabled');}
  }
  async send(message:OutboundMessage) {
+  if(this.fetcher===fetch)requireExternalSends();
   try {
    const response=await this.fetcher('https://api.resend.com/emails',{method:'POST',headers:{authorization:`Bearer ${this.apiKey}`,'content-type':'application/json','Idempotency-Key':`outreach/${message.jobId}`},body:JSON.stringify({from:`${message.fromName.replace(/["\r\n<>]/g,'')} <${message.fromEmail}>`,to:[message.to],subject:message.subject,text:message.text,html:message.html,headers:message.headers,tags:[{name:'outreach_job_id',value:message.jobId}]}),signal:AbortSignal.timeout(20000)});
    if(!response.ok) throw new Error();const result=await response.json() as {id?:string};if(!result.id) throw new Error();return {messageId:result.id};

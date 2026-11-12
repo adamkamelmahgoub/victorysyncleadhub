@@ -30,3 +30,36 @@ test('manual review blocks require a real-review attestation',()=>{
   assert.equal(sectionsSchema.safeParse([section]).success,false);
   assert.equal(sectionsSchema.safeParse([{...section,blocks:[{...section.blocks[0],attested:true}]}]).success,true);
 });
+
+test('hidden blocks stay in the draft but do not appear on the published page',()=>{
+  const sections=[{id:'services',type:'services' as const,heading:'Our services',blocks:[
+    {id:'first',type:'service',heading:'Drain cleaning'},
+    {id:'second',type:'service',heading:'Unpublished offer',hidden:true},
+    {id:'third',type:'service',heading:'Water heaters'}]}];
+  assert.equal(sectionsSchema.safeParse(sections).success,true);
+  const html=renderPage({name:'Services',sections,theme:{primary:'#245eea'}});
+  assert.match(html,/Drain cleaning/);
+  assert.match(html,/Water heaters/);
+  assert.doesNotMatch(html,/Unpublished offer/);
+  assert.ok(html.indexOf('Drain cleaning')<html.indexOf('Water heaters'));
+});
+
+test('editor preview identifies a block and keeps edit controls out of the published page',()=>{
+  const page={name:'Services',sections:[{id:'services',type:'services' as const,heading:'Our services',
+    blocks:[{id:'drains',type:'service',heading:'Drain cleaning',body:'Request a visit.'}]}],
+    theme:{primary:'#245eea'}};
+  const preview=renderPage(page,null,true),published=renderPage(page);
+  assert.match(preview,/data-block="drains"/);
+  assert.match(preview,/data-block-field="heading"/);
+  assert.match(preview,/data-block-field="body"/);
+  assert.match(preview,/blockId:block\?\.dataset\.block/);
+  assert.doesNotMatch(published,/data-block="drains"/);
+  assert.doesNotMatch(published,/contenteditable/);
+});
+
+test('section registry allows only its declared block types',()=>{
+  const section={id:'services',type:'services',blocks:[{id:'one',type:'Service',heading:'Drain cleaning'}]};
+  assert.equal(sectionsSchema.safeParse([section]).success,true);
+  assert.equal(sectionsSchema.safeParse([{...section,blocks:[{...section.blocks[0],type:'Question'}]}]).success,false);
+  assert.equal(sectionsSchema.safeParse([{id:'cta',type:'cta',blocks:section.blocks}]).success,false);
+});

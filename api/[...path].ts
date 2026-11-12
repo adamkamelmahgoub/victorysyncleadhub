@@ -15,6 +15,10 @@ import { normalizeSegmentFilters, segmentFilterSummary, validateSegmentFilters }
 import { reviewStats } from '../lib/review-stats.js';
 import { readPortalSelection } from '../lib/portal-cookie.js';
 import { newFormSlug } from '../lib/form-slug.js';
+import {pipelineBoardQuerySchema,fetchPipelinePage} from '../lib/pipeline-board.js';
+import {clientInviteUrl} from '../lib/client-invite.js';
+import {clientInviteSignupSchema} from '../lib/client-invite-signup.js';
+import {meetingAppointmentInput,meetingAppointmentUpdate} from '../lib/meeting-appointment-input.js';
 import { z } from 'zod';
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
 
@@ -335,7 +339,7 @@ type DashboardMembership = {
 function normalizeDashboardRole(role: unknown) {
   const value = typeof role === "string" ? role.trim().toLowerCase() : "";
   if (value === "org_owner" || value === "owner") return "owner";
-  if (value === "org_admin" || value === "admin") return "admin";
+  if (value === "org_admin" || value === "admin" || value === "agency_admin") return "admin";
   if (value === "agent") return "agent";
   if (value === "client") return "client";
   if (value === "viewer") return "viewer";
@@ -781,15 +785,12 @@ async function signupWithInvite(req: VercelRequest, res: VercelResponse) {
     sendJson(res, 503, { message: "Invited-user signup requires the Supabase service role key" });
     return;
   }
-  const body = await readJson(req) as Record<string, unknown>;
-  const name = String(body.name ?? "").trim();
-  const email = String(body.email ?? "").trim().toLowerCase();
-  const password = String(body.password ?? "");
-  const inviteCode = String(body.inviteCode ?? "").trim();
-  if (!name || !email || password.length < 8 || !inviteCode) {
+  const parsed=clientInviteSignupSchema.safeParse(await readJson(req));
+  if (!parsed.success) {
     sendJson(res, 400, { message: "Name, email, an 8-character password, and invite code are required" });
     return;
   }
+  const {name,email,password,inviteCode}=parsed.data;
 
   const codeHash = crypto.createHash("sha256").update(inviteCode).digest("hex");
   const invites = await supabaseRest(
@@ -857,7 +858,7 @@ async function supabaseRest(path: string, init: FetchInit, req?: VercelRequest) 
   }
 
   const inboundAuth = req ? getHeader(req, "authorization") : undefined;
-  const authorization = /^(?:leads|forms|sequences|sequence_steps|automation_workflows|pipelines|pipeline_stages|reviews|review_sources|review_requests)(?:\?|$)/.test(path) && inboundAuth
+  const authorization = /^(?:leads|sub_accounts|forms|sequences|sequence_steps|automation_workflows|pipelines|pipeline_stages|reviews|review_sources|review_requests|contact_tasks|company_tasks|unified_tasks)(?:\?|$)/.test(path) && inboundAuth
     ? inboundAuth
     : hasServiceRole ? `Bearer ${supabaseKey}` : inboundAuth;
 
@@ -1158,6 +1159,18 @@ async function listResource(config: ResourceConfig, req: VercelRequest, res: Ver
 
 async function createResource(config: ResourceConfig, req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as Record<string, unknown>;
+  let validatedMeeting:Record<string,unknown>|null=null;
+  if(config.table==='meeting_appointments'){
+    const checked=meetingAppointmentInput.safeParse(body);
+    if(!checked.success){sendJson(res,400,{error:'Enter a valid appointment, event type and time range.'});return;}
+    const event=await supabaseRest(`meeting_event_types?id=eq.${checked.data.eventTypeId}&is_active=eq.true&select=id&limit=1`,
+      {method:'GET'},req) as Array<{id:string}>;
+    if(!event[0]){sendJson(res,400,{error:'Choose an active event type.'});return;}
+    validatedMeeting=checked.data;
+  }
+  if(['reviews','review_sources'].includes(config.table)&&!selectedAccountCookie(req)?.accountId){
+    sendJson(res,400,{error:'Select a client account before managing reputation.'});return;
+  }
   if(config.table==='review_requests'){
     sendJson(res,409,{error:'Use the client portal to schedule a review request for an opted-in customer.'});return;
   }
@@ -1191,7 +1204,7 @@ async function createResource(config: ResourceConfig, req: VercelRequest, res: V
   }
   const payload = stripUndefined({
     ...(config.defaults ?? {}),
-    ...(toSnakeValue(body) as Record<string, unknown>),
+    ...(toSnakeValue(validatedMeeting??body) as Record<string, unknown>),
   });
   if(config.table==='forms'){
     const checked=z.object({name:z.string().trim().min(1).max(180),
@@ -1226,6 +1239,10 @@ async function getResource(config: ResourceConfig, id: string, req: VercelReques
 
 async function updateResource(config: ResourceConfig, id: string, req: VercelRequest, res: VercelResponse) {
   const body = (await readJson(req)) as Record<string, unknown>;
+  if(config.table==='meeting_appointments'){
+    const checked=meetingAppointmentUpdate.safeParse(body);
+    if(!checked.success){sendJson(res,400,{error:'Only appointment status and notes can be updated.'});return;}
+  }
   if (config.table === "pipeline_stages") {
     const existing = await supabaseRest(`pipeline_stages?id=eq.${encodeURIComponent(id)}&select=key&limit=1`, { method: "GET" }, req) as Array<{ key: string | null }>;
     if (existing[0]?.key === "meeting_booked" && body.name !== undefined && body.name !== "Meeting Booked") {
@@ -1379,6 +1396,9 @@ async function handleAffiliateReferrals(affiliateId: string, method: string, req
 async function handleGenericResource(path: string, method: string, req: VercelRequest, res: VercelResponse) {
   const match = genericResourcePath(path);
   if (!match) return false;
+  if(['reviews','review-sources'].includes(match.key)&&method!=='GET'&&!selectedAccountCookie(req)?.accountId){
+    sendJson(res,400,{error:'Select a client account before managing reputation.'});return true;
+  }
   if(tenantResourceTables.has(resourceConfigs[match.key]?.table??'')&&method!=='GET'&&selectedAccountCookie(req)?.viewAsClient){
     sendJson(res,403,{error:'Client view is read only'});return true;
   }
@@ -2113,34 +2133,31 @@ async function deleteLead(id: string, currentUser: AuthenticatedUser, req: Verce
 }
 
 async function createSubAccount(req: VercelRequest, res: VercelResponse) {
-  const body = (await readJson(req)) as Record<string, unknown>;
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  const ownerName = typeof body.ownerName === "string" ? body.ownerName.trim() : "";
-  const ownerEmail = typeof body.ownerEmail === "string" ? body.ownerEmail.trim().toLowerCase() : "";
-  if (!name || !ownerName || !ownerEmail.includes("@")) {
-    sendJson(res, 400, { error: "Business name, owner name, and a valid owner email are required" });
-    return;
-  }
-  const baseSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "client";
-  const payload = {
-    ...(toSnakeValue(body) as Record<string, unknown>),
-    name,
-    slug: `${baseSlug}-${crypto.randomBytes(2).toString("hex")}`,
-    owner_name: ownerName,
-    owner_email: ownerEmail,
-    status: body.status ?? "active",
-    plan: body.plan ?? "starter",
+  const parsed=z.object({name:z.string().trim().min(1).max(200),ownerName:z.string().trim().min(1).max(200),
+    ownerEmail:z.string().trim().email().max(320),phone:z.string().max(40).default(''),
+    website:z.union([z.literal(''),z.string().url().startsWith('https://')]).default(''),
+    plan:z.enum(['starter','scale','domination','overflow','business_hours','coverage_247','appt_part_time','appt_full_time','revive','custom']).default('starter')
+  }).passthrough().safeParse(await readJson(req));
+  if(!parsed.success){sendJson(res,400,{error:'Enter a business name, owner details, and a valid package'});return;}
+  if(!supabaseUrl||!supabaseKey)throw new Error('Supabase server environment is not configured');
+  const authorization=getHeader(req,'authorization');
+  if(!authorization?.startsWith('Bearer ')){sendJson(res,401,{error:'Sign in first'});return;}
+  const call=async(name:string,payload:Record<string,unknown>)=>{
+    const response=await fetch(`${supabaseUrl}/rest/v1/rpc/${name}`,{method:'POST',headers:{apikey:supabaseKey,
+      authorization,'content-type':'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(15000)});
+    const data=await response.json() as Record<string,unknown>;
+    if(!response.ok)throw new Error(String(data.message||`Client setup failed (${response.status})`));
+    return data;
   };
-  const rows = await supabaseRest("sub_accounts", { method: "POST", body: JSON.stringify(payload) }, req) as Array<Record<string, unknown>>;
-  const account = rows[0];
-  if (account?.id) {
-    await supabaseRest("white_label_settings", {
-      method: "POST",
-      body: JSON.stringify({ sub_account_id: account.id, brand_name: "VictorySync" }),
-      headers: { prefer: "resolution=ignore-duplicates,return=representation" },
-    }, req);
-  }
-  sendJson(res, 201, toCamelValue(account));
+  const input=parsed.data;
+  const created=await call('portal_create_client_manual',{p_name:input.name,p_phone:input.phone,p_website:input.website,
+    p_package:input.plan,p_owner_email:input.ownerEmail,p_owner_name:input.ownerName});
+  const accountId=String(created.accountId||'');
+  if(!accountId)throw new Error('Client setup did not return an account');
+  await call('portal_apply_account_template',{p_account:accountId,p_template:input.plan});
+  const inviteUrl=typeof created.inviteCode==='string'
+    ?clientInviteUrl(created.inviteCode,input.ownerEmail,input.ownerName):null;
+  sendJson(res,201,{id:accountId,accountId,inviteUrl,inviteSent:false});
 }
 
 async function getClientWorkspaceStats(clientId: string, req: VercelRequest, res: VercelResponse) {
@@ -2900,11 +2917,12 @@ async function listLeadChildren(leadId: string, kind: keyof typeof leadChildTabl
     sendJson(res, 404, { error: "Lead not found" });
     return;
   }
-  const table = leadChildTables[kind];
+  const table = kind==='tasks'?'unified_tasks':leadChildTables[kind];
   const rows = await supabaseRest(`${table}?lead_id=eq.${encodeURIComponent(leadId)}&select=*&order=created_at.desc`, {
     method: "GET",
-  }, req);
-  sendJson(res, 200, toCamelValue(rows));
+  }, req) as Array<Record<string,unknown>>;
+  sendJson(res, 200, kind==='tasks'?rows.map(row=>({...toCamelValue(row) as Record<string,unknown>,
+    dueDate:row.due_at,isCompleted:row.status==='completed',description:row.notes})):toCamelValue(rows));
 }
 
 async function createLeadChild(leadId: string, kind: keyof typeof leadChildTables, currentUser: AuthenticatedUser, req: VercelRequest, res: VercelResponse) {
@@ -2919,9 +2937,19 @@ async function createLeadChild(leadId: string, kind: keyof typeof leadChildTable
     ...(toSnakeValue(body) as Record<string, unknown>),
     lead_id: leadId,
   });
+  if(kind==='tasks'){
+    const lead=await supabaseRest(`leads?id=eq.${encodeURIComponent(leadId)}&select=company&limit=1`,
+      {method:'GET'},req) as Array<{company:string|null}>;
+    const companyName=lead[0]?.company?.trim();
+    if(companyName){
+      const matches=await supabaseRest(`companies?name=eq.${encodeURIComponent(companyName)}&deleted_at=is.null&select=id&limit=2`,
+        {method:'GET'},req) as Array<{id:string}>;
+      if(matches.length===1)payload.company_id=matches[0].id;
+    }
+  }
   if (kind === "activities" && !payload.type) payload.type = "other";
   if (kind === "activities" && typeof payload.description === "string") {
-    payload.description = `${payload.description} — recorded by ${actorLabelForUser(currentUser)}`;
+    payload.description = `${payload.description}: recorded by ${actorLabelForUser(currentUser)}`;
   }
   if (kind === "tasks" && !payload.priority) payload.priority = "medium";
   const rows = await supabaseRest(table, {
@@ -2943,9 +2971,21 @@ async function updateLeadChild(leadId: string, kind: keyof typeof leadChildTable
     sendJson(res, 404, { error: "Lead not found" });
     return;
   }
-  const table = leadChildTables[kind];
+  let table: string = leadChildTables[kind];
   const body = (await readJson(req)) as Record<string, unknown>;
   const payload = stripUndefined(toSnakeValue(body) as Record<string, unknown>);
+  if (kind === "tasks") {
+    const tasks = await supabaseRest(`unified_tasks?id=eq.${encodeURIComponent(childId)}&lead_id=eq.${encodeURIComponent(leadId)}&select=source&limit=1`, { method: "GET" }, req) as Array<{source:string}>;
+    if (!tasks.length) { sendJson(res, 404, { error: "Task not found" }); return; }
+    if (tasks[0].source === "company") {
+      table = "company_tasks";
+      if (typeof payload.is_completed === "boolean") {
+        payload.status = payload.is_completed ? "completed" : "pending";
+        delete payload.is_completed;
+      }
+      delete payload.completed_at;
+    }
+  }
   if (kind === "tasks" && payload.is_completed === true && !payload.completed_at) {
     payload.completed_at = new Date().toISOString();
   }
@@ -2964,7 +3004,12 @@ async function deleteLeadChild(leadId: string, kind: keyof typeof leadChildTable
     sendJson(res, 404, { error: "Lead not found" });
     return;
   }
-  const table = leadChildTables[kind];
+  let table: string = leadChildTables[kind];
+  if (kind === "tasks") {
+    const tasks = await supabaseRest(`unified_tasks?id=eq.${encodeURIComponent(childId)}&lead_id=eq.${encodeURIComponent(leadId)}&select=source&limit=1`, { method: "GET" }, req) as Array<{source:string}>;
+    if (!tasks.length) { sendJson(res, 404, { error: "Task not found" }); return; }
+    if (tasks[0].source === "company") table = "company_tasks";
+  }
   await supabaseRest(`${table}?id=eq.${encodeURIComponent(childId)}&lead_id=eq.${encodeURIComponent(leadId)}`, {
     method: "DELETE",
   }, req);
@@ -3010,22 +3055,33 @@ async function getReviewStats(req: VercelRequest, res: VercelResponse) {
 
 async function getPipelineLeads(req: VercelRequest, res: VercelResponse, currentUser: AuthenticatedUser) {
   const url = new URL(req.url ?? "/api/pipeline/leads", "https://local.invalid");
-  const pipelineId = url.searchParams.get("pipelineId");
+  const parsed=pipelineBoardQuerySchema.safeParse(Object.fromEntries(url.searchParams));
+  if(!parsed.success){sendJson(res,400,{error:'Invalid pipeline board query'});return;}
+  const {pipelineId,stageId,offset,limit}=parsed.data;
   const stagePath = pipelineId
     ? `pipeline_stages?pipeline_id=eq.${encodeURIComponent(pipelineId)}&select=*&order=position.asc`
     : "pipeline_stages?select=*&order=position.asc";
   const scope = clientLeadScope(currentUser);
-  const [stages, leads] = await Promise.all([
-    supabaseRest(stagePath, { method: "GET" }, req) as Promise<Array<Record<string, unknown>>>,
-    supabaseRest(`leads?select=*&order=created_at.desc&limit=1000${scope ? `&client_account_id=eq.${encodeURIComponent(scope)}` : ""}`, { method: "GET" }, req) as Promise<LeadRow[]>,
+  const stages=await supabaseRest(stagePath,{method:'GET'},req) as Array<Record<string,unknown>>;
+  if(stageId&&stageId!=='unassigned'&&!stages.some(stage=>String(stage.id)===stageId)){
+    sendJson(res,404,{error:'Stage not found in this pipeline'});return;
+  }
+  const page=async(id:string,pageOffset:number)=>{
+    const result=await fetchPipelinePage<LeadRow>(id,scope,pageOffset,limit,
+      path=>supabaseRest(path,{method:'GET'},req) as Promise<LeadRow[]>,
+      path=>supabaseRestCount(path,req));
+    return {leads:result.rows.map(leadFromRow),count:result.count,hasMore:result.hasMore};
+  };
+  if(stageId){sendJson(res,200,{stageId,...await page(stageId,offset)});return;}
+  const [stagePages,unassigned]=await Promise.all([
+    Promise.all(stages.map(stage=>page(String(stage.id),0))),page('unassigned',0),
   ]);
-  const stageRows = stages.map((stage) => ({
-    ...(toCamelValue(stage) as Record<string, unknown>),
-    leads: leads.filter((lead) => String(lead.pipeline_stage_id ?? "") === String(stage.id)).map(leadFromRow),
+  const stageRows=stages.map((stage,index)=>({
+    ...(toCamelValue(stage) as Record<string,unknown>),...stagePages[index],
   }));
   sendJson(res, 200, {
     stages: stageRows,
-    unassigned: leads.filter((lead) => !lead.pipeline_stage_id).map(leadFromRow),
+    unassigned:unassigned.leads,unassignedCount:unassigned.count,unassignedHasMore:unassigned.hasMore,
   });
 }
 
@@ -3438,6 +3494,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const currentUser = await authenticateRequest(req);
     req.authenticatedUserId=currentUser.id;
+    if (selectedAccountCookie(req)?.viewAsClient &&
+      path !== '/api/auth/sync-session' && path !== '/api/activity/events') {
+      sendJson(res,403,{message:'Client view is read only'});return;
+    }
     const claimedRole = String(currentUser.user_metadata?.role ?? "");
     if (path !== "/api/auth/sync-session" && path !== "/api/activity/events" &&
       (["agency_staff", "client_owner", "client_staff"].includes(claimedRole) ||
@@ -3512,6 +3572,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if ((role === "agent" || Boolean(clientAccountIdForUser(currentUser))) && /^\/api\/(?:team|sub-accounts|api-keys)/.test(path)) {
       sendJson(res, 403, { message: "Client and agent accounts cannot manage workspace access" });
+      return;
+    }
+    if (/^\/api\/team(?:\/|$)/.test(path) && !canManageClientAccounts(currentUser)) {
+      sendJson(res, 403, { message: "Only agency administrators can manage the team directory" });
+      return;
+    }
+    if (/^\/api\/sub-accounts(?:\/|$)/.test(path) && method !== "GET" && !canManageClientAccounts(currentUser)) {
+      sendJson(res, 403, { message: "Only agency administrators can change client accounts" });
       return;
     }
     const pagePermissions = currentUser.user_metadata?.page_permissions;

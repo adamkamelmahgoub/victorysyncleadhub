@@ -112,11 +112,11 @@ export default function Affiliates() {
               <tbody>
                 {referrals.length === 0 ? <tr><td colSpan={7} className="text-center py-10 text-muted-foreground">No referrals yet</td></tr> : referrals.map(r => (
                   <tr key={r.id} className="border-b last:border-0 hover:bg-muted/20">
-                    <td className="px-4 py-3"><div className="font-medium">{r.referredName || "—"}</div><div className="text-xs text-muted-foreground">{r.referredEmail}</div></td>
-                    <td className="px-4 py-3 text-muted-foreground">{r.referredCompany || "—"}</td>
+                    <td className="px-4 py-3"><div className="font-medium">{r.referredName || "–"}</div><div className="text-xs text-muted-foreground">{r.referredEmail}</div></td>
+                    <td className="px-4 py-3 text-muted-foreground">{r.referredCompany || "–"}</td>
                     <td className="px-4 py-3"><Badge className={`capitalize ${statusColor[r.status] || ""}`}>{r.status}</Badge></td>
-                    <td className="px-4 py-3">{r.dealValue ? `$${r.dealValue}` : "—"}</td>
-                    <td className="px-4 py-3">{r.commission ? <span className={r.commissionPaid ? "text-green-600" : ""}>${r.commission}{r.commissionPaid ? " ✓" : ""}</span> : "—"}</td>
+                    <td className="px-4 py-3">{r.dealValue ? `$${r.dealValue}` : "–"}</td>
+                    <td className="px-4 py-3">{r.commission ? <span className={r.commissionPaid ? "text-green-600" : ""}>${r.commission}{r.commissionPaid ? " ✓" : ""}</span> : "–"}</td>
                     <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(r.createdAt).toLocaleDateString()}</td>
                     <td className="px-4 py-3">
                       {r.status === "pending" && <Select onValueChange={v => updateReferral.mutate({ id: r.id, status: v })}><SelectTrigger className="h-7 w-28 text-xs"><SelectValue placeholder="Update" /></SelectTrigger><SelectContent><SelectItem value="converted">Converted</SelectItem><SelectItem value="lost">Lost</SelectItem></SelectContent></Select>}

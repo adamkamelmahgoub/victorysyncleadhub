@@ -113,7 +113,7 @@ function ContactAnalytics() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <p className="text-sm font-semibold text-foreground">Lead Volume</p>
-              <p className="text-xs text-muted-foreground">Daily new leads — last 30 days</p>
+              <p className="text-xs text-muted-foreground">Daily new leads: last 30 days</p>
             </div>
             <TrendingUp className="w-4 h-4 text-primary" />
           </div>

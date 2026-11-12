@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type { IncomingMessage,ServerResponse } from 'node:http';
 import { z } from 'zod';
+import {externalSendsEnabled} from '../lib/external-send-mode.js';
 
 export const config={api:{bodyParser:false},maxDuration:60};
 const checkout=z.object({id:z.string(),object:z.literal('checkout.session'),payment_status:z.string(),
@@ -8,17 +9,32 @@ const checkout=z.object({id:z.string(),object:z.literal('checkout.session'),paym
   customer_details:z.object({email:z.string().email().nullable().optional(),name:z.string().nullable().optional()}).nullable().optional(),
   metadata:z.object({company_id:z.string().uuid(),package:z.enum(['starter','scale','domination','overflow','business_hours','coverage_247','appt_part_time','appt_full_time','revive','custom']),owner_email:z.string().email().optional(),owner_name:z.string().optional()}).passthrough(),
 }).passthrough();
-const eventSchema=z.object({id:z.string(),type:z.literal('checkout.session.completed'),data:z.object({object:checkout})}).passthrough();
+const checkoutEventTypes=['checkout.session.completed','checkout.session.async_payment_succeeded'] as const;
+const eventSchema=z.object({id:z.string(),type:z.enum(checkoutEventTypes),data:z.object({object:checkout})}).passthrough();
 const envelopeSchema=z.object({id:z.string(),type:z.string()}).passthrough();
 function reply(res:ServerResponse,status:number,value:unknown){res.statusCode=status;res.setHeader('content-type','application/json');res.end(JSON.stringify(value))}
-async function raw(req:IncomingMessage){let value='';for await(const chunk of req){value+=chunk;if(value.length>100_000)throw Error('Request too large')}return value}
-function verify(payload:string,signature:string,secret:string){
-  const fields=Object.fromEntries(signature.split(',').map(part=>part.split('=',2)));
-  const timestamp=Number(fields.t),mac=fields.v1;
-  if(!Number.isFinite(timestamp)||Math.abs(Date.now()/1000-timestamp)>300||!mac)return false;
-  const expected=crypto.createHmac('sha256',secret).update(`${timestamp}.${payload}`).digest('hex');
-  const actual=Buffer.from(mac,'hex'),expectedBuffer=Buffer.from(expected,'hex');
-  return actual.length===expectedBuffer.length&&crypto.timingSafeEqual(actual,expectedBuffer);
+async function raw(req:IncomingMessage){
+  const chunks:Buffer[]=[];let length=0;
+  for await(const chunk of req){
+    const bytes=Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk);
+    length+=bytes.length;
+    if(length>100_000)throw Error('Request too large');
+    chunks.push(bytes);
+  }
+  return Buffer.concat(chunks);
+}
+export function verifyStripeSignature(payload:Buffer,signature:string,secret:string,now=Date.now()){
+  const fields=signature.split(',').map(part=>part.trim().split('=',2));
+  const timestamp=Number(fields.find(([key])=>key==='t')?.[1]);
+  const macs=fields.filter(([key])=>key==='v1').map(([,value])=>value);
+  if(!Number.isSafeInteger(timestamp)||Math.abs(now/1000-timestamp)>300||!macs.length)return false;
+  const expected=crypto.createHmac('sha256',secret)
+    .update(Buffer.concat([Buffer.from(`${timestamp}.`),payload])).digest();
+  return macs.some(mac=>{
+    if(!/^[0-9a-f]{64}$/i.test(mac||''))return false;
+    const actual=Buffer.from(mac,'hex');
+    return crypto.timingSafeEqual(actual,expected);
+  });
 }
 async function rest<T>(path:string,body:unknown,method='POST'):Promise<T>{
   const base=process.env.SUPABASE_URL,key=process.env.SUPABASE_SERVICE_ROLE_KEY||process.env.SUPABASE_SERVICE_KEY;
@@ -31,14 +47,16 @@ async function rest<T>(path:string,body:unknown,method='POST'):Promise<T>{
 }
 export default async function handler(req:IncomingMessage,res:ServerResponse){
   if(req.method!=='POST')return reply(res,405,{error:'Method not allowed'});
+  if(!externalSendsEnabled())return reply(res,503,{error:'Checkout webhook is disabled outside production or in sandbox mode'});
   const secret=process.env.STRIPE_WEBHOOK_SECRET;
   if(!secret)return reply(res,503,{error:'Stripe webhook is not configured'});
   try{
     const payload=await raw(req);
     const signature=String(req.headers['stripe-signature']||'');
-    if(!verify(payload,signature,secret))return reply(res,400,{error:'Invalid signature'});
-    const event=envelopeSchema.parse(JSON.parse(payload));
-    if(event.type!=='checkout.session.completed')return reply(res,200,{received:true});
+    if(!verifyStripeSignature(payload,signature,secret))return reply(res,400,{error:'Invalid signature'});
+    const event=envelopeSchema.parse(JSON.parse(payload.toString('utf8')));
+    if(event.type!=='checkout.session.completed'&&event.type!=='checkout.session.async_payment_succeeded')
+      return reply(res,200,{received:true});
     const parsed=eventSchema.parse(event);
     const session=parsed.data.object;
     if(session.payment_status!=='paid')return reply(res,200,{received:true,pendingPayment:true});
@@ -49,6 +67,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
     const created=await rest<{accountId:string;inviteCode?:string;existing:boolean}>('rpc/portal_create_client',{
       p_company:session.metadata.company_id,p_package:session.metadata.package,
       p_owner_email:email,p_owner_name:name});
+    await rest('rpc/portal_apply_account_template',{p_account:created.accountId,p_template:session.metadata.package});
     if(session.customer)await rest(`sub_accounts?id=eq.${created.accountId}`,{stripe_customer_id:session.customer},'PATCH');
     if(!created.existing&&created.inviteCode){
       const from=process.env.INVITE_FROM_EMAIL,key=process.env.RESEND_API_KEY,origin=process.env.APP_URL;

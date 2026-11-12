@@ -37,12 +37,13 @@ export function canAccessPath(path: string, permissions: string[] | null, role?:
   if (normalized === "/client-portal" || normalized.startsWith("/client-portal/")) {
     if (role === "no_access") return false;
     const page = normalized.split("/")[2] || "dashboard";
-    const portalKeys = ["dashboard", "leads", "calls", "pages", "forms", "reviews", "reports", "billing", "settings"];
+    const portalKeys = ["launchpad", "dashboard", "leads", "calls", "pages", "forms", "reviews", "reports", "billing", "settings"];
     if (!portalKeys.includes(page)) return false;
-    if (role === "client_staff" && !["dashboard", "leads", "calls"].includes(page)) return false;
+    if (role === "agency_admin") return true;
+    if (role === "client_staff" && !["launchpad", "dashboard", "leads", "calls"].includes(page)) return false;
     if (["agency_staff", "member", "viewer", "agent"].includes(role ?? "") && page === "billing") return false;
     if (["owner", "admin", "member", "viewer", "agent"].includes(role ?? "")) return true;
-    return permissions === null || !permissions.some(key => portalKeys.includes(key)) || permissions.includes(page);
+    return permissions === null || !permissions.some(key => portalKeys.includes(key)) || permissions.includes(page === "launchpad" ? "dashboard" : page);
   }
   if (role === "client_owner" || role === "client_staff") return false;
   if (normalized === "/ai-assistant") return role === "owner" || role === "admin";

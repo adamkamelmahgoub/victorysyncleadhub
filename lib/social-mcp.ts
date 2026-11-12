@@ -9,6 +9,7 @@ import {renderDmTemplate} from './dm-template.js';
 import {sendSocialReply} from './social-reply-service.js';
 import {SOCIAL_WORKSPACE_ORG_ID} from './social-workspace-auth.js';
 import {validatedFields,validatedSections} from './marketing-routes/marketing.js';
+import {formsAccessSql,inboxViewAccessSql} from './social-access-sql.js';
 
 const id=z.string().uuid();
 const entity=z.enum(['lead','contact','company']);
@@ -34,18 +35,11 @@ async function run(who:McpIdentity,name:string,args:unknown,write:boolean,fn:(db
 }
 function allowed(orgs:string[],org:string){if(org!==SOCIAL_WORKSPACE_ORG_ID||!orgs.includes(org))throw new Error('Internal social workspace access denied');}
 async function requireFormsAccess(db:PoolClient,userId:string){
-  const access=await db.query(`select 1 from public.profiles where id=$1 and global_role='platform_admin'
-    union all select 1 from public.team_members where auth_user_id=$1 and org_id=$2 and status='active'
-      and client_account_id is null and role in ('owner','admin','member')
-      and (role in ('owner','admin') or page_permissions is null or 'forms'=any(page_permissions)) limit 1`,[userId,SOCIAL_WORKSPACE_ORG_ID]);
+  const access=await db.query(formsAccessSql,[userId,SOCIAL_WORKSPACE_ORG_ID]);
   if(!access.rowCount)throw new Error('Forms and sites access required');
 }
 async function requireInboxView(db:PoolClient,userId:string){
-  const access=await db.query(`select 1 from public.profiles where id=$1 and global_role='platform_admin'
-    union all select 1 from public.team_members m left join public.social_team_permissions p on p.team_member_id=m.id
-    where m.auth_user_id=$1 and m.org_id=$2 and m.status='active' and m.client_account_id is null
-      and (m.role in ('owner','admin') or 'inbox_view'=any(coalesce(p.permissions,'{}'::text[]))) limit 1`,
-    [userId,SOCIAL_WORKSPACE_ORG_ID]);
+  const access=await db.query(inboxViewAccessSql,[userId,SOCIAL_WORKSPACE_ORG_ID]);
   if(!access.rowCount)throw new Error('Inbox access required');
 }
 function tool(server:McpServer,who:McpIdentity,name:string,description:string,shape:z.ZodRawShape,write:boolean,

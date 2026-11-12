@@ -1,7 +1,33 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {PGlite} from '@electric-sql/pglite';
-import {pageDailyStatsSql,safeHref,validatedFields,validatedSections,validateSubmission} from '../lib/marketing-routes/marketing.js';
+import {formLandingLookupSql,formSubmissionLockKey,leadDedupeLockKeys,pageDailyStatsSql,safeHref,validatedFields,validatedSections,validateSubmission} from '../lib/marketing-routes/marketing.js';
+
+test('lead dedupe locks use account, normalized phone and email in a stable order',()=>{
+  const account='10000000-0000-4000-8000-000000000001';
+  const keys=leadDedupeLockKeys(account,'+1 (512) 555-0101','Person@Example.com');
+  assert.deepEqual(keys,[`form-lead:${account}:email:person@example.com`,
+    `form-lead:${account}:phone:5125550101`]);
+  assert.deepEqual(leadDedupeLockKeys(account,'5125550101','person@example.com'),keys);
+  assert.notDeepEqual(leadDedupeLockKeys(null,'5125550101','person@example.com'),keys);
+});
+
+test('submission retries serialize by form and key before checking the unique row',async()=>{
+  const formA='10000000-0000-4000-8000-000000000001';
+  const formB='10000000-0000-4000-8000-000000000002';
+  const first=formSubmissionLockKey(formA,'browser-retry');
+  assert.equal(first,formSubmissionLockKey(formA,'browser-retry'));
+  assert.notEqual(first,formSubmissionLockKey(formB,'browser-retry'));
+  assert.notEqual(first,formSubmissionLockKey(formA,'new-submit'));
+  const db=new PGlite();
+  try{
+    await db.exec('begin');
+    const locked=await db.query<{locked:boolean}>(
+      'select pg_try_advisory_xact_lock(hashtextextended($1,0)) locked',[first]);
+    assert.equal(locked.rows[0].locked,true);
+    await db.exec('rollback');
+  }finally{await db.close();}
+});
 
 test('form fields validate types, select choices, and lead mappings',()=>{
   const fields=validatedFields([
@@ -41,5 +67,34 @@ test('landing page daily report query runs on PostgreSQL',async()=>{
     const result=await db.query(pageDailyStatsSql,[page,org]);
     assert.equal(result.rows.length,1);
     assert.equal(result.rows[0].views,1);
+  }finally{await db.close();}
+});
+
+test('lead dedupe transaction lock executes in PostgreSQL',async()=>{
+  const db=new PGlite();
+  try{
+    await db.exec('begin');
+    await db.query('select pg_advisory_xact_lock(hashtextextended($1,0))',
+      [leadDedupeLockKeys(null,'5125550101','')[0]]);
+    await db.exec('rollback');
+  }finally{await db.close();}
+});
+
+test('a form submission cannot attribute another account page or an unpublished page',async()=>{
+  const db=new PGlite();
+  const org='00000000-0000-4000-8000-000000000001',accountA='00000000-0000-4000-8000-000000000002';
+  const accountB='00000000-0000-4000-8000-000000000003',form='00000000-0000-4000-8000-000000000004';
+  const base='00000000-0000-4000-8000-000000000005',variant='00000000-0000-4000-8000-000000000006';
+  try{
+    await db.exec('create table landing_pages(id uuid,organization_id uuid,client_account_id uuid,form_id uuid,status text,variant_of uuid)');
+    await db.query(`insert into landing_pages values($1,$2,$3,$4,'published',null),($5,$2,$3,$4,'published',$1),
+      ('00000000-0000-4000-8000-000000000007',$2,$6,$4,'published',null),
+      ('00000000-0000-4000-8000-000000000008',$2,$3,$4,'draft',null)`,
+      [base,org,accountA,form,variant,accountB]);
+    const own=await db.query(formLandingLookupSql,[variant,org,form,accountA]);
+    assert.equal(own.rows[0].variant_of,base);
+    assert.equal((await db.query(formLandingLookupSql,[variant,org,form,accountB])).rows.length,0);
+    assert.equal((await db.query(formLandingLookupSql,['00000000-0000-4000-8000-000000000007',org,form,accountA])).rows.length,0);
+    assert.equal((await db.query(formLandingLookupSql,['00000000-0000-4000-8000-000000000008',org,form,accountA])).rows.length,0);
   }finally{await db.close();}
 });

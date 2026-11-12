@@ -113,7 +113,7 @@ export default function BillingIntegration() {
 
       {revealedKey && (
         <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 space-y-2">
-          <div className="flex items-center gap-2 text-amber-800 font-semibold text-sm"><Shield className="w-4 h-4" /> Save this key now — it won't be shown again</div>
+          <div className="flex items-center gap-2 text-amber-800 font-semibold text-sm"><Shield className="w-4 h-4" /> Save this key now: it won't be shown again</div>
           <div className="flex items-center gap-2">
             <code className="flex-1 bg-white border border-amber-200 rounded px-3 py-2 text-sm font-mono break-all">{revealedKey}</code>
             <Button size="sm" variant="outline" onClick={() => copyText(revealedKey, "new-key")}>{copied === "new-key" ? <><Check className="w-3.5 h-3.5 mr-1.5 text-green-600" />Copied</> : <><Copy className="w-3.5 h-3.5 mr-1.5" />Copy</>}</Button>
@@ -128,7 +128,7 @@ export default function BillingIntegration() {
           <Button size="sm" className="bg-primary text-white" onClick={() => setShowAdd(true)}><Plus className="w-3.5 h-3.5 mr-1.5" /> Create Key</Button>
         </div>
         {keys.length === 0 ? (
-          <div className="text-center py-10 text-muted-foreground text-sm">No API keys — create one to start integrating</div>
+          <div className="text-center py-10 text-muted-foreground text-sm">No API keys: create one to start integrating</div>
         ) : (
           <div className="overflow-x-auto"><table className="workspace-table w-full text-sm">
             <thead><tr className="border-b bg-muted/10">{["Name", "Key", "Scopes", "Requests", "Last Used", "Active", ""].map(h => <th key={h} className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground">{h}</th>)}</tr></thead>

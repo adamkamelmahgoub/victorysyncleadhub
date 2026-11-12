@@ -10,8 +10,18 @@
     "db:push": "pnpm --filter @workspace/db run push",
     "db:seed": "pnpm --filter @workspace/scripts run db:seed",
     "db:verify": "pnpm --filter @workspace/scripts run db:verify",
+    "test": "tsx --test tests/*.test.ts",
+    "test:rls": "tsx --test tests/client-tenancy-all-tables.test.ts tests/team-invite-tenancy.test.ts tests/portal-page-edit-scope.test.ts tests/portal-billing-rpc.test.ts tests/client-package-template-access.test.ts",
+    "test:qa-seed": "node scripts/setup-local-qa-db.mjs && node scripts/setup-local-qa-db.mjs",
+    "test:browser": "playwright test",
+    "test:e2e": "playwright test",
+    "test:a11y": "playwright test tests/browser/client-portal-layout.spec.ts tests/browser/reputation.spec.ts --workers=1",
+    "test:lh": "tsx scripts/generate-lighthouse-page.ts && lhci autorun",
+    "test:ai-live": "tsx scripts/qa-landing-ai-live.ts",
+    "test:bundle-secrets": "node scripts/check-browser-secrets.mjs",
     "test:crm": "tsx --test tests/company-crm.test.ts tests/company-migration.test.ts",
     "test:contacts": "tsx --tsconfig artifacts/leadgen/tsconfig.test.json --test tests/contact-display.test.ts tests/segment-filters.test.ts tests/api-cache.test.ts artifacts/leadgen/tests/contact-grid.test.tsx",
+    "test:phase1": "tsx --test tests/pipeline-board-pagination.test.ts tests/restore-original-lead-dates.test.ts tests/unified-tasks-view.test.ts tests/company-crm.test.ts tests/social-access-sql.test.ts tests/social-matching-legacy-org.test.ts tests/social-reconnect-health.test.ts tests/social-unipile.test.ts",
     "typecheck:api": "tsc -p api/tsconfig.json --noEmit",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
@@ -24,11 +34,15 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@electric-sql/pglite": "^0.5.8",
+    "@lhci/cli": "^0.15.1",
+    "@playwright/test": "^1.64.1",
     "@types/node": "25.3.3",
     "@types/pg": "^8.20.0",
     "prettier": "^3.8.4",
     "tsx": "4.21.0",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.5"
   }
 }

@@ -142,12 +142,24 @@ export async function companyCrmRequest(
       const rows: unknown[] = [];
       for (let offset = 0; ; offset += 500) {
         const page = await rest(
-          `company_tasks?select=*&order=due_at.asc.nullslast,created_at.desc,id.desc&limit=500&offset=${offset}`,
+          `unified_tasks?select=*&order=due_at.asc.nullslast,created_at.desc,id.desc&limit=500&offset=${offset}`,
         );
         rows.push(...page);
         if (page.length < 500) break;
       }
       return { status: 200, data: rows };
+    }
+    const unifiedTask=path.match(/^\/api\/company-crm\/tasks\/([0-9a-f-]{36})$/i);
+    if(unifiedTask&&method==='PATCH'){
+      const body=await readBody() as {status?:unknown};
+      if(body.status!=='completed'&&body.status!=='pending')throw new CrmError(400,'Choose a valid task status.');
+      const found=await rest(`unified_tasks?id=eq.${unifiedTask[1]}&select=id,source&limit=1`) as Array<{id:string;source:string}>;
+      if(!found.length)return {status:404,data:{error:'Task not found.'}};
+      const source=found[0].source;
+      const updated=await rest(`${source==='contact'?'contact_tasks':'company_tasks'}?id=eq.${unifiedTask[1]}`,
+        {method:'PATCH',body:JSON.stringify(source==='contact'?{is_completed:body.status==='completed',
+          completed_at:body.status==='completed'?new Date().toISOString():null}:{status:body.status})});
+      return updated.length?{status:200,data:updated[0]}:{status:404,data:{error:'Task not found.'}};
     }
     if (path === "/api/company-crm/kpis" && method === "GET") {
       const from = parsed.searchParams.get("from");
@@ -238,7 +250,7 @@ export async function companyCrmRequest(
       const offset = Number(parsed.searchParams.get("offset") ?? 0);
       if (!Number.isSafeInteger(offset) || offset < 0)
         throw new CrmError(400, "Invalid page.");
-      const table = child === "/tasks" ? "company_tasks" : "company_files";
+      const table = child === "/tasks" ? "unified_tasks" : "company_files";
       const items = await rest(
         `${table}?company_id=eq.${id}&select=*&order=created_at.desc,id.desc&limit=50&offset=${offset}`,
       );

@@ -48,7 +48,7 @@ function readColumns(): Column[] {
   } catch { /* Restore defaults when the saved layout is malformed. */ }
   return defaultColumns;
 }
-function date(value?: string | null) { return value ? new Date(value).toLocaleDateString() : "—"; }
+function date(value?: string | null) { return value ? new Date(value).toLocaleDateString() : "–"; }
 
 export function ContactGrid({ contacts, selected, onSelect, onDelete, canEdit = true }: {
   contacts: ContactRow[];
@@ -68,14 +68,14 @@ export function ContactGrid({ contacts, selected, onSelect, onDelete, canEdit = 
   const cell = (lead: ContactRow, column: Column) => {
     switch (column) {
       case "name": return <Link href={`/leads/${lead.id}`} className="flex min-w-0 items-center gap-3 text-slate-900 hover:text-blue-700"><ContactAvatar contact={lead} /><span className="min-w-0 flex-1 truncate font-semibold" title={getDisplayName(lead)}>{getDisplayName(lead)}</span></Link>;
-      case "company": return lead.company || "—";
-      case "phone": return lead.phone ? <a href={`tel:${lead.phone}`} className="hover:underline">{lead.phone}</a> : "—";
-      case "email": return lead.email ? <a href={`mailto:${lead.email}`} className="hover:underline">{lead.email}</a> : "—";
-      case "tags": return (lead.tags ?? []).length ? <div className="flex min-w-0 items-center gap-1.5 overflow-hidden"><span className="max-w-[142px] truncate rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs text-blue-700" title={lead.tags![0]}>{lead.tags![0]}</span>{lead.tags!.length > 1 && <span className="shrink-0 text-xs text-slate-500" title={lead.tags!.slice(1).join(", ")}>+{lead.tags!.length - 1}</span>}</div> : "—";
-      case "status": return lead.status ? <span className={`inline-flex max-w-full truncate rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize ${statusStyle(lead.status)}`}>{lead.status.replaceAll("_", " ")}</span> : "—";
-      case "instagram": case "facebook": case "linkedin": case "x": case "tiktok": return lead.socials?.[column] ? `@${lead.socials[column]}` : "—";
-      case "source": return lead.source || "—";
-      case "location": return [lead.customFields?.city, lead.state ?? lead.customFields?.state].filter(Boolean).join(", ") || "—";
+      case "company": return lead.company || "–";
+      case "phone": return lead.phone ? <a href={`tel:${lead.phone}`} className="hover:underline">{lead.phone}</a> : "–";
+      case "email": return lead.email ? <a href={`mailto:${lead.email}`} className="hover:underline">{lead.email}</a> : "–";
+      case "tags": return (lead.tags ?? []).length ? <div className="flex min-w-0 items-center gap-1.5 overflow-hidden"><span className="max-w-[142px] truncate rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs text-blue-700" title={lead.tags![0]}>{lead.tags![0]}</span>{lead.tags!.length > 1 && <span className="shrink-0 text-xs text-slate-500" title={lead.tags!.slice(1).join(", ")}>+{lead.tags!.length - 1}</span>}</div> : "–";
+      case "status": return lead.status ? <span className={`inline-flex max-w-full truncate rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize ${statusStyle(lead.status)}`}>{lead.status.replaceAll("_", " ")}</span> : "–";
+      case "instagram": case "facebook": case "linkedin": case "x": case "tiktok": return lead.socials?.[column] ? `@${lead.socials[column]}` : "–";
+      case "source": return lead.source || "–";
+      case "location": return [lead.customFields?.city, lead.state ?? lead.customFields?.state].filter(Boolean).join(", ") || "–";
       case "lastActivity": return date(lead.lastActivityAt);
       case "created": return date(lead.createdAt);
     }

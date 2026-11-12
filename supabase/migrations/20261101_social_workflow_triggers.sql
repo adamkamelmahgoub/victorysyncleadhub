@@ -17,6 +17,7 @@ begin
   end if;
   return new;
 end $$;
+drop trigger if exists social_native_workflow_message on public.messages;
 create trigger social_native_workflow_message after insert on public.messages
 for each row execute function public.social_workflow_message_trigger();
 
@@ -30,6 +31,7 @@ begin
   end if;
   return new;
 end $$;
+drop trigger if exists social_native_workflow_intent on public.conversations;
 create trigger social_native_workflow_intent after update of intent on public.conversations
 for each row execute function public.social_workflow_intent_trigger();
 

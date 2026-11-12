@@ -41,11 +41,15 @@ type Stage = {
   color: string;
   position: number;
   leads: Lead[];
+  count: number;
+  hasMore: boolean;
 };
 
 type PipelineData = {
   stages: Stage[];
   unassigned: Lead[];
+  unassignedCount: number;
+  unassignedHasMore: boolean;
 };
 
 const STAGE_COLORS = ["#f97316", "#2563eb", "#16a34a", "#9333ea", "#dc2626", "#0891b2"];
@@ -93,10 +97,12 @@ function StageColumn({
   stage,
   onDrop,
   onDragStart,
+  onLoadMore,
 }: {
   stage: Stage;
   onDrop: (stageId: string) => void;
   onDragStart: (id: string) => void;
+  onLoadMore: (stageId: string) => void;
 }) {
   const [over, setOver] = useState(false);
   const stageLeads = asArray<Lead>(stage.leads);
@@ -120,7 +126,7 @@ function StageColumn({
           <span className="font-semibold text-foreground text-sm truncate">{stage.name}</span>
         </div>
         <Badge variant="secondary" className="text-xs bg-muted text-muted-foreground">
-          {stageLeads.length}
+          {stage.count}
         </Badge>
       </div>
       <div
@@ -131,6 +137,7 @@ function StageColumn({
         {stageLeads.map((lead) => (
           <LeadCard key={lead.id} lead={lead} onDragStart={onDragStart} />
         ))}
+        {stage.hasMore && <Button variant="outline" size="sm" className="w-full" onClick={()=>onLoadMore(stage.id)}>Load more</Button>}
         {stageLeads.length === 0 && (
           <div className="h-28 flex items-center justify-center text-xs text-muted-foreground border border-dashed border-border rounded-lg">
             Drop contacts here
@@ -144,7 +151,7 @@ function StageColumn({
 export default function PipelinePage() {
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [selectedPipelineId, setSelectedPipelineId] = useState("");
-  const [data, setData] = useState<PipelineData>({ stages: [], unassigned: [] });
+  const [data, setData] = useState<PipelineData>({ stages: [], unassigned: [],unassignedCount:0,unassignedHasMore:false });
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [pendingMeetingDrop, setPendingMeetingDrop] = useState<{ leadId: string; stageId: string } | null>(null);
   const [meetingLocal, setMeetingLocal] = useState("");
@@ -182,13 +189,27 @@ export default function PipelinePage() {
     try {
       const result = await apiFetch(`/api/pipeline/leads${pipelineId ? `?pipelineId=${pipelineId}` : ""}`) as Partial<PipelineData>;
       setData({
-        stages: asArray<Stage>(result.stages).map((stage) => ({ ...stage, leads: asArray<Lead>(stage.leads) })),
+        stages: asArray<Stage>(result.stages).map((stage) => ({ ...stage, leads: asArray<Lead>(stage.leads),count:stage.count??0,hasMore:stage.hasMore??false })),
         unassigned: asArray<Lead>(result.unassigned),
+        unassignedCount:result.unassignedCount??0,unassignedHasMore:result.unassignedHasMore??false,
       });
     } finally {
       setLoading(false);
     }
   }, []);
+
+  async function loadMore(stageId:string) {
+    const current=stageId==='unassigned'?data.unassigned:data.stages.find(stage=>stage.id===stageId)?.leads;
+    if(!current)return;
+    const params=new URLSearchParams({stageId,offset:String(current.length),limit:'50'});
+    if(selectedPipelineId)params.set('pipelineId',selectedPipelineId);
+    const page=await apiFetch(`/api/pipeline/leads?${params}`) as {leads:Lead[];count:number;hasMore:boolean};
+    setData(old=>stageId==='unassigned'
+      ? {...old,unassigned:[...old.unassigned,...page.leads.filter(lead=>!old.unassigned.some(existing=>existing.id===lead.id))],unassignedCount:page.count,unassignedHasMore:page.hasMore}
+      : {...old,stages:old.stages.map(stage=>stage.id===stageId
+        ? {...stage,leads:[...stage.leads,...page.leads.filter(lead=>!stage.leads.some(existing=>existing.id===lead.id))],count:page.count,hasMore:page.hasMore}
+        : stage)});
+  }
 
   useEffect(() => {
     loadPipelines();
@@ -293,9 +314,9 @@ export default function PipelinePage() {
     } catch (error) { toast({ title: "Could not book meeting", description: String(error), variant: "destructive" }); }
   }
 
-  const totalLeads = data.stages.reduce((sum, stage) => sum + stage.leads.length, 0) + data.unassigned.length;
+  const totalLeads = data.stages.reduce((sum, stage) => sum + stage.count, 0) + data.unassignedCount;
 
-  if (role === "client") return <div className="page-stack"><PageTitle>Pipeline</PageTitle><div className="flex gap-4 overflow-x-auto">{data.stages.map(stage => <section key={stage.id} className="min-w-64 rounded-lg border bg-white p-4"><h2 className="font-semibold">{stage.name}</h2><div className="mt-3 space-y-2">{stage.leads.map(lead => <Link key={lead.id} href={`/leadgen/leads/${lead.id}`}><div className="rounded border p-3 text-sm">{lead.firstName} {lead.lastName}<span className="block text-xs text-muted-foreground">{lead.company || "N/A"}</span></div></Link>)}</div></section>)}</div></div>;
+  if (role === "client") return <div className="page-stack"><PageTitle>Pipeline</PageTitle><div className="flex gap-4 overflow-x-auto">{data.stages.map(stage => <section key={stage.id} className="min-w-64 rounded-lg border bg-white p-4"><h2 className="font-semibold">{stage.name} ({stage.count})</h2><div className="mt-3 space-y-2">{stage.leads.map(lead => <Link key={lead.id} href={`/leadgen/leads/${lead.id}`}><div className="rounded border p-3 text-sm">{lead.firstName} {lead.lastName}<span className="block text-xs text-muted-foreground">{lead.company || "N/A"}</span></div></Link>)}{stage.hasMore&&<Button variant="outline" size="sm" onClick={()=>void loadMore(stage.id)}>Load more</Button>}</div></section>)}</div></div>;
 
   return (
     <div className="page-stack h-full flex flex-col gap-5">
@@ -364,12 +385,13 @@ export default function PipelinePage() {
           >
             <div className="flex items-center justify-between mb-3 px-1">
               <span className="font-semibold text-muted-foreground text-sm">Unassigned</span>
-              <Badge variant="secondary" className="text-xs bg-muted text-muted-foreground">{data.unassigned.length}</Badge>
+              <Badge variant="secondary" className="text-xs bg-muted text-muted-foreground">{data.unassignedCount}</Badge>
             </div>
             <div className="flex-1 workspace-panel p-2 space-y-2 min-h-[360px]">
               {data.unassigned.map((lead) => (
                 <LeadCard key={lead.id} lead={lead} onDragStart={setDraggingId} />
               ))}
+              {data.unassignedHasMore&&<Button variant="outline" size="sm" className="w-full" onClick={()=>void loadMore('unassigned')}>Load more</Button>}
               {data.unassigned.length === 0 && (
                 <div className="h-28 flex items-center justify-center text-xs text-muted-foreground border border-dashed border-border rounded-lg">
                   No unassigned contacts
@@ -379,7 +401,7 @@ export default function PipelinePage() {
           </div>
 
           {data.stages.map((stage) => (
-            <StageColumn key={stage.id} stage={stage} onDrop={handleDrop} onDragStart={setDraggingId} />
+            <StageColumn key={stage.id} stage={stage} onDrop={handleDrop} onDragStart={setDraggingId} onLoadMore={id=>void loadMore(id)} />
           ))}
 
           {data.stages.length === 0 && (
